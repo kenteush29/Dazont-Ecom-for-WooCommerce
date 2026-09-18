@@ -1923,10 +1923,19 @@ PROMPT;
 			// la mecanique reste au plugin, et personne ne perd l autre.
 			. "\n--- ALWAYS, whatever the instructions above say ---\n"
 			. "- Never link inside a heading (h1…h6), never link a whole sentence, never link twice to the same page, and never link the page the text itself belongs to.\n"
-			. "- The words you name must already be in the text, and appear exactly once.\n"
+			// L ANCRE EST LE TITRE DE LA CIBLE. « Les ancres, c'est le titre du
+			// post vise ou au moins l url repris. » Le contrat disait « des mots
+			// deja dans le texte », donc le modele prenait n importe quelle suite
+			// de mots plausible — « utility pouch as your backpack pocket » pour
+			// une page nommee « Utility pouches ». C est l inverse : le titre
+			// d abord, et le texte s ajuste pour l accueillir.
+			. "- THE ANCHOR IS THE NAME OF THE DESTINATION. Use the destination's title as it is written in the list above, or the words of its URL. A form of it that a reader would recognise as the same thing is fine — singular for plural, an article dropped — but never an unrelated run of words that happens to sit in the text.\n"
 			. ( self::may_add()
-				? "- IF, AND ONLY IF, the text holds no words at all for a target you judge genuinely close, you may write ONE short sentence for it instead. Answer that one as {\"sentence\": \"the whole new sentence\", \"anchor\": \"the words inside it to link\", \"url\": \"…\"}. It must read as part of this text, in its language, say something true about the destination, and be the kind of line the page would have had anyway. Never 'See X for more'. One sentence, under 200 characters. This is the last resort, not the first.\n"
-				: "- If the text holds no words for a target, leave that target out. You may not add words.\n" )
+				// ET MODIFIER LE TEXTE EST AUTORISE, ET BON SIGNE. « Je t ai dit
+				// qu on change le texte, c est autorise. C est meme bon signe quand
+				// le texte est change. » Ce n est donc pas un dernier recours.
+				? "- IF the title is not already in the text, WRITE IT IN. Add one short sentence that carries it, where it belongs in the flow. Answer that one as {\"sentence\": \"the whole new sentence, containing the title\", \"anchor\": \"the destination's title, inside that sentence\", \"url\": \"…\"}. It must read as part of this text, in its language, and say something true about the destination. Never 'See X for more'. One sentence, under 200 characters. This is normal and expected — a page that names its neighbours is the point of the pass.\n"
+				: "- If the title is not in the text, leave that target out: this shop does not allow the pass to add words.\n" )
 			. "\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: the text is in ' . $language . " — keep it in that language.\n"
 			. 'THE ANCHOR IS WORDS ALREADY IN THE TEXT: you never write markup and never add a word.' . "\n"
@@ -1958,7 +1967,11 @@ PROMPT;
 			. '- Do not write any HTML. Do not rewrite the sentence. Just name the words.' . "\n"
 			. '- No markdown, no code fence, no text before or after the JSON.';
 
-		$system = 'You are an SEO editor doing internal linking on an existing page of an online shop. You are conservative: you add links, you do not rewrite copy.';
+		$system = 'You are an SEO editor doing internal linking on an existing page of an online shop. '
+			. 'The anchor of a link is the NAME of the page it points at — its title, or the words of its URL — never an unrelated run of words that happens to be in the text. '
+			. ( self::may_add()
+				? 'When the title is not in the text, you WRITE one short sentence that carries it, where it belongs in the flow. Adding that sentence is expected, not a last resort. You never rewrite or remove anything that is already there.'
+				: 'You never add or change a word: if the title is not in the text, you leave that target out.' );
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
 		DZE_Ai_Usage::unit( 'cat_links' );
 		$out    = DZE_Marketing_Ai::complete( $system, $user, '', self::room_for( $html, $words ), 240 );
@@ -1997,10 +2010,43 @@ PROMPT;
 			) );
 		}
 		$allowed = [];
+		$labels  = [];
 		foreach ( $links as $l ) {
-			$allowed[] = untrailingslashit( (string) $l['url'] );
+			$u = untrailingslashit( (string) $l['url'] );
+			$allowed[] = $u;
+			// LE TITRE VOYAGE AVEC L ADRESSE, parce que l ancre est jugee contre
+			// lui : « les ancres, c est le titre du post vise ».
+			$labels[ $u ] = (string) ( $l['label'] ?? '' );
 		}
-		$res = self::apply_edits( $html, $edits, $allowed );
+		$res = self::apply_edits( $html, $edits, $allowed, $labels );
+		// RIEN N EST POSE ET LA BOUTIQUE NOUS AUTORISE A ECRIRE : on redemande,
+		// une fois, en NOMMANT ce qui a ete refuse.
+		//
+		// La regle de l ancre — le titre de la destination — refuse les suites
+		// de mots plausibles que le modele aimait rendre. Refuser sans
+		// redemander laisse la page sans lien, ce qui est le defaut qu on
+		// repare, pas sa solution. « Je ne veux plus jamais voir ce message. »
+		if ( 0 === (int) ( $res['applied'] ?? 0 ) && $res['refused'] && self::may_add() ) {
+			$why = implode( ' ; ', array_slice( (array) $res['refused'], 0, 4 ) );
+			DZE_Ai_Usage::unit( 'cat_links' );
+			$third = DZE_Marketing_Ai::complete(
+				$system,
+				$user . "\n\n--- YOUR LAST ANSWER WAS REFUSED ---\n" . $why
+					. "\nThe anchor must be the DESTINATION'S TITLE, exactly as the list writes it, or the words of its URL."
+					. "\nThose titles are not in this text. So WRITE them in: answer with one entry per target you judge genuinely close, each"
+					. ' {"sentence": "one short new sentence containing the title", "anchor": "the title, inside that sentence", "url": "…"}.'
+					. "\nThe sentence belongs to this text: its language, its tone, something true about the destination. Never 'See X for more'. Under 200 characters each."
+					. "\nAnswer with the JSON array only. If not one target belongs here, answer [].",
+				'',
+				self::room_for( $html, $words ),
+				240
+			);
+			DZE_Ai_Usage::unit();
+			$more = self::read_picks( trim( (string) preg_replace( '/^```(?:json|html)?|```$/m', '', $third ) ) );
+			if ( $more ) {
+				$res = self::apply_edits( $html, $more, $allowed, $labels );
+			}
+		}
 		// A SWEEP IS A RESULT ON ITS OWN. Taking the dead links out is part of
 		// this module now, and it happens on the way in — but it was thrown
 		// away with the pass whenever no new link could be placed, which is
@@ -2503,7 +2549,7 @@ PROMPT;
 		return $html . "\n<p>" . $linked . "</p>";
 	}
 
-	public static function apply_edits( string $html, array $edits, array $allowed ): array {
+	public static function apply_edits( string $html, array $edits, array $allowed, array $allowed_labels = [] ): array {
 		$refused = [];
 		$seen    = [];
 		$applied = 0;
@@ -2579,6 +2625,21 @@ PROMPT;
 			// their shape or beauty », soit la phrase entiere. La regle etait
 			// dans le prompt livre, qu un prompt enregistre remplace : elle ne
 			// partait plus. Elle est ici, ou aucune preference ne l atteint.
+			// L ANCRE NOMME-T-ELLE LA DESTINATION ? La regle vit dans le contrat,
+			// mais un contrat est une consigne : celle-ci est verifiee.
+			$label = '';
+			foreach ( $allowed_labels as $u => $lab ) {
+				if ( untrailingslashit( (string) $u ) === $url ) { $label = (string) $lab; break; }
+			}
+			if ( '' !== trim( $anchor ) && ! self::names_target( $anchor, $label, $url ) ) {
+				$refused[] = sprintf(
+					/* translators: 1: the words chosen, 2: the destination */
+					__( 'those words do not name the page they point at — “%1$s” for “%2$s”', 'dazont-ecom' ),
+					mb_substr( $anchor, 0, 46 ),
+					'' !== $label ? $label : $url
+				);
+				continue;
+			}
 			$words = str_word_count( wp_strip_all_tags( $anchor ) );
 			if ( $words > 9 || mb_strlen( trim( $anchor ) ) > 72 ) {
 				$refused[] = sprintf(
@@ -2731,6 +2792,76 @@ PROMPT;
 		return null;
 	}
 
+	/**
+	 * DOES THIS ANCHOR NAME THAT DESTINATION?
+	 *
+	 * "Les ancres, c'est le titre du post visé ou au moins l'url repris." The
+	 * contract used to say only "words already in the text", so the model
+	 * picked whatever plausible run of words it found — "utility pouch as your
+	 * backpack pocket" for a page called "Utility pouches". A reader clicking
+	 * that cannot tell where it goes, and a search engine reads it as a page
+	 * about backpack pockets.
+	 *
+	 * So the anchor is checked against the destination: its title, or the words
+	 * of its URL. Not character for character — "utility pouch" for "Utility
+	 * pouches" is right, and so is dropping an article — but every significant
+	 * word of the title must be there, and the anchor must not drag in a tail
+	 * of its own.
+	 *
+	 * @param string $anchor The words the model chose.
+	 * @param string $label  The destination's title, as the list gave it.
+	 * @param string $url    Its address.
+	 */
+	public static function names_target( string $anchor, string $label, string $url ): bool {
+		$fold = static function ( string $s ): array {
+			$s = strtolower( wp_strip_all_tags( html_entity_decode( $s ) ) );
+			$s = (string) preg_replace( '~[^a-z0-9àâäçéèêëîïôöùûüÿñæœ]+~u', ' ', $s );
+			// The words that carry no meaning of their own, in the languages
+			// this shop sells in. A title is still named without them.
+			$stop = [ 'the','a','an','of','for','and','or','to','in','on','with','your','our','is','are','les','le','la','des','de','du','un','une','et','ou','pour','dans','sur','avec','votre','nos','der','die','das','und','für','mit','el','los','las','y','para','con' ];
+			$out  = [];
+			foreach ( preg_split( '~\s+~u', trim( $s ) ) as $w ) {
+				$w = trim( (string) $w );
+				if ( '' === $w || in_array( $w, $stop, true ) ) {
+					continue;
+				}
+				// Plural and singular are the same word for this purpose:
+				// "Utility pouches" is named by "utility pouch". Dropping one 's'
+				// is not enough — "pouches" becomes "pouche", which matches
+				// nothing, and the rule then refused the very anchor it wants.
+				if ( mb_strlen( $w ) > 4 && in_array( mb_substr( $w, -2 ), [ 'es' ], true ) ) {
+					$w = mb_substr( $w, 0, -2 );
+				} elseif ( mb_strlen( $w ) > 3 && 's' === mb_substr( $w, -1 ) ) {
+					$w = mb_substr( $w, 0, -1 );
+				}
+				$out[] = $w;
+			}
+			return $out;
+		};
+		$want = $fold( $label );
+		if ( ! $want ) {
+			// No title to check against — the URL is the only thing left.
+			$want = $fold( (string) wp_parse_url( $url, PHP_URL_PATH ) );
+		}
+		if ( ! $want ) {
+			return true; // nothing to judge it by; the other guards still apply.
+		}
+		$got = $fold( $anchor );
+		if ( ! $got ) {
+			return false;
+		}
+		// EVERY SIGNIFICANT WORD OF THE TITLE IS IN THE ANCHOR.
+		foreach ( $want as $w ) {
+			if ( ! in_array( $w, $got, true ) ) {
+				return false;
+			}
+		}
+		// AND THE ANCHOR DOES NOT DRAG A TAIL BEHIND IT. Three words of title
+		// wrapped inside nine words of sentence is the sentence being linked,
+		// which is the thing being fixed.
+		return count( $got ) <= count( $want ) + 2;
+	}
+
 	public static function find_anchor( string $html, string $anchor ): ?array {
 		$words = preg_split( '/\s+/u', trim( $anchor ) );
 		$words = array_values( array_filter( (array) $words, static fn( $w ): bool => '' !== $w ) );
@@ -2877,13 +3008,19 @@ PROMPT;
 				number_format_i18n( $was )
 			) );
 		}
-		// 3. THE WORDS MOVED BY NO MORE THAN THE ANCHORS CAN ACCOUNT FOR. A
-		//    budget, not a percentage: turning a phrasing around each anchor
-		//    placed is a handful of words, and a section is not.
+		// 3. AJOUTER EST PERMIS, PERDRE NE L EST PAS.
+		//
+		//    Ce controle etait symetrique et refusait donc autant un texte qui
+		//    grandit qu un texte qui retrecit. La passe ecrit maintenant une
+		//    phrase quand le titre d une cible n est pas dans le texte, ce qui
+		//    le fait forcement grandir — et une phrase par lien pose, c est une
+		//    trentaine de mots. Perdre reste interdit au mot pres : c est la
+		//    moitie du controle qui protege vraiment quelque chose.
 		$wb  = str_word_count( wp_strip_all_tags( $before ) );
 		$wa  = str_word_count( wp_strip_all_tags( $after ) );
-		$may = max( 20, $room * 8 );
-		if ( abs( $wa - $wb ) > $may ) {
+		$up  = self::may_add() ? max( 60, $room * 35 ) : max( 20, $room * 8 );
+		$dn  = max( 10, $room * 4 );
+		if ( $wa - $wb > $up || $wb - $wa > $dn ) {
 			throw new RuntimeException( sprintf(
 				/* translators: 1: words that came back, 2: words it had */
 				__( 'The text came back rewritten rather than linked (%1$s words against %2$s) — nothing was changed.', 'dazont-ecom' ),
