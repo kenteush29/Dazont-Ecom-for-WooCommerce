@@ -76,8 +76,9 @@ function current_time( $t ) { return 'Y-m-d' === $t ? gmdate( 'Y-m-d' ) : gmdate
 function human_time_diff( $a, $b = 0 ) { return '2 hours'; }
 function date_i18n( $f, $t = 0 ) { return gmdate( (string) $f, (int) $t ); }
 function number_format_i18n( $n ) { return (string) $n; }
-function add_action( ...$a ) {}
-function add_filter( ...$a ) {}
+$GLOBALS['hooked'] = [];
+function add_action( ...$a ) { $GLOBALS['hooked'][] = (string) ( $a[0] ?? '' ); }
+function add_filter( ...$a ) { $GLOBALS['hooked'][] = (string) ( $a[0] ?? '' ); }
 function do_action( ...$a ) {}
 function apply_filters( $tag, $value = null, ...$a ) { return $value; }
 // THE SHOP'S OWN CRON, or the old "everything is scheduled" answer while no
@@ -96,7 +97,8 @@ function wp_clear_scheduled_hook( ...$a ) {
 		unset( $GLOBALS['dze_cron'][ (string) ( $a[0] ?? '' ) ] );
 	}
 }
-function is_admin() { return true; }
+$GLOBALS['is_admin'] = true;
+function is_admin() { return ! empty( $GLOBALS['is_admin'] ); }
 function wp_json_encode( $v ) { return json_encode( $v ); }
 function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
 function sanitize_text_field( $s ) { return trim( (string) $s ); }
@@ -2344,5 +2346,42 @@ $GLOBALS['wpml_on']    = true;
 $GLOBALS['mods']       = [];
 fresh( $ON );
 
+
+echo "\nLE PLANNING DU TIC EXISTE AUSSI HORS DE L ADMIN\n";
+// wp-cron.php n est PAS une page d admin, et c est pourtant la requete qui
+// doit replanifier l evenement apres l avoir joue. wp_reschedule_event() lit
+// la recurrence dans wp_get_schedules() ; « dze_ten_minutes » n y etant pas,
+// il renonce, et le noyau desinscrit l evenement qu il vient de jouer. Le tic
+// recurrent disparaissait a chaque passage du cron et ne revenait qu au
+// chargement d une page d admin, ou schedule() le rearmait. Autrement dit :
+// « runs by itself » ne tournait que lorsque quelqu un regardait.
+$dze_c  = new ReflectionClass( 'DZE_Automation' );
+$dze_ct = $dze_c->getConstructor();
+$dze_ct->setAccessible( true );
+
+$GLOBALS['is_admin'] = false;
+$GLOBALS['hooked']   = [];
+$dze_ct->invoke( $dze_c->newInstanceWithoutConstructor() );
+ok( 'hors admin, le planning est quand meme declare',
+	in_array( 'cron_schedules', $GLOBALS['hooked'], true ), true );
+ok( 'et le tic est branche',
+	in_array( DZE_Automation::HOOK, $GLOBALS['hooked'], true ), true );
+// ET LE RESTE RESTE DEHORS : un menu, une redirection et les points AJAX n ont
+// rien a faire dans une requete de cron.
+ok( 'mais pas le menu',
+	in_array( 'admin_menu', $GLOBALS['hooked'], true ), false );
+
+$GLOBALS['is_admin'] = true;
+$GLOBALS['hooked']   = [];
+$dze_ct->invoke( $dze_c->newInstanceWithoutConstructor() );
+ok( 'en admin, le menu revient',
+	in_array( 'admin_menu', $GLOBALS['hooked'], true ), true );
+ok( 'et le planning y est toujours',
+	in_array( 'cron_schedules', $GLOBALS['hooked'], true ), true );
+
+// ET L INTERVALLE EST CELUI QU IL ANNONCE.
+$dze_sch = DZE_Automation::cron_schedules( [] );
+ok( 'dix minutes veut dire dix minutes',
+	(int) ( $dze_sch['dze_ten_minutes']['interval'] ?? 0 ), 600 );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
