@@ -1871,3 +1871,10 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	margin: 8px 0 0;
 	padding: 0;
 }
+
+/* LES INSTRUCTIONS, A PORTEE. Repliees sous les onglets de Traductions : on
+   remarque une mauvaise traduction en en lisant une, pas en parcourant des
+   preferences. Le compte du glossaire est sur le repli, pour qu'un glossaire
+   vide se voie sans rien ouvrir. */
+.dze-tr-instr { max-width: 1100px; }
+.dze-tr-instrsaid { font-weight: 400; font-size: 12px; color: #646970; margin-left: 8px; }

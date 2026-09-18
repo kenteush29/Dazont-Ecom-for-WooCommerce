@@ -108,6 +108,10 @@ trait DZE_Translate_Screen {
 			];
 		}
 		echo wp_kses_post( DZE_Screens::strip( $strip, $tab ) );
+		// AND THE INSTRUCTIONS UNDER THE TABS, on every one of them: a bad
+		// translation is noticed while reading one, not while browsing
+		// preferences two menus away.
+		DZE_Translate::instructions_panel();
 		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			// ONE SENTENCE OF WARNING IS THE WHOLE OF IT, and it says the one
 			// thing to do rather than explaining a mechanism.

@@ -276,6 +276,94 @@ final class DZE_Translate {
 		];
 	}
 
+	/**
+	 * THE INSTRUCTIONS, WHERE THE TRANSLATIONS ARE READ.
+	 *
+	 * "Il faut un accès plus facile pour la modification du prompt
+	 * d'instructions. La qualité des traductions n'est pas bonne." They were
+	 * two menus away, under Settings → Translation, and the moment a shop
+	 * notices a bad translation is the moment it is looking at one — not the
+	 * moment it is browsing preferences. So they are here, folded, on the
+	 * screen where the work is judged, and saving comes straight back to it.
+	 *
+	 * THE GLOSSARY IS THE HALF THAT WAS EMPTY. The prompt has said "never
+	 * translate a term listed in the glossary" since the first version, and on
+	 * this shop the list held nothing at all — so "Viper hood jacket", where
+	 * "viper hood" is the name of a sniper's camouflage and not a brand of
+	 * hood, came back as "Veste à capuche Viper". A rule pointing at an empty
+	 * list is a rule that does nothing, and nothing on any screen said so.
+	 *
+	 * The sanitizer starts from the stored settings and overwrites only the
+	 * keys it is handed, so this short form cannot blank the rest of them.
+	 *
+	 * @param string $back Where to return after saving. The current screen by
+	 *                     default, so the shop lands back on what it was reading.
+	 */
+	public static function instructions_panel( string $back = '' ): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$s     = self::get_settings();
+		$gloss = self::glossary();
+		$own   = '' !== trim( (string) ( $s['prompt'] ?? '' ) );
+		if ( '' === $back ) {
+			$back = remove_query_arg( [ 'settings-updated' ], (string) ( $_SERVER['REQUEST_URI'] ?? '' ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated -- used through esc_url below.
+		}
+		?>
+		<details class="dze-set dze-tr-instr">
+			<summary>
+				<?php esc_html_e( 'The instructions the translator follows', 'dazont-ecom' ); ?>
+				<span class="dze-tr-instrsaid">
+					<?php
+					echo esc_html( $own ? __( 'your own wording', 'dazont-ecom' ) : __( 'the wording shipped with the plugin', 'dazont-ecom' ) );
+					echo ' · ';
+					// THE FIGURE THAT MATTERS, on the fold, so an empty
+					// glossary is visible without opening anything.
+					echo esc_html(
+						$gloss
+							? sprintf(
+								/* translators: %s: how many terms are protected */
+								_n( '%s term never translated', '%s terms never translated', count( $gloss ), 'dazont-ecom' ),
+								number_format_i18n( count( $gloss ) )
+							)
+							: __( 'no term protected', 'dazont-ecom' )
+					);
+					?>
+				</span>
+			</summary>
+			<?php if ( ! $gloss ) : ?>
+				<div class="notice notice-warning inline" style="margin:0 0 12px;"><p>
+					<?php esc_html_e( 'The instructions say never to translate a term from the glossary, and the glossary is empty — so nothing is protected. Trade words the shop uses as they are ("ghillie", "viper hood", "MOLLE", "plate carrier"), and every brand name, belong here: one per line.', 'dazont-ecom' ); ?>
+				</p></div>
+			<?php endif; ?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'options.php' ) ); ?>">
+				<?php settings_fields( 'dze_translate_options' ); ?>
+				<input type="hidden" name="_wp_http_referer" value="<?php echo esc_attr( $back ); ?>" />
+				<p>
+					<label for="dze-tr-instr-prompt"><strong><?php esc_html_e( 'What the translator is told', 'dazont-ecom' ); ?></strong></label><br />
+					<textarea id="dze-tr-instr-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="9" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
+				</p>
+				<p>
+					<label for="dze-tr-instr-gloss"><strong><?php esc_html_e( 'Never translate these — one per line', 'dazont-ecom' ); ?></strong></label><br />
+					<textarea id="dze-tr-instr-gloss" name="<?php echo esc_attr( self::OPT ); ?>[glossary]" rows="6" class="large-text code" placeholder="Kula Tactical&#10;viper hood&#10;ghillie&#10;MOLLE"><?php echo esc_textarea( (string) ( $s['glossary'] ?? '' ) ); ?></textarea>
+				</p>
+				<p class="submit" style="margin:0;padding:0;">
+					<?php submit_button( __( 'Save the instructions', 'dazont-ecom' ), 'primary', 'submit', false ); ?>
+					<span class="description" style="margin-left:10px;">
+						<?php
+						printf(
+							/* translators: %s: the model that does the translating */
+							esc_html__( 'Translated by %s. A change applies to the next translation, not to what is already written.', 'dazont-ecom' ),
+							esc_html( self::model() )
+						);
+						?>
+					</span>
+				</p>
+			</form>
+		</details>
+		<?php
+	}
+
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();
