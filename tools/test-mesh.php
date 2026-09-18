@@ -772,8 +772,9 @@ DZE_Marketing_Ai::$sent   = [];
 // here. A double that hands a document back is answering a question nobody
 // asks any more.
 DZE_Marketing_Ai::$answer = (string) wp_json_encode( [ [
-	'anchor' => 'load and season',
-	'url'    => 'https://kula.test/category/boonie-hats/',
+	'sentence' => 'Our boonie hats keep the sun off on the same kind of day.',
+	'anchor'   => 'boonie hats',
+	'url'      => 'https://kula.test/category/boonie-hats/',
 ] ] );
 try {
 	DZE_Post_Links::add_links( 20, [ 'https://kula.test/category/boonie-hats/' ] );
@@ -1290,23 +1291,25 @@ echo "\nLES MOTS SE TROUVENT COMME UN LECTEUR LES LIT\n";
 // jacket », et c est ce qui revenait. Cherche tel quel dans le HTML brut :
 // introuvable, edit refuse, aucun lien ecrit.
 $ml_u  = 'https://exemple.test/bomber';
-$ml_go = static function ( string $html, string $anchor ) use ( $ml_u ): array {
-	return DZE_Category_Content::apply_edits( $html, [ [ 'anchor' => $anchor, 'url' => $ml_u ] ], [ $ml_u ] );
+// LE TITRE DE LA CIBLE VOYAGE AVEC SON ADRESSE, comme dans le vrai appel :
+// l ancre est jugee contre lui — « les ancres, c est le titre du post vise ».
+$ml_go = static function ( string $html, string $anchor, string $label = 'Bomber jacket' ) use ( $ml_u ): array {
+	return DZE_Category_Content::apply_edits( $html, [ [ 'anchor' => $anchor, 'url' => $ml_u ] ], [ $ml_u ], [ $ml_u => $label ] );
 };
 $ml_txt = static fn( string $h ): string => preg_replace( '#</?a\b[^>]*>#i', '', $h );
 
 $ml_real = 'These jackets were soon <strong>adopted by pilots</strong>, giving rise to the <strong>bomber jacket</strong>, a style.';
-$ml_r = $ml_go( $ml_real, 'giving rise to the bomber jacket' );
+$ml_r = $ml_go( $ml_real, 'the bomber jacket' );
 ok( 'lancre qui traverse une balise est posee', $ml_r['applied'], 1 );
 ok( 'et le texte na pas bouge dun caractere', $ml_txt( $ml_real ), $ml_txt( (string) $ml_r['html'] ) );
 ok( 'et le HTML reste valide, la balise fermee dedans',
-	false !== strpos( (string) $ml_r['html'], '>giving rise to the <strong>bomber jacket</strong></a>' ), true );
+	false !== strpos( (string) $ml_r['html'], '<strong>bomber jacket</strong></a>' ), true );
 
 // LES TROIS AUTRES FACONS DONT UNE REPONSE NE RESSEMBLE PAS AU HTML.
 ok( 'un saut de ligne vaut une espace',   $ml_go( "<p>a bomber\n  jacket</p>", 'bomber jacket' )['applied'], 1 );
 ok( 'une espace insecable aussi',         $ml_go( '<p>a bomber&nbsp;jacket</p>', 'bomber jacket' )['applied'], 1 );
-ok( 'une esperluette encodee aussi',      $ml_go( '<p>bags &amp; packs</p>', 'bags & packs' )['applied'], 1 );
-ok( 'une apostrophe courbe aussi',        $ml_go( '<p>the pilot’s coat</p>', "the pilot's coat" )['applied'], 1 );
+ok( 'une esperluette encodee aussi',      $ml_go( '<p>bags &amp; packs</p>', 'bags & packs', 'Bags & packs' )['applied'], 1 );
+ok( 'une apostrophe courbe aussi',        $ml_go( '<p>the pilot’s coat</p>', "the pilot's coat", "Pilot's coat" )['applied'], 1 );
 ok( 'et la casse ne compte pas',          $ml_go( '<p>The Bomber Jacket</p>', 'bomber jacket' )['applied'], 1 );
 
 // CE QUI DOIT TOUJOURS ETRE REFUSE. La tolerance sur la FORME ne doit rien
