@@ -322,7 +322,7 @@
 	});
 
 	// ONE BLOCK ON ITS OWN — « pour un calibrage plus facile il faut un bouton
-	// traduire par bloc ». Judging a change to the prompt or the glossary meant
+	// traduire par bloc ». Judging a change to the prompt meant
 	// re-sending the whole object and paying for every field of it, so it was
 	// done once and never again. This sends this block and nothing else, and it
 	// ALWAYS sends it: a field is re-run precisely when it has not moved, so
