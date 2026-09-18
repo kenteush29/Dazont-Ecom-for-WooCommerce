@@ -1862,10 +1862,17 @@ final class DZE_Automation {
 		$conf  = self::conf( $id );
 		$task  = self::task( $id );
 		$out   = '';
-		$chip  = static function ( string $class, string $icon, string $text, string $tip ): string {
-			return '<span class="dze-auto-chip ' . esc_attr( $class ) . '" title="' . esc_attr( $tip ) . '">'
-				. '<span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span>'
-				. esc_html( $text ) . '</span>';
+		// A FIGURE NOBODY CAN OPEN IS A FIGURE NOBODY BELIEVES. That was
+		// written here for the "unlinked" chip and applied to that one alone,
+		// so "3 to review" and "14 written" looked exactly like buttons and
+		// were plain text — "les boutons ne sont pas fonctionnels, je ne peux
+		// pas voir quelles pages ont été retravaillées". A chip with a
+		// destination is a link; one without stays a span, and looks like one.
+		$chip  = static function ( string $class, string $icon, string $text, string $tip, string $url = '' ): string {
+			$body = '<span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span>' . esc_html( $text );
+			return '' !== $url
+				? '<a class="dze-auto-chip is-link ' . esc_attr( $class ) . '" href="' . esc_url( $url ) . '" title="' . esc_attr( $tip ) . '">' . $body . '</a>'
+				: '<span class="dze-auto-chip ' . esc_attr( $class ) . '" title="' . esc_attr( $tip ) . '">' . $body . '</span>';
 		};
 		// ON, and at what rhythm. Off says only that, because a rhythm nothing
 		// runs at is a figure about nothing.
@@ -1908,14 +1915,18 @@ final class DZE_Automation {
 			// A NUMBER WITH NO UNIT IS A NUMBER NOBODY CAN READ. "5 · 3 · 14" on
 			// one line, the words only on hover, is three figures to decode.
 			/* translators: %s: how many pieces of work are waiting */
-			$out .= $chip( 'is-wait', 'visibility', sprintf( __( '%s to review', 'dazont-ecom' ), number_format_i18n( $left['n'] ) ), __( 'Waiting for your yes or no', 'dazont-ecom' ) );
+			$jobs  = array_values( array_filter( array_map( 'strval', (array) ( $task['jobs'] ?? [] ) ) ) );
+			$where = ( $jobs && class_exists( 'DZE_Screens' ) && '' !== DZE_Screens::url( 'review' ) )
+				? add_query_arg( [ 'kind' => implode( ',', $jobs ) ], DZE_Screens::url( 'review' ) )
+				: '';
+			$out .= $chip( 'is-wait', 'visibility', sprintf( __( '%s to review', 'dazont-ecom' ), number_format_i18n( $left['n'] ) ), __( 'Waiting for your yes or no — press to read them', 'dazont-ecom' ), $where );
 		}
 		// AND WHAT WENT THROUGH. A task that has never written anything says
 		// nothing rather than a nought, which reads as a task that failed.
 		$done = self::done_count( $id );
 		if ( $done > 0 ) {
 			/* translators: %s: how many pieces of work were accepted and written */
-			$out .= $chip( 'is-done', 'yes', sprintf( __( '%s written', 'dazont-ecom' ), number_format_i18n( $done ) ), __( 'Accepted and written to the shop', 'dazont-ecom' ) );
+			$out .= $chip( 'is-done', 'yes', sprintf( __( '%s written', 'dazont-ecom' ), number_format_i18n( $done ) ), __( 'Written to the shop — press to see which pages', 'dazont-ecom' ), self::past_url( $id ) );
 		}
 		// WHEN IT LOOKS AGAIN, only while it is on: a countdown on a switched
 		// off task is a promise nobody made.
@@ -2744,7 +2755,18 @@ final class DZE_Automation {
 		$bad   = $c['failed'];
 		$state = $left > 0 ? ( $stuck ? ' is-stuck' : ' is-working' ) : ( $bad > 0 ? ' is-stuck' : ' is-done' );
 		echo '<div class="dze-auto-prog' . esc_attr( $state ) . '">';
-		echo '<p class="dze-auto-runsaid">' . esc_html( self::run_said( $c ) ) . '</p>';
+		// AND THE WAY TO WHAT IT ANNOUNCES. A line saying three pages wait for
+		// a yes, on a screen with no list and no link, is a line that cannot
+		// be acted on: "je ne peux pas voir quelles pages ont été retravaillées".
+		$mine = self::my_kinds( $id );
+		$to   = ( $done > 0 && $mine && class_exists( 'DZE_Screens' ) && '' !== DZE_Screens::url( 'review' ) )
+			? add_query_arg( [ 'kind' => implode( ',', $mine ) ], DZE_Screens::url( 'review' ) )
+			: '';
+		echo '<p class="dze-auto-runsaid">' . esc_html( self::run_said( $c ) );
+		if ( '' !== $to ) {
+			echo ' <a href="' . esc_url( $to ) . '">' . esc_html__( 'Read them →', 'dazont-ecom' ) . '</a>';
+		}
+		echo '</p>';
 		echo '<div class="dze-auto-bar"><span style="width:' . esc_attr( (string) $c['pct'] ) . '%"></span></div>';
 		echo '<p class="description dze-auto-runfig">' . esc_html( sprintf(
 			/* translators: 1: percentage done, 2: written, 3: in all */
@@ -2920,11 +2942,16 @@ final class DZE_Automation {
 				number_format_i18n( $c['left'] )
 			);
 		}
+		// "BELOW" IS ONLY TRUE ON ONE SCREEN. This bar is printed on the
+		// linking screen, on the translations screen and on the bench, where
+		// there is no list under it at all — so the sentence pointed at
+		// nothing and the work looked unreachable. It says WHERE instead, and
+		// the caller turns that into the link.
 		return sprintf(
 			/* translators: %s: how many are waiting for a decision */
 			_n(
-				'Done — %s page is written and waiting for your yes or no, below.',
-				'Done — %s pages are written and waiting for your yes or no, below.',
+				'Done — %s page is written and waiting for your yes or no.',
+				'Done — %s pages are written and waiting for your yes or no.',
 				$c['done'],
 				'dazont-ecom'
 			),
@@ -3205,17 +3232,35 @@ final class DZE_Automation {
 	 *
 	 * @return array<int,array{kind:string,object_id:int,when:int,by:int,from:int}>
 	 */
-	public static function past( int $limit = 200 ): array {
+	public static function past( int $limit = 200, string $only = '' ): array {
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
 			return [];
 		}
+		// ONE TASK, WHEN ONE TASK IS ASKED FOR. "Je ne peux pas voir quelles
+		// pages ont été retravaillées. Je voulais voir une liste des pages
+		// avec maillage interne refait." The list held every task's work at
+		// once, so the answer to "which pages did the linking touch" was in
+		// there somewhere, mixed with the category descriptions.
+		$tasks = self::tasks();
+		if ( '' !== $only ) {
+			$tasks = isset( $tasks[ $only ] ) ? [ $only => $tasks[ $only ] ] : [];
+		}
 		$kinds = [];
-		foreach ( self::tasks() as $task ) {
+		foreach ( $tasks as $task ) {
 			foreach ( (array) ( $task['jobs'] ?? [] ) as $k ) {
 				$kinds[ (string) $k ] = true;
 			}
 		}
 		return $kinds ? DZE_Queue::applied_rows( $limit, array_keys( $kinds ) ) : [];
+	}
+
+	/** Where the list of what a task has written lives, filtered to it. */
+	public static function past_url( string $id = '' ): string {
+		if ( ! class_exists( 'DZE_Screens' ) ) {
+			return '';
+		}
+		$url = DZE_Screens::url( 'logs', 'past' );
+		return ( '' === $url || '' === $id ) ? $url : add_query_arg( [ 'task' => $id ], $url );
 	}
 
 	/**
@@ -3248,8 +3293,22 @@ final class DZE_Automation {
 	}
 
 	public static function render_past(): void {
-		$rows = self::past();
-		if ( ! $rows ) {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- narrowing a read-only list.
+		$only = isset( $_GET['task'] ) ? sanitize_key( wp_unslash( $_GET['task'] ) ) : '';
+		$only = isset( self::tasks()[ $only ] ) ? $only : '';
+		$rows = self::past( 200, $only );
+		if ( '' !== $only ) {
+			printf(
+				'<p class="description" style="margin:0 0 10px;">%1$s <a href="%2$s">%3$s</a></p>',
+				esc_html( sprintf(
+					/* translators: %s: the name of the task */
+					__( 'Showing only what “%s” has written.', 'dazont-ecom' ),
+					(string) ( self::tasks()[ $only ]['label'] ?? $only )
+				) ),
+				esc_url( self::past_url() ),
+				esc_html__( 'Show every pass', 'dazont-ecom' )
+			);
+		}		if ( ! $rows ) {
 			echo '<div class="dze-admin dze-auto"><p class="description">'
 				. esc_html__( 'Nothing has been written to the shop by these passes yet.', 'dazont-ecom' )
 				. '</p></div>';

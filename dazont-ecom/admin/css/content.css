@@ -1878,3 +1878,9 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
    vide se voie sans rien ouvrir. */
 .dze-tr-instr { max-width: 1100px; }
 .dze-tr-instrsaid { font-weight: 400; font-size: 12px; color: #646970; margin-left: 8px; }
+
+/* UNE PASTILLE QUI MENE QUELQUE PART se comporte comme un lien : elle reagit
+   au survol et au clavier. Celle qui ne mene nulle part reste un simple mot. */
+.dze-auto-chip.is-link { text-decoration: none; cursor: pointer; }
+.dze-auto-chip.is-link:hover,
+.dze-auto-chip.is-link:focus { filter: brightness( .96 ); box-shadow: 0 0 0 1px currentColor inset; }
