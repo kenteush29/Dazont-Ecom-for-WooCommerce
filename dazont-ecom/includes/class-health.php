@@ -199,6 +199,7 @@ final class DZE_Health {
 			// des quinze modules, ni avec quel modele — « 27$ depense
 			// aujourd hui. Pour quoi ? aucune idee ! »
 			DZE_Ai_Usage::render_spend();
+			DZE_Ai_Usage::render_board();
 		} else {
 			echo '<h2 id="dze-ai-trace" style="margin-top:0;">' . esc_html__( 'The last calls to a model', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_trace();

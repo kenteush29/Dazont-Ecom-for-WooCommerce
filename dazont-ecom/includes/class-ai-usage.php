@@ -259,6 +259,97 @@ final class DZE_Ai_Usage {
 	 *
 	 * @return array<int,array{unit:string,calls:int,secs:float,in:int,out:int,models:string}>
 	 */
+	/**
+	 * THE FUSE BOARD: which model each module uses, and where that is set.
+	 *
+	 * "C'est très fastidieux de régler les modèles d'IA par module, car à
+	 * chaque fois ça se fait sur une page différente à un endroit différent.
+	 * Ce serait pratique de recenser les modèles d'IA et leur module qui les
+	 * utilise, pour avoir une sorte de tableau électrique avec fusibles qui
+	 * permet facilement de contrôler les coûts."
+	 *
+	 * Each module keeps its own setting — moving them here would be a second
+	 * place for one answer, which is how two screens start disagreeing. What
+	 * this does is NAME them all in one table, say which model is actually in
+	 * force, and carry the way to each one. The reading is what was missing,
+	 * not the writing.
+	 *
+	 * @return array<int,array{unit:string,label:string,model:string,where:string,url:string}>
+	 */
+	public static function model_board(): array {
+		$fallback = class_exists( 'DZE_Marketing_Ai' ) && method_exists( 'DZE_Marketing_Ai', 'chosen_model' )
+			? (string) DZE_Marketing_Ai::chosen_model()
+			: '';
+		$ask = static function ( string $class, string $method ) use ( $fallback ): string {
+			if ( ! class_exists( $class ) || ! method_exists( $class, $method ) ) {
+				return $fallback;
+			}
+			try {
+				$r = new \ReflectionMethod( $class, $method );
+				$r->setAccessible( true );
+				$m = trim( (string) $r->invoke( null ) );
+			} catch ( \Throwable $e ) {
+				return $fallback;
+			}
+			// An empty setting is not "no model": it is "the one chosen for the
+			// whole plugin", and a board that printed nothing there would send
+			// somebody hunting for a setting that is doing its job.
+			return '' !== $m ? $m : $fallback;
+		};
+		$url = static function ( string $tab ): string {
+			return class_exists( 'DZE_Screens' ) ? (string) DZE_Screens::url( 'settings', $tab ) : '';
+		};
+		$rows = [
+			[ 'product_text', 'DZE_Content',           'model', __( 'Settings → Shop content → Product content', 'dazont-ecom' ), 'content' ],
+			[ 'translate',    'DZE_Translate',         'model', __( 'Settings → Translation', 'dazont-ecom' ),                    'translate' ],
+			[ 'cat_desc',     'DZE_Category_Content',  'model', __( 'Settings → Shop content → Categories', 'dazont-ecom' ),      'categories' ],
+			[ 'cat_links',    'DZE_Category_Content',  'model', __( 'Settings → Shop content → Categories', 'dazont-ecom' ),      'categories' ],
+			[ 'calendar',     'DZE_Marketing_Ai',      'chosen_model', __( 'Settings → General', 'dazont-ecom' ),                 'general' ],
+			[ 'sourcing',     'DZE_Explorer',          'model', __( 'Settings → Sourcing preferences', 'dazont-ecom' ),           'sourcing' ],
+		];
+		$out   = [];
+		$names = self::units();
+		foreach ( $rows as $r ) {
+			[ $unit, $class, $method, $where, $tab ] = $r;
+			$out[] = [
+				'unit'  => $unit,
+				'label' => (string) ( $names[ $unit ] ?? $unit ),
+				'model' => $ask( $class, $method ),
+				'where' => $where,
+				'url'   => $url( $tab ),
+			];
+		}
+		return $out;
+	}
+
+	/** The fuse board, drawn. */
+	public static function render_board(): void {
+		$rows = self::model_board();
+		if ( ! $rows ) {
+			return;
+		}
+		echo '<h2 style="margin-top:26px;">' . esc_html__( 'Which model each module uses', 'dazont-ecom' ) . '</h2>';
+		echo '<p class="description" style="max-width:900px;margin:0 0 8px;">'
+			. esc_html__( 'Each module keeps its own setting — this is the one place that names them all. An empty setting means the module follows the model chosen for the whole plugin, which is not a mistake.', 'dazont-ecom' )
+			. '</p>';
+		echo '<table class="widefat striped" style="max-width:1100px;"><thead><tr>'
+			. '<th>' . esc_html__( 'Module', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:230px;">' . esc_html__( 'Model in force', 'dazont-ecom' ) . '</th>'
+			. '<th>' . esc_html__( 'Where it is set', 'dazont-ecom' ) . '</th>'
+			. '</tr></thead><tbody>';
+		foreach ( $rows as $r ) {
+			printf(
+				'<tr><td><strong>%1$s</strong></td><td><code>%2$s</code></td><td>%3$s</td></tr>',
+				esc_html( (string) $r['label'] ),
+				esc_html( '' !== $r['model'] ? (string) $r['model'] : '—' ),
+				'' !== (string) $r['url']
+					? '<a href="' . esc_url( (string) $r['url'] ) . '">' . esc_html( (string) $r['where'] ) . ' &rarr;</a>'
+					: esc_html( (string) $r['where'] )
+			);
+		}
+		echo '</tbody></table>';
+	}
+
 	/** WHO SPENT IT, as a table, beside the graph that says how much. */
 	public static function render_spend(): void {
 		foreach ( [ 1 => __( 'Today', 'dazont-ecom' ), 7 => __( 'The last seven days', 'dazont-ecom' ) ] as $days => $title ) {
