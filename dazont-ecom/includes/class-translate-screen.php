@@ -92,6 +92,13 @@ trait DZE_Translate_Screen {
 		$tabs = self::tabs();
 		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'translations' ) ) . '</h1>';
+		// THE SWITCH FIRST. "Pourquoi il n'est pas placé en haut ce bloc ?
+		// C'est l'équivalent de la cerise sur le gâteau, pas l'assiette en bas
+		// de page." So it is a thin bar under the title, on every screen that
+		// has one, before the work it decides about.
+		if ( class_exists( 'DZE_Automation' ) ) {
+			DZE_Automation::panel_form( [ 'translate' ], __( 'Runs by itself', 'dazont-ecom' ) );
+		}
 		$strip = [];
 		foreach ( $tabs as $id => $one ) {
 			$strip[ (string) $id ] = [
@@ -123,11 +130,6 @@ trait DZE_Translate_Screen {
 			}
 		} else {
 			self::dash_body();
-			// AND THE SWITCH THAT TRANSLATES BY ITSELF, under the reading it
-			// acts on rather than three menus away.
-			if ( class_exists( 'DZE_Automation' ) ) {
-				DZE_Automation::panel_form( [ 'translate' ], __( 'Run it by itself', 'dazont-ecom' ) );
-			}
 		}
 		echo '</div>';
 	}
@@ -1165,10 +1167,15 @@ trait DZE_Translate_Screen {
 		$join  = $term
 			? "INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = src.element_id
 			   INNER JOIN {$wpdb->terms} tm ON tm.term_id = tt.term_id"
-			// A draft in the bin is not a page of this shop, and a trashed one
-			// offered as work to do is work nobody wants.
+			// ONLY WHAT THE SHOP ACTUALLY SHOWS. A draft is a page nobody has
+			// published; translating one pays a model to write eight languages
+			// of something that may never go out, and files eight drafts behind
+			// it. "Tu autorises la traduction des pages brouillon. Erreur
+			// grossière." A private page IS published — restricted, not unborn —
+			// so it stays. Four queries in this module already read it this way;
+			// three had kept draft and pending.
 			: "INNER JOIN {$wpdb->posts} p ON p.ID = src.element_id
-			      AND p.post_status IN ('publish','draft','pending','private')";
+			      AND p.post_status IN ('publish','private')";
 		$pick  = $term ? 'tt.term_id' : 'src.element_id';
 		$order = $term ? 'tm.name' : 'p.post_title';
 		$marks = $has_s ? "LEFT JOIN {$st} s ON s.translation_id = t.translation_id" : '';
@@ -1232,7 +1239,7 @@ trait DZE_Translate_Screen {
 		}
 		$q = new WP_Query( [
 			'post_type'      => $scope['type'],
-			'post_status'    => [ 'publish', 'draft', 'pending', 'private' ],
+			'post_status'    => [ 'publish', 'private' ],
 			'posts_per_page' => $per,
 			'paged'          => $paged,
 			'orderby'        => 'title',

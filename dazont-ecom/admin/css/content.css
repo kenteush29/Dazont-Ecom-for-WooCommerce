@@ -1813,3 +1813,51 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 /* A title with no space in it — an SKU, a part number — must break rather
    than push the column out from the inside. */
 .dze-diag-list td { overflow-wrap: break-word; }
+
+/* THE AUTOMATION BAR — discreet, and always at the top.
+   "Tu peux améliorer le style de ce bloc pour le rendre plus sexy. Pourquoi
+   pas le rendre discret, mais en haut de page obligatoirement." It is the
+   cherry, not the plate: within reach, never taking the room the work needs. */
+.dze-auto-bar {
+	margin: 0 0 18px;
+	padding: 10px 14px;
+	background: linear-gradient( 180deg, #fbfcfd 0%, #f6f7f7 100% );
+	border: 1px solid #dcdcde;
+	border-left: 3px solid #2271b1;
+	border-radius: 8px;
+}
+.dze-auto-bar .dze-auto-h2 {
+	margin: 0 0 6px;
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: .04em;
+	text-transform: uppercase;
+	color: #50575e;
+}
+.dze-auto-bar .dze-auto-waitline {
+	margin: 0 0 8px;
+	font-size: 13px;
+	color: #1d2327;
+}
+/* The task itself folds away: shut, it is one line of state. */
+.dze-auto-bar .dze-auto-task {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+}
+.dze-auto-bar .dze-auto-task > summary {
+	padding: 2px 0;
+	cursor: pointer;
+}
+.dze-auto-bar .dze-auto-controls {
+	margin: 8px 0 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 14px;
+	align-items: center;
+}
+.dze-auto-bar .submit {
+	margin: 8px 0 0;
+	padding: 0;
+}

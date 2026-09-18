@@ -2614,13 +2614,12 @@ final class DZE_Discounts {
 		// failed account left half-sent. Nothing is fetched here: the work is
 		// put in the queue and done in the background.
 		self::gmc_follow_all();
-		require DZE_DIR . 'admin/views/discounts-page.php';
-		// AND THE SWITCH THAT BUILDS THE CALENDAR BY ITSELF, on the screen
-		// that screen is about. Only on the events side: the discount rules
-		// are not what the calendar task writes.
+		// THE SWITCH FIRST, then the work it decides about. Only on the events
+		// side: the discount rules are not what the calendar task writes.
 		if ( 'events' === $mode && class_exists( 'DZE_Automation' ) ) {
-			DZE_Automation::panel_form( [ 'events' ], __( 'Run it by itself', 'dazont-ecom' ) );
+			DZE_Automation::panel_form( [ 'events' ], __( 'Runs by itself', 'dazont-ecom' ) );
 		}
+		require DZE_DIR . 'admin/views/discounts-page.php';
 	}
 
 	/** Saves the global "never discount" list. */

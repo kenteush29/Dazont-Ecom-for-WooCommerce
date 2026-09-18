@@ -866,11 +866,23 @@ final class DZE_Queue {
 	 * @param array<int,string> $kinds
 	 * @return array<int,array<string,mixed>>
 	 */
-	public static function rows( int $limit = 200, array $kinds = [] ): array {
+	public static function rows( int $limit = 200, array $kinds = [], bool $all = false ): array {
 		global $wpdb;
 		$table = self::table();
 		$kinds = self::clean_kinds( $kinds );
 		$where = $kinds ? "WHERE kind IN ('" . implode( "','", $kinds ) . "')" : '';
+		// WHAT IS DECIDED LEAVES THE LIST.
+		//
+		// "Les tâches acceptées restent dans la liste, j'en vois plein des
+		// saved accepted." A screen called "To review" holding rows that have
+		// been reviewed is a screen where the remaining work has to be hunted
+		// for. Accepted and discarded rows are the RECORD of what happened —
+		// Logs → Automatic passes holds that, with the undo — so this list
+		// shows what still wants a person, and says how many it has put away.
+		$done  = [ 'applied', 'skipped' ];
+		if ( ! $all ) {
+			$where .= ( '' === $where ? 'WHERE ' : ' AND ' ) . "status NOT IN ('" . implode( "','", $done ) . "')";
+		}
 		return (array) $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
 			"SELECT id, kind, object_id, status, error, payload, created, updated, decided_by, made_by FROM {$table}
@@ -1635,6 +1647,22 @@ final class DZE_Queue {
 			</table>
 		</div>
 		<?php
+		// AND WHAT WAS PUT AWAY IS SAID, with the way to it — a list that
+		// quietly drops rows is a list nobody trusts.
+		$counts = self::counts_for( $kinds ?: array_keys( self::kinds() ) );
+		$done   = (int) ( $counts['applied'] ?? 0 ) + (int) ( $counts['skipped'] ?? 0 );
+		if ( $done && class_exists( 'DZE_Screens' ) ) {
+			printf(
+				'<p class="description" style="margin:12px 0 0;">%1$s <a href="%2$s">%3$s</a></p>',
+				esc_html( sprintf(
+					/* translators: %s: how many were decided */
+					_n( '%s decision has already been taken.', '%s decisions have already been taken.', $done, 'dazont-ecom' ),
+					number_format_i18n( $done )
+				) ),
+				esc_url( DZE_Screens::url( 'logs', 'past' ) ),
+				esc_html__( 'See what was published, and undo it →', 'dazont-ecom' )
+			);
+		}
 		self::review_assets( $kinds );
 	}
 

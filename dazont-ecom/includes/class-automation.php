@@ -2019,9 +2019,40 @@ final class DZE_Automation {
 		if ( class_exists( 'DZE_Assets' ) ) {
 			DZE_Assets::admin_css();
 		}
-		echo '<div class="dze-admin dze-auto">';
+		// DISCREET, AND AT THE TOP. "Run it by itself devrait être en haut de
+		// page… Tu peux le rendre discret, mais en haut de page obligatoirement,
+		// partout là où il existe." So it is a thin bar, not a panel: the
+		// switch is the cherry, not the plate — it must be within reach without
+		// taking the room the work needs.
+		echo '<div class="dze-admin dze-auto dze-auto-bar">';
 		if ( '' !== $title ) {
 			echo '<h2 class="dze-auto-h2">' . esc_html( $title ) . '</h2>';
+		}
+		// AND IT SAYS WHAT IT HAS LEFT FOR YOU, with the way there. A switch
+		// that runs every night and never mentions the pile it is making is a
+		// switch nobody can follow: "Run it by itself ne propose à aucun moment
+		// une redirection vers To review… et pas de comptage de ce qui est en
+		// attente."
+		$kinds = [];
+		foreach ( $ids as $one ) {
+			foreach ( (array) ( $tasks[ (string) $one ]['jobs'] ?? [] ) as $k ) {
+				$kinds[] = (string) $k;
+			}
+		}
+		$waiting = ( $kinds && class_exists( 'DZE_Queue' ) )
+			? (int) ( DZE_Queue::counts_for( $kinds )['review'] ?? 0 )
+			: 0;
+		if ( $waiting && class_exists( 'DZE_Screens' ) ) {
+			printf(
+				'<p class="dze-auto-waitline">%1$s <a href="%2$s">%3$s</a></p>',
+				esc_html( sprintf(
+					/* translators: %s: how many results */
+					_n( '%s result is waiting for your yes or no.', '%s results are waiting for your yes or no.', $waiting, 'dazont-ecom' ),
+					number_format_i18n( $waiting )
+				) ),
+				esc_url( add_query_arg( [ 'kind' => implode( ',', array_unique( $kinds ) ) ], DZE_Screens::url( 'review' ) ) ),
+				esc_html__( 'Read them →', 'dazont-ecom' )
+			);
 		}
 		echo '<form method="post" action="' . esc_url( admin_url( 'options.php' ) ) . '">';
 		settings_fields( 'dze_auto_options' );

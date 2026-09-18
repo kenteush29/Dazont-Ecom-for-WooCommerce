@@ -1675,7 +1675,7 @@ final class DZE_Mesh {
 			// the shop and the one control that makes this screen unnecessary.
 			// The decision comes before the list the decision is about.
 			if ( class_exists( 'DZE_Automation' ) ) {
-				DZE_Automation::panel_form( [ 'mesh_links' ], __( 'Run it by itself', 'dazont-ecom' ) );
+				DZE_Automation::panel_form( [ 'mesh_links' ], __( 'Runs by itself', 'dazont-ecom' ) );
 			}
 			$this->render_tab();
 		}

@@ -368,7 +368,16 @@ echo "\nCHAQUE ECRAN NE VOIT ET NE TOUCHE QUE SON PROPRE TRAVAIL\n";
 // que ce qu'il dit.
 $sc_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-queue.php' );
 ok( 'la file sait se limiter a une famille',
-	false !== strpos( $sc_src, 'public static function rows( int $limit = 200, array $kinds = [] ): array' ), true );
+	false !== strpos( $sc_src, 'public static function rows( int $limit = 200, array $kinds = [], bool $all = false ): array' ), true );
+// ET CE QUI EST DECIDE QUITTE LA LISTE. Un ecran nomme « A traiter » tenant des
+// lignes deja traitees est un ecran ou le travail restant se cherche.
+ok( 'les lignes decidees quittent la liste',
+	false !== strpos( $sc_src, "\$done  = [ 'applied', 'skipped' ];" ), true );
+ok( 'et la liste dit combien elle en a range',
+	false !== strpos( $sc_src, 'decisions have already been taken' ), true );
+$sc_js2 = file_get_contents( __DIR__ . '/../dazont-ecom/admin/js/queue.js' );
+ok( 'et le shift-clic coche une plage',
+	false !== strpos( $sc_js2, 'e.shiftKey && lastPick !== null' ), true );
 ok( 'la portee est nettoyee contre le catalogue',
 	false !== strpos( $sc_src, '$kinds = self::clean_kinds( $kinds );' ), true );
 ok( 'l\'ecran passe sa portee a son corps',
@@ -501,6 +510,24 @@ foreach ( glob( $st_dir . '*.php' ) as $st_f ) {
 ok( 'les barres batties a la main sont comptees', count( $st_bad ), 5 );
 ok( 'et les trois converties nen sont plus',
 	array_intersect( [ 'class-health.php', 'class-translate-screen.php' ], $st_bad ), [] );
+
+echo "\nLINTERRUPTEUR EST EN HAUT, DISCRET, ET DIT CE QUIL A LAISSE\n";
+// « Run it by itself devrait etre en haut de page… Cest lequivalent de la
+// cerise sur le gateau, pas lassiette en bas de page. Partout la ou il existe. »
+$ab_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
+ok( 'la barre a sa classe a elle',
+	false !== strpos( $ab_src, 'dze-admin dze-auto dze-auto-bar' ), true );
+ok( 'elle compte ce qui attend',
+	false !== strpos( $ab_src, 'results are waiting for your yes or no' ), true );
+ok( 'et donne le chemin vers la liste, pre-filtree',
+	false !== strpos( $ab_src, "DZE_Screens::url( 'review' )" ), true );
+$ab_css = file_get_contents( __DIR__ . '/../dazont-ecom/admin/css/content.css' );
+ok( 'et elle a un style discret', false !== strpos( $ab_css, '.dze-auto-bar {' ), true );
+// SUR CHAQUE ECRAN QUI EN PORTE UNE, avant le travail dont elle decide.
+foreach ( [ 'class-mesh.php', 'class-category-content.php', 'class-translate-screen.php', 'class-discounts.php' ] as $ab_f ) {
+	$ab_s = file_get_contents( __DIR__ . '/../dazont-ecom/includes/' . $ab_f );
+	ok( "$ab_f porte la barre", false !== strpos( $ab_s, 'DZE_Automation::panel_form(' ), true );
+}
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

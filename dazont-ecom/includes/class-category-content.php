@@ -3459,6 +3459,10 @@ PROMPT;
 		}
 		echo '<div class="wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'categories' ) ) . '</h1>';
+		// The switch first, then the work it decides about.
+		if ( class_exists( 'DZE_Automation' ) ) {
+			DZE_Automation::panel_form( [ 'cat_desc' ], __( 'Runs by itself', 'dazont-ecom' ) );
+		}
 
 		// WHAT IS SHORT, from the reading that already counted it — never a
 		// second count of this screen's own, which is how two figures for one
@@ -3498,11 +3502,6 @@ PROMPT;
 			);
 		}
 
-		// AND THE SWITCH THAT RUNS IT BY ITSELF, on the screen of the work it
-		// runs — the decision before the list it decides about.
-		if ( class_exists( 'DZE_Automation' ) ) {
-			DZE_Automation::panel_form( [ 'cat_desc' ], __( 'Run it by itself', 'dazont-ecom' ) );
-		}
 		echo '</div>';
 	}
 	public function render_settings(): void {

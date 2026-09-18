@@ -564,7 +564,7 @@ final class DZE_Translate {
 			"SELECT pm.meta_key, COUNT(*) AS n
 			   FROM {$wpdb->postmeta} pm
 			   INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-			  WHERE p.post_type = %s AND p.post_status IN ('publish','draft','pending','private')
+			  WHERE p.post_type = %s AND p.post_status IN ('publish','private')
 			    AND pm.meta_key IN ( {$in} )
 			    AND pm.meta_value <> ''
 			    AND pm.meta_value NOT LIKE 'a:%' AND pm.meta_value NOT LIKE 'O:%'

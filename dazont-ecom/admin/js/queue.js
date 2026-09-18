@@ -194,6 +194,19 @@
 			$.post(cfg.ajaxUrl, { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'retry' })
 				.always(function () { $b.prop('disabled', false); refresh(); });
 		});
+		// SHIFT-CLIC POUR UNE PLAGE, comme les listes de WordPress. « Impossible
+		// de shift clic » : sur vingt lignes a accepter, cocher une par une est
+		// vingt gestes pour une seule decision.
+		var lastPick = null;
+		$(document).on('click', '.dze-q-pick', function (e) {
+			var all = $('.dze-q-pick'), i = all.index(this);
+			if (e.shiftKey && lastPick !== null && lastPick !== i) {
+				var on = $(this).prop('checked'),
+					a = Math.min(lastPick, i), b = Math.max(lastPick, i);
+				all.slice(a, b + 1).prop('checked', on).trigger('change');
+			}
+			lastPick = i;
+		});
 		$(document).on('change', '.dze-q-pick', function () {
 			sel[this.value] = this.checked;
 			drawBulk();
