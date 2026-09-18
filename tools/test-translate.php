@@ -1614,9 +1614,24 @@ ok( 'a variation\'s own words are not a row',
 	false !== strpos( $dze_ed, 'data-field="var:701"' ), false );
 ok( 'and its words are not printed either',
 	false !== strpos( $dze_ed, 'Olive, black zip.' ), false );
-// A FIELD THE ORIGINAL DOES NOT HOLD IS NOT A DECISION.
-ok( 'an empty field of the original is not a row',
-	false !== strpos( $dze_ed, 'data-field="excerpt"' ), false );
+// A FIELD THE ORIGINAL DOES NOT HOLD IS STILL LISTED, AND SAYS WHY.
+//
+// It used to be dropped — "a field the original does not hold is not a
+// decision" — which was true and unreadable: an empty SEO pair and an SEO
+// pair this module cannot handle both showed as nothing at all. "Pourquoi pas
+// de traduction des champs seo ? j'ai l'impression qu'il manque plein de
+// choses ici." An owner who knows WPML expects its editor: every field on the
+// list, whether or not it carries words.
+ok( 'an empty field of the original is still listed',
+	false !== strpos( $dze_ed, 'data-field="excerpt"' ), true );
+ok( 'but it is marked as holding nothing',
+	false !== strpos( $dze_ed, 'dze-tr-field is-absent' ), true );
+ok( 'and it says why, rather than being blank',
+	false !== strpos( $dze_ed, 'class="dze-tr-why' ), true );
+// AND IT IS NOT A DECISION EITHER: no box, so nothing to type into and
+// nothing for the save to carry.
+ok( 'and it offers no box to type in',
+	substr_count( $dze_ed, 'class="dze-tr-new' ), substr_count( $dze_ed, 'class="dze-tr-field"' ) );
 // 4. PUBLISH IT, or throw it away — side by side.
 ok( 'it ends with save and cancel, side by side',
 	[ substr_count( $dze_ed, 'id="dze-tr-publish"' ), substr_count( $dze_ed, 'id="dze-tr-drop"' ) ], [ 1, 1 ] );
