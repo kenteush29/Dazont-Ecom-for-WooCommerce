@@ -175,16 +175,11 @@ final class DZE_Automation {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		$now = self::tab_now( (array) $_GET );
 		echo '<div class="wrap dze-wrap"><h1>' . esc_html( DZE_Screens::label( 'automation' ) ) . '</h1>';
-		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 18px;">';
+		$strip = [];
 		foreach ( self::tabs() as $key => $label ) {
-			printf(
-				'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
-				$key === $now ? ' nav-tab-active' : '',
-				esc_url( self::page_url( $key ) ),
-				esc_html( $label )
-			);
+			$strip[ (string) $key ] = [ 'label' => $label, 'url' => self::page_url( (string) $key ) ];
 		}
-		echo '</h2>';
+		echo wp_kses_post( DZE_Screens::strip( $strip, $now, 'margin:12px 0 18px;' ) );
 		if ( 'past' === $now ) {
 			self::render_past();
 		} else {
@@ -2379,8 +2374,28 @@ final class DZE_Automation {
 	 * answering differently.
 	 */
 	public static function render_assets(): void {
+		// JQUERY, ICI, MAINTENANT. "Runs by itself ne fonctionne pas." The
+		// panel prints its script in the page BODY, and on these screens
+		// jQuery is only a dependency of a FOOTER script — so WordPress
+		// printed it after, the script threw on its first line, and every
+		// control in the bar was dead with nothing on screen to say so.
+		// wp_enqueue_script() at this point is too late to change anything:
+		// the head is already sent, and an enqueue made now simply joins the
+		// footer queue. wp_print_scripts() prints it HERE, and marks it done
+		// so the footer does not print it a second time.
+		if ( function_exists( 'wp_print_scripts' ) ) {
+			wp_print_scripts( 'jquery' );
+		}
 		?>
 		<script>
+		// AND IT SAYS SO RATHER THAN DYING IN SILENCE. A control that does
+		// nothing and explains nothing is the worst kind of broken.
+		if ( typeof jQuery === 'undefined' ) {
+			document.addEventListener( 'DOMContentLoaded', function () {
+				var b = document.querySelector( '.dze-auto-bar' );
+				if ( b ) { b.insertAdjacentHTML( 'beforeend', '<p class="notice notice-error inline" style="margin:8px 0 0;padding:6px 10px;"><?php echo esc_js( __( 'This panel needs jQuery, which this screen did not load. Its buttons will not answer.', 'dazont-ecom' ) ); ?></p>' ); }
+			} );
+		} else {
 		jQuery( function ( $ ) {
 			// A PRESS SAYS IT IS WORKING. "Il faut des roues de chargement quand
 			// on fait quelque chose sur cette page." Put here, in the one
@@ -2633,6 +2648,7 @@ final class DZE_Automation {
 				post( 'dze_auto_undo', { term: $b.data( 'term' ), what: $b.data( 'what' ) }, $b, $b.closest( 'li' ).find( '.dze-auto-msg' ) );
 			} );
 		} );
+		}
 		</script>
 		<?php
 	}

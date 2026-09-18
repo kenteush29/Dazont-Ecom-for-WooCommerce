@@ -60,7 +60,6 @@ final class DZE_Category_Content {
 
 	private function __construct() {
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
-		add_action( 'admin_menu', [ $this, 'register_menu' ], 12 );
 		// The daily sitemap read went with the layer it fed: the mesh links
 		// categories, posts and pages, and WordPress serves all three.
 		add_action( 'admin_init', [ __CLASS__, 'drop_sitemap_cron' ] );
@@ -3428,37 +3427,20 @@ PROMPT;
 	// Settings tab
 	// =========================================================================
 
-	public const MENU_SLUG = 'dazont-ecom-categories';
-
-	public function register_menu(): void {
-		if ( ! class_exists( 'DZE_Screens' ) ) {
-			return;
-		}
-		add_submenu_page(
-			DZE_Screens::PARENT,
-			DZE_Screens::label( 'categories' ),
-			DZE_Screens::label( 'categories' ),
-			'manage_woocommerce',
-			self::MENU_SLUG,
-			[ $this, 'render_page' ]
-		);
-	}
-
 	/**
-	 * THE WHOLE LIFE OF A CATEGORY DESCRIPTION, on one screen.
+	 * THE CATEGORY BENCH, as a tab of the one bench.
 	 *
-	 * This module had no screen of its own: what it writes was started from
-	 * WooCommerce's own category list, what came back was decided on another
-	 * module's tab, and the switch that runs it by itself was parked on the
-	 * Diagnostic — which is not about categories. Three places for one
-	 * subject, and not one of them named it.
+	 * This had a menu entry to itself that held a switch, a count and two
+	 * links — "menu Categories existant et vide, aucun sens" — next to a
+	 * products bench that does the same job on the other subject. One bench,
+	 * one tab per subject. The frame, the title and the tabs belong to the
+	 * host, so this prints the body and nothing around it.
 	 */
-	public function render_page(): void {
+	public function render_bench(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		echo '<div class="wrap dze-admin">';
-		echo '<h1>' . esc_html( DZE_Screens::label( 'categories' ) ) . '</h1>';
+		echo '<div class="dze-admin">';
 		// The switch first, then the work it decides about.
 		if ( class_exists( 'DZE_Automation' ) ) {
 			DZE_Automation::panel_form( [ 'cat_desc' ], __( 'Runs by itself', 'dazont-ecom' ) );

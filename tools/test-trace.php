@@ -25,6 +25,7 @@ define( 'DZE_DIR', __DIR__ . '/../' . $dir . '/' );
 function __( $s, $d = '' ) { return $s; }
 function _n( $a, $b, $n, $d = '' ) { return $n > 1 ? $b : $a; }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
+function wp_kses_post( $s ) { return (string) $s; }
 function esc_attr( $s ) { return esc_html( $s ); }
 function esc_html__( $s, $d = '' ) { return esc_html( $s ); }
 function esc_url( $s ) { return (string) $s; }

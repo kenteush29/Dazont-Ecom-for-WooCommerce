@@ -2561,15 +2561,11 @@ final class DZE_Discounts {
 		foreach ( DZE_Screens::tabs_of( 'marketing' ) as $key => $label ) {
 			$tabs[ $key ] = [ $label, DZE_Screens::url( 'marketing', $key ) ];
 		}
-		ob_start();
-		?>
-		<h2 class="nav-tab-wrapper" style="margin-bottom:16px;">
-			<?php foreach ( $tabs as $key => $one ) : ?>
-				<a href="<?php echo esc_url( $one[1] ); ?>" class="nav-tab<?php echo $key === $active ? ' nav-tab-active' : ''; ?>"><?php echo esc_html( $one[0] ); ?></a>
-			<?php endforeach; ?>
-		</h2>
-		<?php
-		return (string) ob_get_clean();
+		$strip = [];
+		foreach ( $tabs as $key => $one ) {
+			$strip[ (string) $key ] = [ 'label' => $one[0], 'url' => $one[1] ];
+		}
+		return DZE_Screens::strip( $strip, $active, 'margin-bottom:16px;' );
 	}
 
 	/** "Discounts" page: evergreen cart/bulk rules, set up once. */

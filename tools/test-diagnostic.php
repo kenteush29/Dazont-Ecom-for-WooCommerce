@@ -913,17 +913,17 @@ $GLOBALS['dze_transients'] = [];
 $GLOBALS['dze_meta'][102]['_product_image_gallery'] = '11,12,13';
 $GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-01 12:00:00'; // as a save moves it
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
-ok( 'the tab says how much work is left',  false !== strpos( $html, 'Issues (<span class="dze-diag-n">2</span>)' ), true );
+ok( 'the tab says how much work is left',  false !== strpos( $html, 'Issues <span class="dze-tab-n">2</span>' ), true );
 // A DIFF, NOT A STORE: it holds what the last reading listed and that no
 // longer falls short, so the next reading empties it. The name says so —
 // "le compte Fixed revient constamment à 0" was it doing exactly what it is.
 ok( 'and how much is done since the reading',
-	false !== strpos( $html, 'Fixed since the reading (<span class="dze-diag-n">1</span>)' ), true );
+	false !== strpos( $html, 'Fixed since the reading <span class="dze-tab-n">1</span>' ), true );
 // The figure is its OWN element, so a row mended in the popup can leave the
 // list and take both counts with it — without reloading the page to ask a
 // question about one row.
 ok( 'and each figure can be changed on its own',
-	substr_count( $html, 'class="dze-diag-n"' ), 2 );
+	substr_count( $html, 'class="dze-tab-n"' ), 2 );
 
 // AND THE CENSUS ROW ABOVE IT ANSWERS THE SAME QUESTION.
 //
@@ -980,7 +980,7 @@ $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
 
 /** What one tab says it holds, read off the page the way a reader reads it. */
 $dze_tab_n = static function ( string $html, string $tab ): string {
-	return preg_match( '/data-tab="' . $tab . '"[^>]*>[^(]*\(<span class="dze-diag-n">([^<]*)<\/span>\)/', $html, $m )
+	return preg_match( '/data-tab="' . $tab . '"[^>]*>[^<]*<span class="dze-tab-n">([^<]*)<\/span>/', $html, $m )
 		? (string) $m[1]
 		: 'missing';
 };
@@ -1665,7 +1665,7 @@ ok( 'and its neighbour',                 false !== strpos( $dze_one, 'data-id="9
 ok( 'and drops everything else',         false !== strpos( $dze_one, 'data-id="903"' ), false );
 // THE TAB'S FIGURE AND THE LIST UNDER IT ANSWER THE SAME QUESTION.
 ok( 'the tab counts what is shown',
-	false !== strpos( $dze_one, 'Issues (<span class="dze-diag-n">2</span>)' ), true );
+	false !== strpos( $dze_one, 'Issues <span class="dze-tab-n">2</span>' ), true );
 // AND THE SENTENCE SAYS THE WHOLE TRUTH: how many fall short in all, and how
 // many of them are in the category being looked at.
 ok( 'the line says how many in all',     false !== strpos( $dze_one, '3 fall short in all.' ), true );
@@ -1719,7 +1719,7 @@ $dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
 $dze_after = (string) ob_get_clean();
 ok( 'the mended one is off the list',   false !== strpos( $dze_after, 'data-id="902"' ), false );
 ok( 'the one still short is not',       false !== strpos( $dze_after, 'data-id="901"' ), true );
-ok( 'and the tab counts what is left',  false !== strpos( $dze_after, 'Issues (<span class="dze-diag-n">1</span>)' ), true );
+ok( 'and the tab counts what is left',  false !== strpos( $dze_after, 'Issues <span class="dze-tab-n">1</span>' ), true );
 // It is not lost: it is on the other tab, which is a DIFF and says so.
 ok( 'it is named as fixed since the reading',
 	false !== strpos( $dze_after, 'Fixed since the reading' ), true );

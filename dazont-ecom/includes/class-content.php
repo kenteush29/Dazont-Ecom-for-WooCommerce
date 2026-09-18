@@ -4309,13 +4309,44 @@ Answer with STRICT JSON and nothing else: "
 			] );
 	}
 
+	/**
+	 * ONE BENCH, ONE TAB PER SUBJECT.
+	 *
+	 * The categories had a menu entry of their own holding a switch and two
+	 * links, beside a products bench doing the same job on the other subject.
+	 * They are tabs of one screen now, and the blog posts will be a third.
+	 *
+	 * The tab strip is the catalogue's, so a subject whose module is off is
+	 * not offered — and when only one is left the strip does not print at
+	 * all, because a row of one tab says nothing.
+	 */
 	public function render_bulk_page(): void {
 		if ( ! current_user_can( 'edit_products' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
+		$tabs = DZE_Screens::tabs_of( 'bulk' );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading which tab to draw.
+		$tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+		if ( ! isset( $tabs[ $tab ] ) ) {
+			$tab = (string) array_key_first( $tabs );
+		}
 		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'bulk' ) ) . '</h1>';
-		$this->bulk_body( self::bulk_page_url() );
+		if ( count( $tabs ) > 1 ) {
+			$strip = [];
+			foreach ( $tabs as $id => $label ) {
+				$strip[ (string) $id ] = [
+					'label' => $label,
+					'url'   => DZE_Screens::url( 'bulk', (string) $id ),
+				];
+			}
+			echo wp_kses_post( DZE_Screens::strip( $strip, $tab, 'margin:12px 0 0;' ) );
+		}
+		if ( 'categories' === $tab && class_exists( 'DZE_Category_Content' ) ) {
+			DZE_Category_Content::instance()->render_bench();
+		} else {
+			$this->bulk_body( self::bulk_page_url() );
+		}
 		echo '</div>';
 	}
 
@@ -4356,14 +4387,18 @@ Answer with STRICT JSON and nothing else: "
 			?>
 			<!-- Two states, and that is the whole screen: the products being
 			     worked on, and the products that are done with. -->
-			<h2 class="nav-tab-wrapper dze-cb-tabs">
+			<ul class="subsubsub dze-cb-tabs">
+				<?php $dze_last = array_key_last( $dze_tabs ); ?>
 				<?php foreach ( $dze_tabs as $dze_key => $dze_tab ) : ?>
-					<a href="<?php echo esc_url( $dze_tab[1] ); ?>" data-tab="<?php echo esc_attr( $dze_key ); ?>" class="nav-tab<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? ' nav-tab-active' : ''; ?>">
-						<?php echo esc_html( $dze_tab[0] ); ?>
-						<span class="dze-cb-count"><?php echo $dze_tab[2] ? esc_html( number_format_i18n( $dze_tab[2] ) ) : ''; ?></span>
-					</a>
+					<li>
+						<a href="<?php echo esc_url( $dze_tab[1] ); ?>" data-tab="<?php echo esc_attr( $dze_key ); ?>" class="<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? 'current' : ''; ?>">
+							<?php echo esc_html( $dze_tab[0] ); ?>
+							<span class="dze-cb-count"><?php echo $dze_tab[2] ? esc_html( number_format_i18n( $dze_tab[2] ) ) : ''; ?></span>
+						</a><?php echo $dze_key === $dze_last ? '' : ' |'; ?>
+					</li>
 				<?php endforeach; ?>
-			</h2>
+			</ul>
+			<div style="clear:both;"></div>
 			<?php
 			if ( 'log' === $dze_mode ) {
 				$this->render_bulk_log();

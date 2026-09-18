@@ -109,19 +109,6 @@ final class DZE_Screens {
 					'past' => [ 'label' => __( 'Past work', 'dazont-ecom' ) ],
 				],
 			],
-			// A MENU OF ITS OWN. It runs by itself, like the translations, and
-			// it was buried as the second tab of a screen called "Content" —
-			// three clicks from the dashboard to look at the work of the day.
-			// A DESTINATION FOR THE CATEGORIES. This module registered no screen
-			// at all: its work lived on WooCommerce's own category list, its
-			// results were decided on somebody else's tab, and its automation
-			// switch was parked on the Diagnostic — a screen that is not about
-			// it. Three places for one subject, and none of them named it.
-			'categories'   => [
-				'label'  => __( 'Categories', 'dazont-ecom' ),
-				'slug'   => 'dazont-ecom-categories',
-				'module' => 'category_content',
-			],
 			// A BENCH IS NOT A PREFERENCE. This one has a prompt box and a
 			// Generate button, it makes images and files them in the media
 			// library — that is work, and it lived inside Settings. "Image lab,
@@ -167,17 +154,18 @@ final class DZE_Screens {
 				'slug'   => 'dazont-ecom-queue',
 				'module' => 'queue',
 			],
-			// THE PRODUCT BENCH, ON ITS OWN. It was a tab of the Diagnostic —
-			// a screen that reads the WHOLE site — so the plugin printed
-			// "Diagnostic → Bulk writing" over a bench that only ever touches
-			// products. It writes product texts and product photographs and
-			// nothing else (post_type = 'product', class-content.php:2055), so
-			// it is named for that, and the categories have a screen of their
-			// own beside it.
+			// ONE BENCH, ONE SUBJECT PER TAB. The categories had a menu entry of
+			// their own that held three lines and a switch — "menu Categories
+			// existant et vide, aucun sens" — while the products had a bench.
+			// Same work, two shapes, two places. Here they are two tabs of one
+			// bench, and the articles will be a third when they get one.
 			'bulk'         => [
-				'label'  => __( 'Products', 'dazont-ecom' ),
+				'label'  => __( 'Bulk writing', 'dazont-ecom' ),
 				'slug'   => 'dazont-content-bulk',
-				'module' => 'content',
+				'tabs'   => [
+					'products'   => [ 'label' => __( 'Products', 'dazont-ecom' ), 'module' => 'content' ],
+					'categories' => [ 'label' => __( 'Categories', 'dazont-ecom' ), 'module' => 'category_content' ],
+				],
 			],
 			'shortcodes'   => [
 				'label' => __( 'Shortcodes', 'dazont-ecom' ),
@@ -430,7 +418,6 @@ final class DZE_Screens {
 			'review',
 			'content',
 			'bulk',
-			'categories',
 			'linking',
 			'lab',
 			'translations',
@@ -495,9 +482,21 @@ final class DZE_Screens {
 		$out = '<h2 class="nav-tab-wrapper" style="' . esc_attr( $style ) . '">';
 		foreach ( $items as $id => $one ) {
 			$n = array_key_exists( 'n', $one ) ? $one['n'] : null;
+			// A TAB THE PAGE'S OWN SCRIPT HAS TO FIND. The Diagnostic keeps its
+			// two counts in step without reloading, so it needs a hook on the
+			// anchor — and that was reason enough for it to build its whole
+			// strip by hand, markup, classes and all. Two optional keys here
+			// and it does not have to.
+			$cls  = 'nav-tab' . ( (string) $id === $now ? ' nav-tab-active' : '' );
+			$cls .= '' !== (string) ( $one['class'] ?? '' ) ? ' ' . (string) $one['class'] : '';
+			$att  = '';
+			foreach ( (array) ( $one['data'] ?? [] ) as $k => $v ) {
+				$att .= ' data-' . sanitize_key( (string) $k ) . '="' . esc_attr( (string) $v ) . '"';
+			}
 			$out .= sprintf(
-				'<a class="nav-tab%1$s" href="%2$s">%3$s%4$s</a>',
-				(string) $id === $now ? ' nav-tab-active' : '',
+				'<a class="%1$s"%2$s href="%3$s">%4$s%5$s</a>',
+				esc_attr( $cls ),
+				$att, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built and escaped above.
 				esc_url( (string) ( $one['url'] ?? '' ) ),
 				esc_html( (string) ( $one['label'] ?? $id ) ),
 				null === $n ? '' : ' <span class="dze-tab-n">' . esc_html( number_format_i18n( (int) $n ) ) . '</span>'

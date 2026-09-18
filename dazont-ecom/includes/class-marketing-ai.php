@@ -777,7 +777,10 @@ final class DZE_Marketing_Ai {
 		}
 		$here = $group_of[ $tab ] ?? '';
 
-		echo '<nav class="nav-tab-wrapper" style="margin-bottom:16px;">';
+		// WHICH TABS ARE ON THE ROW is this screen's question — a group stands
+		// for its members. WHAT THE ROW LOOKS LIKE is not: that is the one
+		// printer's, here as everywhere else.
+		$strip = [];
 		$drawn = [];
 		foreach ( $tabs as $key => $label ) {
 			$gid = $group_of[ $key ] ?? '';
@@ -786,22 +789,15 @@ final class DZE_Marketing_Ai {
 					continue; // its group is already on the row.
 				}
 				$drawn[ $gid ] = true;
-				printf(
-					'<a href="%1$s" class="nav-tab%2$s">%3$s</a>',
-					$link( (string) $members[ $gid ][0] ),
-					$gid === $here ? ' nav-tab-active' : '',
-					esc_html( (string) $groups[ $gid ]['label'] )
-				);
+				$strip[ $gid ] = [
+					'label' => (string) $groups[ $gid ]['label'],
+					'url'   => $link( (string) $members[ $gid ][0] ),
+				];
 				continue;
 			}
-			printf(
-				'<a href="%1$s" class="nav-tab%2$s">%3$s</a>',
-				$link( (string) $key ),
-				$key === $tab ? ' nav-tab-active' : '',
-				esc_html( $label )
-			);
+			$strip[ (string) $key ] = [ 'label' => $label, 'url' => $link( (string) $key ) ];
 		}
-		echo '</nav>';
+		echo wp_kses_post( DZE_Screens::strip( $strip, '' !== $here ? $here : $tab, 'margin-bottom:16px;' ) );
 
 		// The screens inside the group, in WordPress's own quiet sub-navigation.
 		if ( '' !== $here && count( (array) $members[ $here ] ) > 1 ) {

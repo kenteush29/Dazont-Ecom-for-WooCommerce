@@ -1785,15 +1785,29 @@ final class DZE_Mesh {
 		$needs = self::needs();
 		$ends  = self::dead_ends( 50 );
 		?>
-		<h2 style="margin-top:28px;"><?php esc_html_e( 'Pages short of links', 'dazont-ecom' ); ?></h2>
+		<?php
+		// FOLDED, LIKE THE ONE UNDER IT. "Je t'ai dit d'utiliser le meme
+		// type d'affichage que Pages that take part in linking — 55 of 69.
+		// Parce que la tout est ouvert et c'est tres bordelique." Two
+		// tables of two hundred rows each opened on arrival, and the work
+		// of the screen — the reading, the switch, the plan — was buried
+		// under them. The figure is on the summary, so the fold answers
+		// the question without being opened.
+		?>
+		<details class="dze-set dze-mesh-listbox" id="dze-mesh-needsbox">
+			<summary><?php echo esc_html( sprintf(
+				/* translators: %s: how many pages are short of links */
+				__( 'Pages short of links — %s', 'dazont-ecom' ),
+				number_format_i18n( max( (int) ( $counts['short'] ?? 0 ), count( $needs ) ) )
+			) ); ?></summary>
 		<?php if ( ! $needs ) : ?>
 			<p class="description"><?php echo esc_html( self::rule_said() ); ?> <?php esc_html_e( 'Every page is pointed at from enough places. Nothing to do here.', 'dazont-ecom' ); ?></p>
 		<?php else : ?>
 			<p class="description">
 				<?php
-				// The rule and the figure on one line under a heading of the
-				// same rank as the block below it: a bold paragraph over one
-				// table and a heading over the next read as two kinds of thing.
+				// The rule and the figure on one line, inside the fold: the
+				// summary already carries the count, so this says what the rule
+				// is and how much of the site the table under it shows.
 				echo esc_html( self::rule_said() ) . ' ';
 				echo esc_html( self::listed_said( (int) ( $counts['short'] ?? 0 ), count( $needs ), 200, 'short' ) );
 				?>
@@ -1820,8 +1834,14 @@ final class DZE_Mesh {
 				</tbody>
 			</table>
 		<?php endif; ?>
+		</details>
 
-		<h2 style="margin-top:28px;"><?php esc_html_e( 'Pages that point at nothing', 'dazont-ecom' ); ?></h2>
+		<details class="dze-set dze-mesh-listbox" id="dze-mesh-endsbox">
+			<summary><?php echo esc_html( sprintf(
+				/* translators: %s: how many pages point at nothing */
+				__( 'Pages that point at nothing — %s', 'dazont-ecom' ),
+				number_format_i18n( max( (int) ( $counts['ends'] ?? 0 ), count( $ends ) ) )
+			) ); ?></summary>
 		<?php if ( ! $ends ) : ?>
 			<p class="description"><?php esc_html_e( 'Every page sends its reader somewhere. Nothing to do here.', 'dazont-ecom' ); ?></p>
 		<?php else : ?>
@@ -1870,6 +1890,7 @@ final class DZE_Mesh {
 				</tbody>
 			</table>
 		<?php endif; ?>
+		</details>
 		<?php
 		// THE SETTING SITS WITH THE THING IT GOVERNS: which pages take part is
 		// a question about this screen's own lists, so it is on this screen

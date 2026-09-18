@@ -52,8 +52,6 @@ echo "EVERY SLUG IN THE CATALOGUE IS THE ONE ITS PAGE CLASS USES\n";
 $dze_where = [
 	'dashboard'    => [ 'class-dashboard.php', 'MENU_SLUG' ],
 	'content'      => [ 'class-diagnostic.php', 'MENU_SLUG' ],
-	// Le maillage a son propre ecran depuis quil ne depend plus de Content.
-	'categories'   => [ 'class-category-content.php', 'MENU_SLUG' ],
 	'lab'          => [ 'class-image-lab.php', 'MENU_SLUG' ],
 	'linking'      => [ 'class-mesh.php', 'MENU_SLUG' ],
 	'marketing'    => [ 'class-discounts.php', 'MENU_SLUG_EVENTS' ],
@@ -489,7 +487,7 @@ ok( 'et lordre du menu la nomme, juste apres laccueil',
 	array_slice( DZE_Screens::menu_order(), 0, 2 ), [ 'dashboard', 'review' ] );
 // LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
 ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
-	'dashboard', 'review', 'content', 'bulk', 'categories', 'linking', 'lab', 'translations', 'marketing',
+	'dashboard', 'review', 'content', 'bulk', 'linking', 'lab', 'translations', 'marketing',
 	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 
@@ -506,9 +504,9 @@ foreach ( glob( $st_dir . '*.php' ) as $st_f ) {
 	$st_s = (string) file_get_contents( $st_f );
 	if ( false !== strpos( $st_s, 'nav-tab-wrapper' ) ) { $st_bad[] = basename( $st_f ); }
 }
-// Trois restent : deux barres groupees (Reglages, Marketing) et une barre
-// interne a un corps, formes que limprimeur ne couvre pas encore.
-ok( 'les barres batties a la main sont comptees', count( $st_bad ), 5 );
+// Plus aucune : la barre groupee des Reglages garde son groupement, qui est
+// a elle, et confie le balisage a limprimeur comme les autres.
+ok( 'les barres batties a la main sont comptees', count( $st_bad ), 0 );
 ok( 'et les trois converties nen sont plus',
 	array_intersect( [ 'class-health.php', 'class-translate-screen.php' ], $st_bad ), [] );
 

@@ -3246,7 +3246,7 @@ final class DZE_Diagnostic {
 		if ( $split['live'] ) {
 			// WordPress's own tabs, because that is what every other screen of
 			// this admin uses to say "the same list, seen two ways".
-			echo '<h2 class="nav-tab-wrapper" style="margin:14px 0 0;">';
+			$strip = [];
 			foreach ( [
 				'todo'  => [ __( 'Issues', 'dazont-ecom' ), count( $split['todo'] ) ],
 				// A DIFF, NOT A STORE. It holds what was on the last reading's
@@ -3259,19 +3259,18 @@ final class DZE_Diagnostic {
 				// The COUNT is its own element. A product mended in the popup
 				// leaves this list on the spot, and both figures follow it —
 				// without reloading the page to ask a question about one row.
-				printf(
-					'<a class="nav-tab%1$s dze-diag-tab" data-tab="%2$s" href="%3$s">%4$s (<span class="dze-diag-n">%5$s</span>)</a>',
-					$show === $dze_tab ? ' nav-tab-active' : '',
-					esc_attr( $dze_tab ),
-					esc_url( add_query_arg(
+				$strip[ (string) $dze_tab ] = [
+					'label' => (string) $dze_label[0],
+					'n'     => (int) $dze_label[1],
+					'class' => 'dze-diag-tab',
+					'data'  => [ 'tab' => $dze_tab ],
+					'url'   => add_query_arg(
 						array_merge( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $dze_tab, 'by' => $by, 'dir' => $dir ], $catarg ),
 						admin_url( 'admin.php' )
-					) ),
-					esc_html( $dze_label[0] ),
-					esc_html( number_format_i18n( $dze_label[1] ) )
-				);
+					),
+				];
 			}
-			echo '</h2>';
+			echo wp_kses_post( DZE_Screens::strip( $strip, $show, 'margin:14px 0 0;' ) );
 		}
 		printf(
 			'<p class="description" style="margin-top:10px;">%s</p>',
@@ -4023,8 +4022,8 @@ final class DZE_Diagnostic {
 							return;
 						}
 						// FIXED. Out of this list, and both figures follow it.
-						var $todo = $('.dze-diag-tab[data-tab="todo"] .dze-diag-n');
-						var $done = $('.dze-diag-tab[data-tab="fixed"] .dze-diag-n');
+						var $todo = $('.dze-diag-tab[data-tab="todo"] .dze-tab-n');
+						var $done = $('.dze-diag-tab[data-tab="fixed"] .dze-tab-n');
 						$todo.text(Math.max(0, (parseInt($todo.text(), 10) || 0) - 1));
 						$done.text((parseInt($done.text(), 10) || 0) + 1);
 						$row.css('background', '#edfaef').fadeOut(400, function () { $(this).remove(); });
