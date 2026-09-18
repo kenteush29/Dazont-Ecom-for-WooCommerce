@@ -491,6 +491,53 @@ ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
 	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 
+echo "\nUN SEUL ETABLI, UN ONGLET PAR SUJET\n";
+// « Menu Categories existant et vide, aucun sens. Plutot regrouper dans bulk
+// writing. Avec products. On pourra plus tard y mettre blog post aussi. »
+$bl_tabs = DZE_Screens::tabs_of( 'bulk' );
+ok( 'letabli a les deux sujets', array_keys( $bl_tabs ), [ 'products', 'categories' ] );
+ok( 'et les categories nont plus dentree a elles',
+	in_array( 'categories', DZE_Screens::menu_order(), true ), false );
+// Ladresse dun onglet doit exister, sinon la barre envoie dans le vide.
+ok( 'et chaque onglet a une adresse', [
+	'' !== DZE_Screens::url( 'bulk', 'products' ),
+	'' !== DZE_Screens::url( 'bulk', 'categories' ),
+], [ true, true ] );
+$bl_cat = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-category-content.php' );
+ok( 'la classe nenregistre plus de menu',
+	false === strpos( $bl_cat, 'add_submenu_page' ), true );
+ok( 'elle imprime un corps, pas une page a elle',
+	[ false !== strpos( $bl_cat, 'function render_bench(): void' ), false !== strpos( $bl_cat, "'wrap dze-admin'" ) ],
+	[ true, false ] );
+$bl_con = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-content.php' );
+ok( 'et letabli sait ouvrir sur les categories',
+	false !== strpos( $bl_con, "DZE_Category_Content::instance()->render_bench()" ), true );
+
+echo "\nLES LISTES DU MAILLAGE SE REPLIENT\n";
+// « Pages short of links — je t'ai dit d'utiliser le meme type d'affichage
+// que Pages that take part in linking. La tout est ouvert et c'est tres
+// bordelique. » Deux tables de deux cents lignes au-dessus du travail.
+$bl_mesh = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-mesh.php' );
+ok( 'les deux listes sont des replis', [
+	false !== strpos( $bl_mesh, 'id="dze-mesh-needsbox"' ),
+	false !== strpos( $bl_mesh, 'id="dze-mesh-endsbox"' ),
+], [ true, true ] );
+ok( 'et plus aucun titre ne les surmonte',
+	substr_count( $bl_mesh, '<h2 style="margin-top:28px;">' ), 0 );
+ok( 'le compte est sur le repli, pour ne pas avoir a louvrir',
+	substr_count( $bl_mesh, 'Pages short of links — %s' ), 1 );
+
+echo "\nLINTERRUPTEUR TROUVE JQUERY\n";
+// « Runs by itself ne fonctionne pas. » Le script est imprime dans le corps
+// de la page ; jQuery ny etait quen dependance dun script de pied de page.
+$bl_aut = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
+ok( 'il imprime jquery la ou il en a besoin',
+	false !== strpos( $bl_aut, "wp_print_scripts( 'jquery' )" ), true );
+ok( 'et il le fait AVANT son propre script',
+	strpos( $bl_aut, "wp_print_scripts( 'jquery' )" ) < strpos( $bl_aut, "jQuery( function ( \$ ) {" ), true );
+ok( 'et il le dit plutot que de mourir en silence',
+	false !== strpos( $bl_aut, "typeof jQuery === 'undefined'" ), true );
+
 echo "\nUNE SEULE BARRE DONGLETS, IMPRIMEE EN UN SEUL ENDROIT\n";
 // Six ecrans batissaient la leur, chacune quasi-copie des autres — meme
 // balisage, memes classes, meme compteur. Et lune delles, celle du maillage,
