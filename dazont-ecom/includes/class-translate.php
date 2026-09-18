@@ -92,6 +92,7 @@ final class DZE_Translate {
 		add_action( 'admin_menu', [ $this, 'register_menu' ] );
 		add_action( 'wp_ajax_dze_tr_batch', [ $this, 'ajax_batch' ] );
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
+		add_action( 'wp_ajax_dze_tr_accept_all', [ $this, 'ajax_accept_all' ] );
 		// WPML'S OWN BUTTONS, doing this module's work. The + and the pencil in
 		// the Languages column are where a shop already goes to translate one
 		// thing; a second button somewhere else is a second habit to learn.
@@ -405,6 +406,136 @@ final class DZE_Translate {
 		return $out;
 	}
 
+	/**
+	 * THE OBJECT ONE OF OUR OWN ADDRESSES POINTS AT — id and kind, or null.
+	 *
+	 * Read without the language filter, because the answer is used to ASK for
+	 * a translation: resolved through WPML it would already be the wrong one.
+	 *
+	 * @return array{0:string,1:int}|null [ 'post'|'term', id ]
+	 */
+	public static function object_at( string $url ): ?array {
+		$home = (string) wp_parse_url( (string) home_url(), PHP_URL_HOST );
+		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
+		if ( '' === $home || ( '' !== $host && $host !== $home ) ) {
+			return null;
+		}
+		$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+		if ( '' === $path ) {
+			return null;
+		}
+		global $wpdb;
+		$slug_only = (string) substr( $path, (int) strrpos( '/' . $path, '/' ) );
+		if ( '' !== $slug_only ) {
+			$pid = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT ID FROM {$wpdb->posts}
+				  WHERE post_name = %s AND post_status IN ('publish','private')
+				    AND post_type NOT IN ('attachment','revision')
+				  ORDER BY ID ASC LIMIT 1",
+				$slug_only
+			) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			if ( $pid > 0 ) {
+				return [ 'post', $pid ];
+			}
+		}
+		if ( function_exists( 'url_to_postid' ) ) {
+			$pid = (int) url_to_postid( $url );
+			if ( $pid > 0 && 'attachment' !== get_post_type( $pid ) ) {
+				return [ 'post', $pid ];
+			}
+		}
+		// A CATEGORY IS NOT A POST. Its slug is the last segment on this shop,
+		// and it is read from the tables: get_term_by() answers in the current
+		// language, which would hand back a term of the wrong one.
+		if ( '' === $slug_only ) {
+			return null;
+		}
+		$tid = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT t.term_id FROM {$wpdb->terms} t
+			   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+			  WHERE t.slug = %s AND tt.taxonomy = 'product_cat' LIMIT 1",
+			$slug_only
+		) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return $tid ? [ 'term', $tid ] : null;
+	}
+
+	/**
+	 * THE LINKS INSIDE A TRANSLATION POINT AT THAT LANGUAGE'S PAGES.
+	 *
+	 * "Les nouveaux liens pour le maillage interne seront ils traduits ? Les
+	 * pages de destination seront elles adaptées pour avoir le bon url de la
+	 * page cible traduite ?" They were not. The prompt says "same attributes",
+	 * which is right — a model must not invent an address — so every French
+	 * description carried the ENGLISH href of its target. Measured on this
+	 * shop: 67 internal links across the translated categories, 67 pointing at
+	 * the English page, none at the French one.
+	 *
+	 * So the rewriting is done HERE, in code, after the model has answered:
+	 * each of our own addresses is resolved to its object, WPML is asked for
+	 * that object in the target language, and the href becomes its permalink.
+	 *
+	 * An address with no translation is LEFT ALONE. A working link to the
+	 * English page is worth more to a reader than a 404 in his own language.
+	 */
+	public static function relink( string $html, string $lang ): string {
+		$lang = sanitize_key( $lang );
+		if ( '' === $lang || false === stripos( $html, '<a ' ) || ! function_exists( 'home_url' ) ) {
+			return $html;
+		}
+		// DEUX TEMPS, PARCE QUE DEUX CONTEXTES DE LANGUE.
+		//
+		// Resoudre une adresse — url_to_postid(), le slug d un terme — se fait
+		// dans la langue du texte de DEPART. Calculer l adresse de la cible se
+		// fait dans la langue d ARRIVEE, sinon WPML rend le permalien sans son
+		// prefixe et les deux adresses sortent identiques : c est ce que
+		// get_term_link() faisait, et le lien francais pointait encore sur la
+		// page anglaise.
+		if ( ! preg_match_all( '#<a\b[^>]*\bhref="([^"]+)"#i', $html, $m ) ) {
+			return $html;
+		}
+		$want = [];
+		foreach ( array_unique( $m[1] ) as $raw ) {
+			$url = html_entity_decode( (string) $raw );
+			$at  = self::object_at( $url );
+			if ( ! $at ) {
+				continue;
+			}
+			[ $kind, $id ] = $at;
+			$type = 'post' === $kind ? (string) ( get_post_type( $id ) ?: 'post' ) : 'product_cat';
+			$to   = self::obj_translation( [ 'kind' => $kind, 'id' => $id, 'type' => $type ], $lang );
+			if ( ! $to || $to === $id ) {
+				continue; // no translation of its own: leave the link that works.
+			}
+			$want[ (string) $raw ] = [ $kind, $to, $type ];
+		}
+		if ( ! $want ) {
+			return $html;
+		}
+		// LA LANGUE D ARRIVEE, LE TEMPS DE LIRE LES ADRESSES, puis rendue.
+		$was = (string) apply_filters( 'wpml_current_language', '' );
+		if ( $was !== $lang ) {
+			do_action( 'wpml_switch_language', $lang );
+		}
+		$map = [];
+		foreach ( $want as $raw => $one ) {
+			[ $kind, $to, $type ] = $one;
+			$new = 'post' === $kind ? (string) get_permalink( $to ) : (string) get_term_link( $to, $type );
+			if ( '' !== $new && ! is_wp_error( $new ) ) {
+				$map[ (string) $raw ] = esc_url( $new );
+			}
+		}
+		if ( $was !== $lang ) {
+			do_action( 'wpml_switch_language', $was );
+		}
+		if ( ! $map ) {
+			return $html;
+		}
+		return (string) preg_replace_callback(
+			'#(<a\b[^>]*\bhref=")([^"]+)(")#i',
+			static fn( array $mm ): string => isset( $map[ $mm[2] ] ) ? $mm[1] . $map[ $mm[2] ] . $mm[3] : $mm[0],
+			$html
+		);
+	}
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();
@@ -2646,6 +2777,15 @@ final class DZE_Translate {
 			if ( '' === $lang || ! isset( $targets[ $lang ] ) || ! $texts ) {
 				continue;
 			}
+			// LES LIENS SUIVENT LA LANGUE. Juste avant l ecriture, parce que ce
+			// qui est ecrit est ce qui compte : une correction faite plus tot
+			// serait defaite par une relecture a la main, et le modele, lui, a
+			// raison de ne pas inventer d adresse.
+			foreach ( $texts as $fid => $val ) {
+				if ( is_string( $val ) && false !== stripos( $val, '<a ' ) ) {
+					$texts[ $fid ] = self::relink( $val, $lang );
+				}
+			}
 			$target = self::obj_translation( $o, $lang );
 			if ( ! $target ) {
 				// Absent setting means "yes": a first install translates
@@ -3604,6 +3744,60 @@ final class DZE_Translate {
 		] );
 	}
 
+	/**
+	 * ACCEPT EVERYTHING WAITING ON THESE OBJECTS, every language, as it came.
+	 *
+	 * "Sur la page review je veux pouvoir visualiser rapidement les
+	 * traductions… Et je ne peux même pas accepter en bulk. C'est ce que
+	 * j'aurais fait ici : tout accepter. Tout est bon, le plugin fonctionne
+	 * bien." Saying yes to eight objects meant eight screens, and one screen
+	 * per language inside each — so the plugin working well cost more clicks
+	 * than the plugin working badly.
+	 *
+	 * It writes exactly what the review screen would have written: the held
+	 * texts, untouched. Nothing is re-translated and nothing is paid for.
+	 */
+	public function ajax_accept_all(): void {
+		$this->screen_guard();
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() checked it.
+		$refs = isset( $_POST['refs'] ) ? (array) wp_unslash( $_POST['refs'] ) : [];
+		$refs = array_values( array_filter( array_map( 'sanitize_text_field', $refs ) ) );
+		if ( ! $refs ) {
+			// No list: everything the review tab is showing.
+			foreach ( self::review_list() as $row ) {
+				$refs[] = self::ref( $row );
+			}
+		}
+		$done = 0;
+		$objs = 0;
+		$errs = [];
+		foreach ( $refs as $ref ) {
+			$o = self::from_ref( (string) $ref );
+			if ( ! $o ) {
+				continue;
+			}
+			$held = self::waiting( $o );
+			$keep = (array) ( $held['langs'] ?? [] );
+			if ( ! $keep ) {
+				continue;
+			}
+			$res = self::accept( $o, $keep );
+			$objs++;
+			foreach ( (array) ( $res['written'] ?? [] ) as $n ) {
+				$done += (int) $n;
+			}
+			foreach ( (array) ( $res['errors'] ?? [] ) as $lang => $why ) {
+				$errs[] = self::obj_label( $o ) . ' (' . $lang . ') : ' . $why;
+			}
+		}
+		wp_send_json_success( [
+			'objects' => $objs,
+			'fields'  => $done,
+			'errors'  => array_slice( $errs, 0, 8 ),
+			'left'    => self::review_count(),
+		] );
+	}
+
 	/** Accept what was kept, or refuse the lot. Both end the wait. */
 	public function ajax_decide(): void {
 		$this->screen_guard();
@@ -3695,6 +3889,12 @@ final class DZE_Translate {
 				/* translators: %s: number of fields filled in */
 				'filled'     => __( '%s field(s) filled in below — nothing is written until you save.', 'dazont-ecom' ),
 				'nothingToSave' => __( 'Every field is empty. There is nothing to write.', 'dazont-ecom' ),
+				// TOUT ACCEPTER, en une fois, depuis la liste.
+				'allAsk'     => __( 'Write every translation waiting here, in every language, exactly as it came back?', 'dazont-ecom' ),
+				'allSending' => __( 'Writing…', 'dazont-ecom' ),
+				/* translators: 1: how many objects, 2: how many fields */
+				'allDone'    => __( '%1$s written, %2$s field(s) in all.', 'dazont-ecom' ),
+				'allNone'    => __( 'Nothing was waiting any more.', 'dazont-ecom' ),
 				// ONE BLOCK ON ITS OWN, for judging a change to the instructions.
 				'oneSending' => __( 'Translating this block…', 'dazont-ecom' ),
 				'oneDone'    => __( 'filled in — nothing is written until you save.', 'dazont-ecom' ),

@@ -356,4 +356,37 @@
 			})
 			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
 	});
+
+	// TOUT ACCEPTER — « c'est ce que j'aurais fait ici : tout accepter ».
+	// Rien n'est retraduit : le serveur ecrit les textes deja revenus.
+	function pickedRefs() {
+		return $('.dze-tr-wrow').filter(function () {
+			return $(this).find('.dze-tr-wpick').is(':checked');
+		}).map(function () { return String($(this).data('ref')); }).get();
+	}
+	$(document).on('change', '.dze-tr-wpick, #dze-tr-wall', function () {
+		if (this.id === 'dze-tr-wall') {
+			$('.dze-tr-wpick').prop('checked', $(this).is(':checked'));
+		}
+		$('#dze-tr-acceptsel').prop('disabled', pickedRefs().length === 0);
+	});
+	function acceptMany(refs) {
+		if (!window.confirm(i18n.allAsk)) { return; }
+		var $b = $('#dze-tr-acceptall, #dze-tr-acceptsel').prop('disabled', true);
+		var $st = $('#dze-tr-allstate').removeClass('is-ko').text(i18n.allSending);
+		post('dze_tr_accept_all', refs && refs.length ? { refs: refs } : {})
+			.done(function (r) {
+				if (!r || !r.success) { $b.prop('disabled', false); $st.addClass('is-ko').text(said(r)); return; }
+				var d = r.data || {};
+				if (!d.objects) { $b.prop('disabled', false); $st.text(i18n.allNone); return; }
+				$st.text(sprintf(i18n.allDone, d.objects, d.fields));
+				// CE QUI A ETE ECRIT QUITTE LA LISTE. Recharger est le seul moyen
+				// honnete de la redessiner : les compteurs, les pastilles et les
+				// onglets se lisent tous a l ouverture de la page.
+				window.setTimeout(function () { window.location.reload(); }, 900);
+			})
+			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
+	}
+	$(document).on('click', '#dze-tr-acceptall', function () { acceptMany([]); });
+	$(document).on('click', '#dze-tr-acceptsel', function () { acceptMany(pickedRefs()); });
 }(jQuery));
