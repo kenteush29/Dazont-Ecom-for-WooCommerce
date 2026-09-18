@@ -1542,6 +1542,13 @@ PROMPT;
 		if ( ! $term || is_wp_error( $term ) ) {
 			throw new RuntimeException( __( 'Category not found.', 'dazont-ecom' ) );
 		}
+		// THE NAME OF THE CATEGORY WE ARE ACTUALLY WORKING ON. get_term()
+		// above still answers WPML's current language, and its object is only
+		// used for the term LINK below, which WPML is right to translate.
+		// The NAME must be this term's own, or the pass works on one text and
+		// talks about another.
+		$row  = self::term_row( $term_id );
+		$name = (string) ( $row['name'] ?? $term->name );
 		if ( '' === trim( wp_strip_all_tags( $html ) ) ) {
 			throw new RuntimeException( __( 'This category has no description to work on yet.', 'dazont-ecom' ) );
 		}
@@ -1622,7 +1629,7 @@ PROMPT;
 			$room = max( 1, min( $max - count( $done ), count( $links ) ) );
 		}
 
-		return self::weave( (string) $term->name, $html, self::language( $term_id ), $links, $room, [
+		return self::weave( $name, $html, self::language( $term_id ), $links, $room, [
 			'label'    => 'CATEGORY',
 			'explicit' => (bool) $keys,
 			'self'     => $self,
@@ -2342,6 +2349,40 @@ PROMPT;
 	 * character of what was there may change. That line is the whole reason a
 	 * word count comes back identical, and it is checked rather than trusted.
 	 */
+	/**
+	 * A CATEGORY READ FROM THE TABLES, NOT THROUGH get_term().
+	 *
+	 * WPML filters `get_term` to the CURRENT language: asked for #6837
+	 * "Admin pouches" it answers with #7246 "Pochettes administratives
+	 * tactiques", its French translation — same translation group, different
+	 * term. The linking pass then worked on the English text while calling it
+	 * by its French name, and refused the pair because "Pochettes
+	 * administratives tactiques" does not mention "Utility pouches".
+	 *
+	 * The translation module has read terms this way from the start, for
+	 * exactly this reason. The category module never did.
+	 *
+	 * @return array{name:string,slug:string,description:string}|null
+	 */
+	public static function term_row( int $term_id ): ?array {
+		if ( $term_id <= 0 ) {
+			return null;
+		}
+		global $wpdb;
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT t.name, t.slug, tt.description
+				   FROM {$wpdb->terms} t
+				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				  WHERE t.term_id = %d AND tt.taxonomy = 'product_cat'
+				  LIMIT 1",
+				$term_id
+			),
+			ARRAY_A
+		); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- WPML filters every other way in.
+		return is_array( $row ) ? $row : null;
+	}
+
 	public static function may_add(): bool {
 		$s = self::get_settings();
 		return ! isset( $s['add_words'] ) || ! empty( $s['add_words'] );

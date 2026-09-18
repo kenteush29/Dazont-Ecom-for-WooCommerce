@@ -3945,6 +3945,16 @@ final class DZE_Diagnostic {
 	 */
 	private function print_script( string $check = '' ): void {
 		$nonce = wp_create_nonce( self::NONCE );
+		// JQUERY, ICI, MAINTENANT. Ce script est imprime dans le CORPS de la
+		// page, et sur cet ecran jQuery n'est qu'une dependance d'un script de
+		// pied de page : il arrivait apres, ce script mourait sur sa premiere
+		// ligne, et avec lui les compteurs d'onglets, la fenetre de correction
+		// et les boutons de ligne — sans rien a l'ecran pour le dire.
+		// wp_enqueue_script() a cet instant est trop tard : la tete est deja
+		// partie. wp_print_scripts() l'imprime ICI et le marque fait.
+		if ( function_exists( 'wp_print_scripts' ) ) {
+			wp_print_scripts( 'jquery' );
+		}
 		?>
 		<script>
 		jQuery(function ($) {
@@ -4448,6 +4458,7 @@ final class DZE_Diagnostic {
 		$blank = [ 'id' => '', 'note' => '', 'scope' => (string) array_key_first( self::scopes() ), 'field' => 'product.description', 'test' => $b_op, 'value' => $b_val, 'find' => '', 'key' => '', 'goals' => array_keys( self::goals() ), 'on' => 1 ];
 		?>
 		<script type="text/template" id="dze-diag-tpl"><?php echo self::card( $blank, '__I__' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping in card(). ?></script>
+		<?php if ( function_exists( 'wp_print_scripts' ) ) { wp_print_scripts( 'jquery' ); } ?>
 		<script>
 		jQuery( function ( $ ) {
 			var nonce = <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?>,
