@@ -161,13 +161,14 @@ final class DZE_Trending {
 			// Discounts module also holds the products IT has marked down —
 			// they are merged into this very function. One answer to "what is
 			// on sale", so this block and the sale block can never disagree.
-			$on_sale = array_flip( array_map( 'absint', (array) wc_get_product_ids_on_sale() ) );
-			$product_ids = array_values( array_filter(
+			$want        = $limit > 0 ? $limit : ( $paginate ? count( $product_ids ) : 12 );
+			$product_ids = self::prefer_not_on_sale(
 				$product_ids,
-				static fn( $id ): bool => ! isset( $on_sale[ (int) $id ] )
-			) );
+				array_map( 'absint', (array) wc_get_product_ids_on_sale() ),
+				$want
+			);
 			if ( empty( $product_ids ) ) {
-				return ''; // everything that sells is discounted: say nothing, not everything.
+				return '';
 			}
 		}
 
@@ -191,6 +192,47 @@ final class DZE_Trending {
 		}
 
 		return do_shortcode( "[products{$pairs}]" );
+	}
+
+	/**
+	 * UNE PRÉFÉRENCE, PAS UN COUPERET.
+	 *
+	 * « Trending Gear vide. Des soldes ont commencé avec le module dazont ecom
+	 * marketing. Et voilà, le filtre du shortcode filtre tout. »
+	 *
+	 * `exclude_on_sale` existe pour qu'un bloc de meilleures ventes ne répète
+	 * pas le bloc de promotions au-dessus de lui. C'est une préférence
+	 * d'affichage, et elle était appliquée comme une règle absolue : pendant
+	 * une promo générale 46 des 48 meilleures ventes sont remisées, le bloc
+	 * prévu pour dix en montrait deux — et quand il n'en restait aucune, la
+	 * fonction rendait une chaîne vide et la vitrine disparaissait. Un bloc
+	 * qui s'efface le jour des soldes est exactement le contraire de ce que
+	 * l'attribut cherchait à obtenir.
+	 *
+	 * Alors : les non-remisées d'abord, dans l'ordre du classement, puis on
+	 * complète avec les remisées tant qu'il manque du monde. La préférence est
+	 * tenue quand elle peut l'être, et le bloc est toujours plein.
+	 *
+	 * @param int[] $ranked      Les identifiants, dans l'ordre des ventes.
+	 * @param int[] $on_sale_ids Ce que WooCommerce dit être en promo.
+	 * @param int   $want        Combien le bloc doit afficher.
+	 * @return int[]
+	 */
+	public static function prefer_not_on_sale( array $ranked, array $on_sale_ids, int $want ): array {
+		$sale = array_flip( array_map( 'absint', $on_sale_ids ) );
+		$free = [];
+		$held = [];
+		foreach ( $ranked as $id ) {
+			if ( isset( $sale[ (int) $id ] ) ) {
+				$held[] = $id;
+			} else {
+				$free[] = $id;
+			}
+		}
+		$want = max( 1, $want );
+		return count( $free ) >= $want
+			? $free
+			: array_merge( $free, array_slice( $held, 0, $want - count( $free ) ) );
 	}
 
 	// -------------------------------------------------------------------------
