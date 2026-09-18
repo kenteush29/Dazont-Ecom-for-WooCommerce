@@ -390,12 +390,7 @@ PROMPT;
 			. "- Nothing else changes: not a word, not a paragraph, not a heading. You are not writing the page, only pointing at words in it.\n"
 			. "- Never link twice to the same page, never link a whole sentence, never link inside a heading, and never link the page the text itself belongs to.\n"
 			. "- Use the supplied URLs verbatim, and no others.\n"
-			// THE ONE DOOR OUT of "the text never names it, so no link ever".
-			// A category whose copy never mentions its neighbour used to be
-			// left orphaned for good. It may now be given ONE sentence — and
-			// adding is all it may do: the plugin refuses the answer outright
-			// if a single character of what was there has moved.
-			. "- IF, AND ONLY IF, the text holds no words at all for a target you judge genuinely close, you may write ONE short sentence for it instead. Answer that one as {\"sentence\": \"the whole new sentence\", \"anchor\": \"the words inside it to link\", \"url\": \"…\"}. It must read as part of this text, in its language, say something true about the destination, and be the kind of line the page would have had anyway. Never 'See X for more' or 'Read Y to find out'. One sentence, under 200 characters. Prefer naming words already in the text; this is the last resort, not the first.";
+			. '- Use the supplied URLs verbatim, and no others.';
 		return class_exists( 'DZE_Prompt_Defaults' )
 			? DZE_Prompt_Defaults::pick( 'cat_links', $shipped )
 			: $shipped;
@@ -1912,6 +1907,26 @@ PROMPT;
 				? '- Add a link for EACH of the ' . $room . " targets above, on a different spot, unless the text truly offers no place for one.\n"
 				: '- Place AT MOST ' . $room . " links, each on a different target from the list above. Fewer is fine: there is no figure to reach, only targets that genuinely fit.\n" )
 			. self::links_prompt() . "\n"
+			// LE CONTRAT, TOUJOURS ENVOYE — et separe de l editorial.
+			//
+			// « J aimerais bien que mes prompts que j ai enregistres sur Kula
+			// soient la source de verite, sans rester bloque sur eux. » Un prompt
+			// enregistre REMPLACAIT celui livre, donc la boutique perdait en
+			// silence tout ce que le plugin apprenait ensuite : la regle « jamais
+			// de lien dans un titre » — « on avait dit pas de liens sur les
+			// titres, voila que le plugin en a ecrit » — et le droit d ecrire une
+			// phrase quand aucun mot ne convient, qui est justement ce qui debloque
+			// les pages sans lien.
+			//
+			// Ce qui suit n est pas de l editorial : c est ce que le code EXIGE
+			// pour accepter une reponse. La voix de la boutique reste la sienne,
+			// la mecanique reste au plugin, et personne ne perd l autre.
+			. "\n--- ALWAYS, whatever the instructions above say ---\n"
+			. "- Never link inside a heading (h1…h6), never link a whole sentence, never link twice to the same page, and never link the page the text itself belongs to.\n"
+			. "- The words you name must already be in the text, and appear exactly once.\n"
+			. ( self::may_add()
+				? "- IF, AND ONLY IF, the text holds no words at all for a target you judge genuinely close, you may write ONE short sentence for it instead. Answer that one as {\"sentence\": \"the whole new sentence\", \"anchor\": \"the words inside it to link\", \"url\": \"…\"}. It must read as part of this text, in its language, say something true about the destination, and be the kind of line the page would have had anyway. Never 'See X for more'. One sentence, under 200 characters. This is the last resort, not the first.\n"
+				: "- If the text holds no words for a target, leave that target out. You may not add words.\n" )
 			. "\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: the text is in ' . $language . " — keep it in that language.\n"
 			. 'THE ANCHOR IS WORDS ALREADY IN THE TEXT: you never write markup and never add a word.' . "\n"
@@ -2558,6 +2573,37 @@ PROMPT;
 				continue;
 			}
 			[ $at, $span_len ] = $found;
+			// UNE ANCRE N EST PAS UNE PHRASE. « Et bien c est une tres vilaine
+			// ancre que tu as posee ici » — le modele avait rendu cliquable
+			// « Their durable fibers can withstand daily use without losing
+			// their shape or beauty », soit la phrase entiere. La regle etait
+			// dans le prompt livre, qu un prompt enregistre remplace : elle ne
+			// partait plus. Elle est ici, ou aucune preference ne l atteint.
+			$words = str_word_count( wp_strip_all_tags( $anchor ) );
+			if ( $words > 9 || mb_strlen( trim( $anchor ) ) > 72 ) {
+				$refused[] = sprintf(
+					/* translators: 1: how many words, 2: the words */
+					__( 'the words chosen are a sentence, not an anchor — %1$d words (%2$s)', 'dazont-ecom' ),
+					$words,
+					mb_substr( $anchor, 0, 46 ) . '…'
+				);
+				continue;
+			}
+			// ET ELLE NE PREND PAS TOUT SON BLOC : un paragraphe entierement
+			// cliquable se lit comme une publicite, pas comme un texte.
+			$open  = (int) strrpos( substr( $html, 0, $at ), '>' );
+			$close = strpos( $html, '<', $at + $span_len );
+			if ( $open > 0 && false !== $close ) {
+				$whole = trim( wp_strip_all_tags( substr( $html, $open + 1, $close - $open - 1 ) ) );
+				if ( '' !== $whole && trim( wp_strip_all_tags( $anchor ) ) === $whole && str_word_count( $whole ) > 6 ) {
+					$refused[] = sprintf(
+						/* translators: %s: the words the model picked */
+						__( 'the words chosen are the whole of their paragraph (%s)', 'dazont-ecom' ),
+						mb_substr( $anchor, 0, 46 ) . '…'
+					);
+					continue;
+				}
+			}
 			if ( ! self::in_prose( $html, $at, $span_len ) ) {
 				$refused[] = sprintf(
 					/* translators: %s: the words the model picked */
@@ -2751,6 +2797,19 @@ PROMPT;
 		if ( false !== $oc && strrpos( $before, '-->' ) < $oc ) {
 			return false;
 		}
+		// DANS UN TITRE : refuse, et par le CODE. Cette regle vivait dans le
+		// prompt livre, qu un prompt enregistre remplace entierement — elle
+		// disparaissait donc en silence, et le plugin ecrivait
+		// « <h2><a href="…">How To Style…</a>?</h2> ». Une regle qu une
+		// preference peut effacer n est pas une regle.
+		$oh = 0;
+		if ( preg_match_all( '#</?h[1-6]\b[^>]*>#i', $before, $hm, PREG_OFFSET_CAPTURE ) ) {
+			$last = end( $hm[0] );
+			if ( '/' !== ( $last[0][1] ?? '' ) ) {
+				return false; // the last heading tag before us is an OPENING one.
+			}
+		}
+		unset( $oh );
 		// Inside a link already.
 		$oa = strripos( $before, '<a ' );
 		if ( false !== $oa && strripos( $before, '</a>' ) < $oa ) {

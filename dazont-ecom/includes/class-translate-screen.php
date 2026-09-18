@@ -1543,8 +1543,30 @@ trait DZE_Translate_Screen {
 			<p><?php esc_html_e( 'Nothing is waiting. Send a batch from the Dashboard and what comes back lands here.', 'dazont-ecom' ); ?></p>
 			<?php return; ?>
 		<?php endif; ?>
+		<?php
+		// TOUT ACCEPTER, EN UNE FOIS. « Je ne peux meme pas accepter en bulk.
+		// C est ce que j aurais fait ici : tout accepter. Tout est bon. »
+		// Dire oui a huit objets demandait huit ecrans, et un ecran par langue
+		// dans chacun — le plugin qui marche bien coutait plus de clics que le
+		// plugin qui marche mal. Rien n est retraduit : ce sont les textes deja
+		// revenus qui sont ecrits, exactement comme l ecran de lecture le ferait.
+		?>
+		<p class="dze-cb-actions" style="max-width:980px;">
+			<button type="button" class="button button-primary" id="dze-tr-acceptall"
+				title="<?php esc_attr_e( 'Writes every translation waiting here, in every language, exactly as it came back. Nothing is translated again and nothing is paid for.', 'dazont-ecom' ); ?>"><?php
+				echo esc_html( sprintf(
+					/* translators: %s: how many objects are waiting */
+					_n( 'Accept the %s waiting', 'Accept all %s waiting', count( $rows ), 'dazont-ecom' ),
+					number_format_i18n( count( $rows ) )
+				) );
+			?></button>
+			<button type="button" class="button" id="dze-tr-acceptsel" disabled
+				title="<?php esc_attr_e( 'The same, for the ticked rows only.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Accept the ticked', 'dazont-ecom' ); ?></button>
+			<span class="description" id="dze-tr-allstate"></span>
+		</p>
 		<table class="widefat striped" style="max-width:980px;">
 			<thead><tr>
+				<td class="check-column" style="width:2.2em;"><input type="checkbox" id="dze-tr-wall" /></td>
 				<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
 				<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
 				<th style="width:150px;"><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
@@ -1554,6 +1576,7 @@ trait DZE_Translate_Screen {
 			<tbody>
 			<?php foreach ( $rows as $r ) : ?>
 				<tr class="dze-tr-wrow dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $r ) ); ?>">
+					<th scope="row" class="check-column"><input type="checkbox" class="dze-tr-wpick" /></th>
 					<td><strong><?php echo esc_html( $r['label'] ); ?></strong></td>
 					<?php echo wp_kses_post( DZE_Hub::id_td( (int) $r['id'] ) ); ?>
 					<td><span class="description"><?php echo esc_html( self::type_label( $r ) ); ?></span></td>
