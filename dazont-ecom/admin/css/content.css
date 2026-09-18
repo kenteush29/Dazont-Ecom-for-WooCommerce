@@ -1884,3 +1884,10 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-auto-chip.is-link { text-decoration: none; cursor: pointer; }
 .dze-auto-chip.is-link:hover,
 .dze-auto-chip.is-link:focus { filter: brightness( .96 ); box-shadow: 0 0 0 1px currentColor inset; }
+
+/* LE BOUTON PAR BLOC, discret dans l'en-tete du champ : il sert au calibrage,
+   pas au travail courant, donc il ne doit pas concurrencer « Translate
+   automatically » en haut de l'ecran. */
+.dze-tr-block { font-size: 12px; }
+.dze-tr-blockstate { font-size: 12px; margin-left: 8px; }
+.dze-tr-blockstate.is-ko { color: #b32d2e; }

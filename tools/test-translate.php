@@ -1665,6 +1665,45 @@ ok( 'enregistrer les instructions ne touche pas au reste',
 ok( 'et le glossaire est bien pris',
 	false !== strpos( (string) ( $dze_after['glossary'] ?? '' ), 'viper hood' ), true );
 
+echo "\nUN BOUTON PAR BLOC, POUR CALIBRER\n";
+// « Pour un calibrage plus facile il faut un bouton traduire par bloc. »
+// Juger un changement du prompt ou du glossaire obligeait a renvoyer l objet
+// entier et a le payer en entier, donc on le faisait une fois et jamais plus.
+ok( 'chaque bloc porte son bouton',
+	substr_count( $dze_ed, 'dze-tr-block"' ), substr_count( $dze_ed, 'class="dze-tr-new' ) );
+// ET IL NE VOLE PAS LE NOM D UN AUTRE. « dze-tr-one » est deja le bouton par
+// langue des lignes de la liste : deux gestionnaires sur une meme classe, et
+// chaque clic en declenche deux.
+ok( 'et il ne reprend pas le nom du bouton par langue',
+	false !== strpos( $dze_ed, 'button-link dze-tr-one"' ), false );
+
+// UN SEUL CHAMP PART, ET UN SEUL REVIENT.
+$GLOBALS['calls'] = [];
+$GLOBALS['model_answer'] = wp_json_encode( [ 'title' => 'Veste viper hood' ] );
+$dze_one = DZE_Translate::produce( $dze_art, [ 'fr' ], false, 'title' );
+ok( 'un seul champ revient',
+	array_keys( (array) ( $dze_one['langs']['fr'] ?? [] ) ), [ 'title' ] );
+ok( 'et un seul a ete envoye',
+	substr_count( (string) ( $GLOBALS['calls'][0] ?? '' ), '### ' ), 1 );
+// IL PART MEME QUAND RIEN N A BOUGE : on rejoue un bloc precisement parce
+// qu il n a pas bouge — c est le prompt qui a change, pas le texte.
+ok( 'et il part meme si le texte n a pas bouge',
+	(bool) ( $dze_one['cost'] ?? false ), true );
+// UN CHAMP INCONNU NE PAIE RIEN ET LE DIT.
+$GLOBALS['calls'] = [];
+$dze_bad = DZE_Translate::produce( $dze_art, [ 'fr' ], false, 'pas-un-champ' );
+ok( 'un champ inconnu ne paie rien',    count( $GLOBALS['calls'] ), 0 );
+ok( 'et il le dit plutot que de se taire', ! empty( $dze_bad['errors'] ), true );
+// ET IL NE SOLDE PAS LA LANGUE : dire « a jour » parce qu un bloc est revenu
+// marquerait tout le reste comme fait.
+$dze_src2 = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+ok( 'une passe sur un bloc ne solde pas la langue',
+	false !== strpos( $dze_src2, "if ( ! \$all && '' === \$only ) {" ), true );
+// ET ELLE SE FOND DANS CE QUI ATTEND au lieu de l ecraser : sinon un bloc
+// rejoue effacerait les autres champs deja traduits et en attente.
+ok( 'et elle se fond dans ce qui attend deja',
+	false !== strpos( $dze_src2, "\$keep[ \$lg ] = array_merge(" ), true );
+
 // 4. PUBLISH IT, or throw it away — side by side.
 ok( 'it ends with save and cancel, side by side',
 	[ substr_count( $dze_ed, 'id="dze-tr-publish"' ), substr_count( $dze_ed, 'id="dze-tr-drop"' ) ], [ 1, 1 ] );

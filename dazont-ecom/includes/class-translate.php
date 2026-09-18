@@ -2452,8 +2452,15 @@ final class DZE_Translate {
 	 *
 	 * @return array{langs:array<string,array<string,string>>,skipped:string[],errors:array<string,string>,cost:bool}
 	 */
-	public static function produce( array $o, array $langs, bool $all = false ): array {
+	public static function produce( array $o, array $langs, bool $all = false, string $only = '' ): array {
 		$out     = [ 'langs' => [], 'skipped' => [], 'errors' => [], 'cost' => false ];
+		// ONE FIELD AT A TIME, FOR CALIBRATING. "Pour un calibrage plus facile
+		// il faut un bouton traduire par bloc." Judging a prompt or a glossary
+		// entry meant re-sending the whole object and paying for all of it, so
+		// nobody did it twice. Asked for one field, this sends that one and
+		// nothing else — and it reads it from the object rather than from what
+		// has MOVED, because a field is re-run precisely when it has not.
+		$only    = sanitize_key( $only );
 		if ( ! $o ) {
 			return $out;
 		}
@@ -2487,12 +2494,21 @@ final class DZE_Translate {
 			// screen would answer "nothing was sent" for ever. Asked for
 			// everything, it sends everything and pays for everything — which
 			// is why it is a second button and never the default.
-			$texts = $all ? self::obj_read( $o ) : self::obj_stale( $o, $lang );
+			$texts = ( $all || '' !== $only ) ? self::obj_read( $o ) : self::obj_stale( $o, $lang );
+			if ( '' !== $only ) {
+				$texts = array_intersect_key( $texts, [ $only => true ] );
+				if ( ! $texts ) {
+					$out['errors'][ $lang ] = __( 'That field holds no text on the original, so there is nothing to send.', 'dazont-ecom' );
+					continue;
+				}
+			}
 			if ( ! $texts ) {
 				// Nothing to send. Only the ordinary run may call that settled:
 				// an empty answer to "translate everything" means the original
 				// holds no text at all, which settles nothing.
-				if ( ! $all ) {
+				// A SINGLE FIELD NEVER SETTLES A LANGUAGE: saying "this one is up
+				// to date" because one block came back would mark the rest done.
+				if ( ! $all && '' === $only ) {
 					self::obj_settle( $o, $lang );
 				}
 				$out['skipped'][] = $lang;
@@ -2513,7 +2529,20 @@ final class DZE_Translate {
 			$source               += $texts;
 		}
 		if ( $out['langs'] ) {
-			self::hold( $o, $out['langs'], $source );
+			// IT MERGES, IT DOES NOT REPLACE. A one-field run that overwrote the
+			// register would throw away every other field already translated and
+			// waiting — invisible until the page was reloaded, which is exactly
+			// when somebody calibrating reloads.
+			if ( '' !== $only ) {
+				$held = self::waiting( $o );
+				$keep = (array) ( $held['langs'] ?? [] );
+				foreach ( $out['langs'] as $lg => $fields ) {
+					$keep[ $lg ] = array_merge( (array) ( $keep[ $lg ] ?? [] ), (array) $fields );
+				}
+				self::hold( $o, $keep, array_merge( (array) ( $held['src'] ?? [] ), $source ) );
+			} else {
+				self::hold( $o, $out['langs'], $source );
+			}
 		}
 		return $out;
 	}
@@ -3489,7 +3518,9 @@ final class DZE_Translate {
 		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() checked it.
 		$all  = ! empty( $_POST['all'] );
-		$made = self::produce( $o, $langs, $all );
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() checked it.
+		$only = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
+		$made = self::produce( $o, $langs, $all, $only );
 		wp_send_json_success( [
 			'label'   => self::obj_label( $o ),
 			'done'    => array_keys( $made['langs'] ),
@@ -3594,6 +3625,10 @@ final class DZE_Translate {
 				/* translators: %s: number of fields filled in */
 				'filled'     => __( '%s field(s) filled in below — nothing is written until you save.', 'dazont-ecom' ),
 				'nothingToSave' => __( 'Every field is empty. There is nothing to write.', 'dazont-ecom' ),
+				// ONE BLOCK ON ITS OWN, for judging a change to the instructions.
+				'oneSending' => __( 'Translating this block…', 'dazont-ecom' ),
+				'oneDone'    => __( 'filled in — nothing is written until you save.', 'dazont-ecom' ),
+				'oneNothing' => __( 'Nothing came back for this block.', 'dazont-ecom' ),
 				'dropped'    => __( 'Thrown away. The translation is exactly as it was.', 'dazont-ecom' ),
 				/* translators: %s: number of rows ticked */
 				'nSelected'  => __( '%s selected', 'dazont-ecom' ),

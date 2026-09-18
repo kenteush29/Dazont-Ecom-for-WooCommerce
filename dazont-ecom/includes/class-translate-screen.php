@@ -605,6 +605,19 @@ trait DZE_Translate_Screen {
 									<?php elseif ( isset( $moved[ $dze_fid ] ) ) : ?>
 										<span class="dze-tr-tag dze-tr-moved"><?php esc_html_e( 'the original has changed since', 'dazont-ecom' ); ?></span>
 									<?php endif; ?>
+									<?php
+									// ONE BLOCK, ON ITS OWN. "Pour un calibrage plus
+									// facile il faut un bouton traduire par bloc."
+									// Judging a change to the prompt or the glossary
+									// meant re-sending the whole object and paying for
+									// every field of it, so it was done once and never
+									// again. This sends this block and nothing else,
+									// and it always sends it — a field is re-run
+									// precisely when it has NOT moved.
+									?>
+									<button type="button" class="button-link dze-tr-block"
+										title="<?php esc_attr_e( 'Translates this block on its own, and fills the box on the right. Useful for judging a change to the instructions or the glossary without paying for the whole page. Nothing is written until you save.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate this block', 'dazont-ecom' ); ?></button>
+									<span class="dze-tr-blockstate description"></span>
 								</p>
 								<div class="dze-tr-pair">
 									<div class="dze-tr-side">
