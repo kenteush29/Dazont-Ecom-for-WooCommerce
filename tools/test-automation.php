@@ -780,9 +780,19 @@ ok( 'the page just done is not offered again', $same, false );
 $res2 = DZE_Automation::tick( 'mesh_links', true );
 ok( 'a press by hand runs anyway',     $res2['queued'], 1 );
 ok( 'on another page',                 DZE_Queue::$added[1]['ids'] !== DZE_Queue::$added[0]['ids'], true );
-// The day's figure holds for the automatic pass.
-$GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [ 'mesh_links' => [ 'on' => 1, 'per_day' => 1, 'apply' => 0 ] ] ];
+// LE PLAFOND DU JOUR NE RETIENT QU UNE TACHE QUI A UNE RATION.
+// Le maillage prend tout en charge par defaut — c est de l entretien, pas
+// de la publication — donc il faut le lui dire pour qu il s arrete.
+$GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [ 'mesh_links' => [ 'on' => 1, 'per_day' => 1, 'apply' => 0, 'pace' => 'daily' ] ] ];
 ok( "today's figure used up",          DZE_Automation::why_not( 'mesh_links' ), 'cap' );
+// ET SANS RATION, IL CONTINUE : ce qui l arrete alors est de n avoir plus
+// rien a faire, ou le plafond de depense — jamais un compteur de la veille.
+$GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [ 'mesh_links' => [ 'on' => 1, 'per_day' => 1, 'apply' => 0, 'pace' => 'all' ] ] ];
+ok( 'mais le compteur du jour ne larrete plus',
+	DZE_Automation::why_not( 'mesh_links' ), 'early' );
+ok( 'et il revient vite plutot quune fois par jour',
+	DZE_Automation::gap( 'mesh_links' ) <= 15 * MINUTE_IN_SECONDS, true );
+$GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [ 'mesh_links' => [ 'on' => 1, 'per_day' => 1, 'apply' => 0, 'pace' => 'daily' ] ] ];
 // A DELIBERATE PRESS RUNS. The day's figure is the automatic rhythm, not a
 // refusal to answer a button — but it is counted, so the automatic pass does
 // that much less, and what protects the shop never yields to it.
