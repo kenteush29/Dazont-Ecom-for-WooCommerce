@@ -269,9 +269,12 @@ final class DZE_Category_Content {
 	 * @return array{name:string,has_desc:bool,words:int,words_target:int,links:int,links_target:int,keywords:int,size:array}
 	 */
 	public static function state( int $term_id ): array {
-		$term = get_term( $term_id, 'product_cat' );
-		$name = ( $term && ! is_wp_error( $term ) ) ? (string) $term->name : '';
-		$desc = ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
+		// L ETAT DE CETTE CATEGORIE-LA : le compte de mots et le « a-t-elle un
+		// texte » decident ce que les ecrans proposent, donc ils ne peuvent pas
+		// venir de la traduction.
+		$row  = self::term_row( $term_id );
+		$name = $row ? (string) $row['name'] : '';
+		$desc = $row ? (string) $row['description'] : '';
 		$size = self::size_for( $term_id );
 		return [
 			'name'         => $name,
@@ -1249,8 +1252,11 @@ PROMPT;
 		// shop's link graph counted 830 pages where it holds a fifth of that.
 		// And a TERM TAXONOMY id, not a term id: that is WPML's schema, and
 		// the two are equal on most terms and not on all of them.
-		$term = get_term( $term_id, 'product_cat' );
-		$ttid = ( $term && ! is_wp_error( $term ) ) ? (int) $term->term_taxonomy_id : $term_id;
+		// LA CLE DE LA LIGNE WPML, lue en table : get_term() rend l autre terme
+		// du groupe quand la session est dans sa langue, donc l autre
+		// term_taxonomy_id — et la langue rendue est alors celle du voisin.
+		$row  = self::term_row( $term_id );
+		$ttid = ( $row && $row['term_taxonomy_id'] ) ? (int) $row['term_taxonomy_id'] : $term_id;
 		$details = apply_filters( 'wpml_element_language_details', null, [
 			'element_id'   => $ttid,
 			'element_type' => 'tax_product_cat',
@@ -1341,10 +1347,14 @@ PROMPT;
 	 * @return array{intro:string,sections:array<int,string>,words:int}
 	 */
 	public static function plan( int $term_id, string $prompt_override = '' ): array {
-		$term = get_term( $term_id, 'product_cat' );
-		if ( ! $term || is_wp_error( $term ) ) {
+		// LE PLAN EST FAIT POUR CETTE CATEGORIE-LA. Par get_term(), il etait
+		// bati sur le nom de sa traduction, puis le texte ecrit d apres ce plan
+		// etait enregistre sur l original.
+		$row = self::term_row( $term_id );
+		if ( ! $row ) {
 			throw new RuntimeException( __( 'Category not found.', 'dazont-ecom' ) );
 		}
+		$term = (object) $row;
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
 			throw new RuntimeException( __( 'The Marketing Assistant module is required for the Anthropic key.', 'dazont-ecom' ) );
 		}
@@ -2364,23 +2374,59 @@ PROMPT;
 	 *
 	 * @return array{name:string,slug:string,description:string}|null
 	 */
-	public static function term_row( int $term_id ): ?array {
+	public static function term_row( int $term_id, string $taxonomy = 'product_cat' ): ?array {
 		if ( $term_id <= 0 ) {
 			return null;
 		}
 		global $wpdb;
 		$row = $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT t.name, t.slug, tt.description
+				"SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.parent, tt.count, tt.description
 				   FROM {$wpdb->terms} t
 				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
-				  WHERE t.term_id = %d AND tt.taxonomy = 'product_cat'
+				  WHERE t.term_id = %d AND tt.taxonomy = %s
 				  LIMIT 1",
-				$term_id
+				$term_id,
+				$taxonomy
 			),
 			ARRAY_A
 		); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- WPML filters every other way in.
-		return is_array( $row ) ? $row : null;
+		if ( ! is_array( $row ) ) {
+			return null;
+		}
+		foreach ( [ 'term_id', 'term_taxonomy_id', 'parent', 'count' ] as $int ) {
+			$row[ $int ] = (int) ( $row[ $int ] ?? 0 );
+		}
+		return $row;
+	}
+
+	/**
+	 * THE SAME READ, BY NAME — for the one place that has no id to start from.
+	 *
+	 * get_term_by( 'name', … ) is filtered like every other accessor: asked for
+	 * an English attribute value it answers the French term of the same group,
+	 * and a variation then gets attached to the wrong one.
+	 *
+	 * @return array{term_id:int,name:string,slug:string,term_taxonomy_id:int,taxonomy:string,parent:int,count:int,description:string}|null
+	 */
+	public static function term_row_by_name( string $name, string $taxonomy ): ?array {
+		$name = trim( $name );
+		if ( '' === $name || '' === trim( $taxonomy ) ) {
+			return null;
+		}
+		global $wpdb;
+		$id = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT t.term_id
+				   FROM {$wpdb->terms} t
+				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				  WHERE t.name = %s AND tt.taxonomy = %s
+				  LIMIT 1",
+				$name,
+				$taxonomy
+			)
+		); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- WPML filters every other way in.
+		return $id ? self::term_row( $id, $taxonomy ) : null;
 	}
 
 	public static function may_add(): bool {

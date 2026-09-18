@@ -1023,8 +1023,17 @@ final class DZE_Wpml {
 	 * accident is a reading that breaks on somebody else's shop.
 	 */
 	public static function term_element_id( int $term_id, string $taxonomy ): int {
-		$term = get_term( $term_id, $taxonomy );
-		return ( $term && ! is_wp_error( $term ) ) ? (int) $term->term_taxonomy_id : 0;
+		// UNE CLE DE CORRESPONDANCE NE SE LIT PAS A TRAVERS UN FILTRE DE LANGUE.
+		// get_term() rend l AUTRE terme du groupe quand la session est dans sa
+		// langue, donc l autre term_taxonomy_id — et cette cle fausse allait
+		// marquer "fait" la ligne WPML de l ORIGINAL au lieu de celle de la
+		// traduction, qui restait donc eternellement a refaire.
+		global $wpdb;
+		return (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = %s LIMIT 1",
+			$term_id,
+			$taxonomy
+		) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	}
 
 	/**

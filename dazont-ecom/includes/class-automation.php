@@ -1506,9 +1506,12 @@ final class DZE_Automation {
 				? [ 'name' => (string) $post->post_title, 'html' => (string) $post->post_content, 'type' => 'post' ]
 				: [];
 		}
-		$term = get_term( $oid, 'product_cat' );
-		return ( $term && ! is_wp_error( $term ) )
-			? [ 'name' => (string) $term->name, 'html' => (string) $term->description, 'type' => 'term' ]
+		// LE SUJET DE LA PASSE, lu en table. Par get_term(), la passe nocturne
+		// prenait le nom ET le texte de la traduction pour travailler sur
+		// l original : elle nommait une categorie et en ecrivait une autre.
+		$row = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::term_row( $oid ) : null;
+		return $row
+			? [ 'name' => (string) $row['name'], 'html' => (string) $row['description'], 'type' => 'term' ]
 			: [];
 	}
 

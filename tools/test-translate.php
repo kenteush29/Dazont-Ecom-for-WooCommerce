@@ -205,6 +205,15 @@ class DZE_Tr_Test_Wpdb {
 	}
 	public function get_var( $q ) {
 		$sql = (string) $q;
+		// LA TAXONOMIE D UN TERME, lue en table. obj() la demande ainsi quand
+		// l appelant ne la donne pas : passer par get_term() rendrait le terme
+		// de la langue courante, ce que tout ce module cherche a eviter.
+		if ( preg_match( '/SELECT taxonomy FROM .*term_id = (\d+)/is', $sql, $m ) ) {
+			return (string) ( $GLOBALS['terms'][ (int) $m[1] ]['taxonomy'] ?? '' );
+		}
+		if ( preg_match( '/SELECT term_taxonomy_id FROM .*term_id = (\d+)/is', $sql, $m ) ) {
+			return (string) ( $GLOBALS['terms'][ (int) $m[1] ]['term_taxonomy_id'] ?? 0 );
+		}
 		// SHOW TABLES LIKE — both of WPML's tables are here.
 		// SHOW TABLES LIKE answers with the NAME, which is what has_table()
 		// compares against. Answering 'yes' made every table look absent and

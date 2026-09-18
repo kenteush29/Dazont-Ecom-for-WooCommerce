@@ -5506,7 +5506,12 @@ Answer with STRICT JSON and nothing else: "
 			if ( $is_tax ) {
 				$ids = [];
 				foreach ( $values as $v ) {
-					$term = get_term_by( 'name', $v, $tax );
+					// LA VALEUR D ATTRIBUT DE CETTE LANGUE-LA. get_term_by() est
+					// filtre comme les autres : demande « Black », il rend « Noir »
+					// quand la session est en francais, et la variation s accroche
+					// au terme d une autre langue — l achat casse.
+					$trow = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::term_row_by_name( (string) $v, (string) $tax ) : null;
+					$term = $trow ? (object) $trow : null;
 					if ( ! $term ) {
 						$r = wp_insert_term( $v, $tax );
 						if ( ! is_wp_error( $r ) ) {

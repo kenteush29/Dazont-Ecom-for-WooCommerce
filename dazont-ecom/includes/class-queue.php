@@ -1102,8 +1102,11 @@ final class DZE_Queue {
 	 */
 	public static function holds_now( string $kind, int $object_id ): string {
 		if ( 0 === strpos( $kind, 'cat_' ) ) {
-			$term = get_term( $object_id, 'product_cat' );
-			return ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
+			// LE TEXTE DE CET OBJET-LA. holds_now() sert a comparer ce qui est en
+			// base avec ce qui attend une decision : compare a la traduction, il
+			// declarait « le texte a change depuis » sur des lignes intactes.
+			$row = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::term_row( $object_id ) : null;
+			return $row ? (string) $row['description'] : '';
 		}
 		if ( 0 === strpos( $kind, 'post_' ) || 0 === strpos( $kind, 'product_' ) ) {
 			$post = get_post( $object_id );
