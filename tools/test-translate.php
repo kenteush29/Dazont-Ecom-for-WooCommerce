@@ -373,9 +373,41 @@ function get_term_meta( $id, $key = '', $single = false ) {
 function update_term_meta( $id, $key, $value ) { $GLOBALS['termmeta'][ (int) $id ][ $key ] = is_string( $value ) ? stripslashes( $value ) : $value; return true; }
 function delete_term_meta( $id, $key ) { unset( $GLOBALS['termmeta'][ (int) $id ][ $key ] ); return true; }
 function delete_post_meta( $id, $key, $v = '' ) { unset( $GLOBALS['meta'][ (int) $id ][ $key ] ); return true; }
+/**
+ * LA REGLE DE WORDPRESS, PAS UNE VERSION ARRANGEE.
+ *
+ * « A term with the name provided already exists in this taxonomy. »
+ * Sur une taxonomie PLATE, wp_insert_term() refuse un nom deja pris a moins
+ * qu on lui donne un slug libre. product_tag est plate, et une traduction
+ * nait avec le nom de son original : aucune etiquette ne pouvait etre
+ * traduite. Le double repondait oui a tout, donc rien ne le voyait.
+ */
+$GLOBALS['plates'] = [ 'product_tag', 'post_tag' ];
+function is_taxonomy_hierarchical( $tax ) { return ! in_array( (string) $tax, (array) $GLOBALS['plates'], true ); }
 function wp_insert_term( $name, $tax, $args = [] ) {
+	$slug = (string) ( $args['slug'] ?? '' );
+	foreach ( (array) $GLOBALS['terms'] as $tid => $t ) {
+		if ( (string) $t['taxonomy'] !== (string) $tax ) { continue; }
+		if ( '' !== $slug && (string) ( $t['slug'] ?? '' ) === $slug ) {
+			return new WP_Error( 'term_exists', 'A term with the slug provided already exists in this taxonomy.' );
+		}
+		if ( (string) $t['name'] !== (string) $name ) { continue; }
+		// UN NOM EN DOUBLE N EST REFUSE QUE SANS SLUG LIBRE. Le noyau ne
+		// regarde le nom que si aucun slug n a ete fourni, ou si celui
+		// fourni est deja pris — et le cas « deja pris » est traite plus
+		// haut. Un slug libre laisse donc passer les deux sortes de
+		// taxonomies, et c est exactement ce qui debloque la traduction.
+		if ( '' !== $slug ) { continue; }
+		if ( ! is_taxonomy_hierarchical( $tax ) ) {
+			return new WP_Error( 'term_exists', 'A term with the name provided already exists in this taxonomy.' );
+		}
+		if ( (int) ( $t['parent'] ?? 0 ) === (int) ( $args['parent'] ?? 0 ) ) {
+			return new WP_Error( 'term_exists', 'A term with the name provided already exists with this parent.' );
+		}
+	}
 	$id = max( array_keys( $GLOBALS['terms'] ) ) + 1;
 	$GLOBALS['terms'][ $id ] = [
+		'slug'             => $slug,
 		'name'             => (string) $name,
 		'description'      => (string) ( $args['description'] ?? '' ),
 		'taxonomy'         => (string) $tax,
@@ -2172,5 +2204,90 @@ ok( 'et un id vide non plus',
 unset( $GLOBALS['opts']['default_category'], $GLOBALS['opts']['default_product_cat'] );
 ok( 'sans option enregistree, plus rien n est un fourre-tout',
 	DZE_Translate::is_default_term( 5085, 'category' ), false );
+
+
+/**
+ * LE LECTEUR DE TERMES, comme le module s'en sert : dans les tables, jamais
+ * par get_term() — que WPML filtre sur la langue courante et qui répond avec
+ * l'ORIGINAL quand on lui demande une traduction. `create_term()` passe par
+ * lui, donc sans ce double la création ne peut même pas commencer.
+ */
+class DZE_Category_Content {
+	public static function term_row( int $id, string $taxonomy = 'product_cat' ): ?array {
+		$t = $GLOBALS['terms'][ $id ] ?? null;
+		if ( ! $t ) {
+			return null;
+		}
+		if ( '' !== $taxonomy && (string) ( $t['taxonomy'] ?? '' ) !== $taxonomy ) {
+			return null;
+		}
+		return [
+			'term_id'          => $id,
+			'name'             => (string) ( $t['name'] ?? '' ),
+			'slug'             => (string) ( $t['slug'] ?? '' ),
+			'description'      => (string) ( $t['description'] ?? '' ),
+			'taxonomy'         => (string) ( $t['taxonomy'] ?? '' ),
+			'parent'           => (int) ( $t['parent'] ?? 0 ),
+			'term_taxonomy_id' => (int) ( $t['term_taxonomy_id'] ?? $id + 500 ),
+			'count'            => 0,
+		];
+	}
+}
+echo "\nUNE ETIQUETTE SE TRADUIT AUSSI\n";
+// « A term with the name provided already exists in this taxonomy. »
+//
+// Sur une taxonomie PLATE, WordPress refuse un nom deja pris a moins qu on lui
+// donne un slug libre. Une traduction nait avec le nom de son original, et le
+// slug n etait pas fourni — expres, parce que deux termes ne peuvent pas le
+// partager. Resultat : product_cat est hierarchique, donc le meme nom y passe
+// sous un autre parent et les categories marchaient ; product_tag est plate,
+// et AUCUNE etiquette n a jamais pu etre traduite.
+$GLOBALS['terms'][5035] = [
+	'name'             => 'AK Red Dots',
+	'slug'             => 'ak-red-dot',
+	'description'      => 'Red dot sights for AK platforms.',
+	'taxonomy'         => 'product_tag',
+	'parent'           => 0,
+	'term_taxonomy_id' => 5535,
+];
+$dze_ct = new ReflectionMethod( 'DZE_Translate', 'create_term' );
+$dze_ct->setAccessible( true );
+$dze_neuf = 0;
+$dze_mal  = '';
+try {
+	$dze_neuf = (int) $dze_ct->invoke( null, [ 'kind' => 'term', 'id' => 5035, 'type' => 'product_tag' ], 'fr' );
+} catch ( Throwable $e ) {
+	$dze_mal = $e->getMessage();
+}
+ok( 'la traduction d une etiquette est creee', $dze_neuf > 0, true );
+ok( 'et rien n a ete refuse',                  $dze_mal, '' );
+// ELLE NAIT AVEC LE NOM DE SON ORIGINAL — c est le texte traduit qui le
+// remplacera — et avec un slug a elle, sinon elle ne naitrait pas du tout.
+ok( 'elle porte le nom de l original',
+	(string) ( $GLOBALS['terms'][ $dze_neuf ]['name'] ?? '' ), 'AK Red Dots' );
+ok( 'et un slug qui n est pas celui de l original',
+	( $GLOBALS['terms'][ $dze_neuf ]['slug'] ?? '' ) !== 'ak-red-dot', true );
+ok( 'ni un slug vide, qui ferait refuser la creation',
+	'' !== (string) ( $GLOBALS['terms'][ $dze_neuf ]['slug'] ?? '' ), true );
+
+// ET LE SLUG CHOISI EST LIBRE, verifie dans les tables : deux passages de
+// suite ne peuvent pas poser deux fois le meme.
+$dze_deux = (int) $dze_ct->invoke( null, [ 'kind' => 'term', 'id' => 5035, 'type' => 'product_tag' ], 'de' );
+ok( 'un second passage cree encore',        $dze_deux > 0, true );
+ok( 'et les deux slugs different',
+	( $GLOBALS['terms'][ $dze_neuf ]['slug'] ?? 'x' ) !== ( $GLOBALS['terms'][ $dze_deux ]['slug'] ?? 'y' ), true );
+
+// ET LA TAXONOMIE HIERARCHIQUE N A RIEN PERDU : le meme nom sous un parent
+// different y a toujours ete permis, et ca doit le rester.
+$GLOBALS['terms'][6100] = [
+	'name'             => 'Combat Shirts',
+	'slug'             => 'combat-shirts',
+	'description'      => '',
+	'taxonomy'         => 'product_cat',
+	'parent'           => 0,
+	'term_taxonomy_id' => 6600,
+];
+$dze_cat = (int) $dze_ct->invoke( null, [ 'kind' => 'term', 'id' => 6100, 'type' => 'product_cat' ], 'fr' );
+ok( 'une categorie se cree toujours', $dze_cat > 0, true );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
