@@ -964,7 +964,9 @@ final class DZE_Queue {
 		$map  = [];
 		$rows = (array) $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"SELECT id, kind, object_id, status FROM {$table}
+			// `made_by` comes along: the bench that draws from this map has to
+			// be able to say WHOSE run is under way, not only that one is.
+			"SELECT id, kind, object_id, status, made_by FROM {$table}
 			 WHERE status IN ('queued','running','review') AND kind LIKE %s
 			 ORDER BY FIELD(status,'review','running','queued'), id DESC",
 			$wpdb->esc_like( $family ) . '%'
@@ -974,7 +976,12 @@ final class DZE_Queue {
 			if ( isset( $map[ $oid ] ) ) {
 				continue; // the most advanced one wins.
 			}
-			$map[ $oid ] = [ 'status' => (string) $r['status'], 'id' => (int) $r['id'], 'kind' => (string) $r['kind'] ];
+			$map[ $oid ] = [
+				'status' => (string) $r['status'],
+				'id'     => (int) $r['id'],
+				'kind'   => (string) $r['kind'],
+				'by'     => self::started_by( (int) ( $r['made_by'] ?? 0 ) ),
+			];
 		}
 		self::$pending_cache[ $family ] = $map;
 		return $map;

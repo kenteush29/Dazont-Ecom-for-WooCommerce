@@ -2104,5 +2104,33 @@ ok( 'un titre vide ne touche a rien',
 	$GLOBALS['posts'][9202]['post_name'] ?? '', 'garde-moi' );
 ok( 'et la marque reste, pour la prochaine fois',
 	(string) ( $GLOBALS['meta'][9202]['_dze_tr_slug_todo'] ?? '' ), '1' );
+
+echo "\nLE FOURRE-TOUT D UNE TAXONOMIE N EST PAS DU TEXTE CLIENT\n";
+// « Dont Non classifié(e) et Non catégorisé. C'est un problème quelque chose
+// ne va pas. » Douze lignes attendaient une relecture, dont deux termes
+// « Uncategorized » : envoyes en cinq langues, ils revenaient en cinq
+// orthographes du meme non-mot, et la seule decision honnete sur ces lignes
+// etait de les ignorer. Chaque envoi coutait un appel par langue.
+$GLOBALS['opts']['default_category']    = 5085;
+$GLOBALS['opts']['default_product_cat'] = 2516;
+ok( 'le fourre-tout des articles est reconnu',
+	DZE_Translate::is_default_term( 5085, 'category' ), true );
+ok( 'celui de la boutique aussi',
+	DZE_Translate::is_default_term( 2516, 'product_cat' ), true );
+// ET UNE VRAIE CATEGORIE N EST JAMAIS PRISE POUR LUI.
+ok( 'une categorie ordinaire passe',
+	DZE_Translate::is_default_term( 2519, 'product_cat' ), false );
+// LU DANS L OPTION, JAMAIS DEVINE SUR LE SLUG. Le slug depend de la langue
+// d installation — « non-classifiee » ici — et une boutique qui vend des
+// classeurs aurait vu une vraie categorie sautee.
+ok( 'le meme id dans l autre taxonomie ne compte pas',
+	DZE_Translate::is_default_term( 5085, 'product_cat' ), false );
+ok( 'une taxonomie sans fourre-tout declare ne bloque rien',
+	DZE_Translate::is_default_term( 5085, 'product_tag' ), false );
+ok( 'et un id vide non plus',
+	DZE_Translate::is_default_term( 0, 'category' ), false );
+unset( $GLOBALS['opts']['default_category'], $GLOBALS['opts']['default_product_cat'] );
+ok( 'sans option enregistree, plus rien n est un fourre-tout',
+	DZE_Translate::is_default_term( 5085, 'category' ), false );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

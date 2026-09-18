@@ -3363,7 +3363,19 @@ PROMPT;
 				?>
 				<div class="dze-cc-warn dze-cc-waiting" style="background:#eef6fc;border-left-color:#2271b1;">
 					<p><strong><?php esc_html_e( 'A text is waiting for you on this category.', 'dazont-ecom' ); ?></strong>
-					<?php echo esc_html( 'cat_links' === $pending['kind'] ? __( 'It is a linking pass.', 'dazont-ecom' ) : __( 'It is a description.', 'dazont-ecom' ) ); ?></p>
+					<?php echo esc_html( 'cat_links' === $pending['kind'] ? __( 'It is a linking pass.', 'dazont-ecom' ) : __( 'It is a description.', 'dazont-ecom' ) ); ?>
+					<?php
+					// AND WHO ASKED FOR IT. On a shop with more than one pair of
+					// hands, "a text is waiting" without a name is how the same
+					// category gets written twice and one of the two thrown away.
+					if ( ! empty( $pending['by'] ) ) {
+						printf(
+							/* translators: %s: the name of the person who started the work */
+							esc_html__( 'Started by %s.', 'dazont-ecom' ),
+							esc_html( (string) $pending['by'] )
+						);
+					}
+					?></p>
 					<p>
 						<button type="button" class="button button-small dze-cc-loadjob" data-job="<?php echo (int) $pending['id']; ?>">
 							<?php esc_html_e( 'Load it here', 'dazont-ecom' ); ?>
@@ -3373,7 +3385,17 @@ PROMPT;
 				</div>
 			<?php elseif ( $pending ) : ?>
 				<div class="dze-cc-warn dze-cc-waiting" style="background:#eef6fc;border-left-color:#2271b1;">
-					<p><?php esc_html_e( 'A run is under way on this category — it will appear here when it is done.', 'dazont-ecom' ); ?></p>
+					<p><?php
+					if ( ! empty( $pending['by'] ) ) {
+						printf(
+							/* translators: %s: the name of the person who started the run */
+							esc_html__( '%s has a run under way on this category — it will appear here when it is done.', 'dazont-ecom' ),
+							'<strong>' . esc_html( (string) $pending['by'] ) . '</strong>'
+						);
+					} else {
+						esc_html_e( 'A run is under way on this category — it will appear here when it is done.', 'dazont-ecom' );
+					}
+					?></p>
 				</div>
 			<?php endif; ?>
 
