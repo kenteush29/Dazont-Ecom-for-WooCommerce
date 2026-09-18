@@ -96,11 +96,26 @@ function selected( $a, $b = true, $echo = true ) { return $a == $b ? " selected=
 
 class WP_Error { public function __construct( ...$a ) {} }
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
+// La base de la boutique : $GLOBALS['db'] dit ce qui existe.
+function url_to_postid( $u ) { return (int) ( $GLOBALS['db']['posts'][ untrailingslashit( $u ) ] ?? 0 ); }
+function get_post_status( $id ) { return (string) ( $GLOBALS['db']['status'][ (int) $id ] ?? 'publish' ); }
+function get_taxonomies( $a = [], $o = 'names' ) { return [ 'product_cat' ]; }
+function get_term_by( $by, $slug, $tax ) {
+	return in_array( (string) $slug, (array) ( $GLOBALS['db']['terms'] ?? [] ), true ) ? (object) [ 'slug' => $slug ] : false;
+}
 
 $GLOBALS['tr']   = [];
 $GLOBALS['opts'] = [];
 function get_transient( $k ) { return $GLOBALS['tr'][ $k ] ?? false; }
 function set_transient( $k, $v, $t = 0 ) { $GLOBALS['tr'][ $k ] = $v; return true; }
+// The shop answers what $GLOBALS['http'] says it answers. A page with no
+// entry is alive: that is the safe way round, since a link is only ever
+// taken out on a clear refusal.
+function wp_remote_head( $url, $args = [] ) {
+	$GLOBALS['heads'][] = $url;
+	return [ 'response' => [ 'code' => (int) ( $GLOBALS['http'][ untrailingslashit( $url ) ] ?? 200 ) ] ];
+}
+function wp_remote_retrieve_response_code( $r ) { return is_array( $r ) ? (int) ( $r['response']['code'] ?? 0 ) : 0; }
 function delete_transient( $k ) { unset( $GLOBALS['tr'][ $k ] ); return true; }
 function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $auto = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
@@ -644,6 +659,9 @@ for ( $i = 1; $i <= 6; $i++ ) {
 }
 $dze_body = '<p>A rifle is <a href="https://kula.test/a">one</a> and <a href="https://kula.test/b">two</a> '
 	. 'and <a href="https://kula.test/c">three</a> and <a href="https://kula.test/d">four</a>.</p>' . $dze_body;
+// One sentence that appears exactly once, the way a real article has them:
+// the pass now names the words it wants to link, so it needs words to name.
+$dze_body = str_replace( '<h2>Section 3</h2><p>', '<h2>Section 3</h2><p>A ghillie suit hides the outline. ', $dze_body );
 $dze_targets = [ [ 'label' => 'Ghillie suits', 'url' => 'https://kula.test/ghillie', 'kind' => 'category', 'score' => 9, 'products' => 12 ] ];
 $dze_weave = static function ( string $answer ) use ( $dze_body, $dze_targets ): array {
 	DZE_Marketing_Ai::$answer = $answer;
@@ -661,10 +679,248 @@ $dze_good = str_replace(
 	'<h2>Section 3</h2><p>A word about <a href="https://kula.test/ghillie">Ghillie suits</a>, word',
 	$dze_body
 );
-$dze_r = $dze_weave( $dze_good );
+// THE MODEL NAMES THE WORDS; THE PASS WRITES THE LINK.
+//
+// "3 could not be written. The text came back rewritten rather than linked
+// (1,291 words against 1,267)." Asking for the whole article back meant one
+// reworded sentence anywhere in it threw the whole run away. Asking for the
+// sentence back with a link in it only moved the problem: on a 2,600-word
+// article the model cannot transcribe a line of HTML character for character,
+// and every long page failed on a space or an entity. It now returns the words
+// alone. Nothing it sends is ever inserted, so a rewrite is not refused — it
+// is impossible.
+$dze_pick = static function ( string $anchor, string $url ): string {
+	return (string) wp_json_encode( [ [ 'anchor' => $anchor, 'url' => $url ] ] );
+};
+$dze_r = $dze_weave( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
 ok( 'an honest linking pass goes through', $dze_r['ok'], true );
 ok( 'and counts the link it added',        (int) ( $dze_r['res']['added'] ?? 0 ), 1 );
 ok( 'with the four it found',              (int) ( $dze_r['res']['before'] ?? 0 ), 4 );
+ok( 'and the words are now clickable',
+	false !== strpos( (string) ( $dze_r['res']['html'] ?? '' ),
+		'<a href="https://kula.test/ghillie">ghillie suit hides the outline</a>' ), true );
+ok( 'and the sentence around them is untouched',
+	false !== strpos( (string) ( $dze_r['res']['html'] ?? '' ), 'A <a href="https://kula.test/ghillie">' ), true );
+
+// THE DEAD LINKS ARE SWEPT ON THE WAY IN, AND THE SWEEP IS A RESULT ON ITS OWN.
+//
+// "Le lien mort de Combat Uniforms — retirer les liens morts doit faire partie
+// du module de maillage interne." A page was cleaned on the way in and the
+// cleaning was thrown away with the pass whenever no new link could be placed,
+// which is the case the shop actually brought.
+$dze_rot = str_replace(
+	'<a href="https://kula.test/c">three</a>',
+	'<a href="https://kula.test/gone">three</a>',
+	$dze_body
+);
+$GLOBALS['http']  = [ 'https://kula.test/gone' => 404 ];
+$GLOBALS['heads'] = [];
+$GLOBALS['tr']    = [];
+$dze_rotten = static function ( string $answer ) use ( $dze_rot, $dze_targets ): array {
+	DZE_Marketing_Ai::$answer = $answer;
+	try {
+		return [ 'ok' => true, 'res' => DZE_Category_Content::weave( 'How snipers work', $dze_rot, 'English', $dze_targets, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] ) ];
+	} catch ( \Throwable $e ) {
+		return [ 'ok' => false, 'why' => $e->getMessage() ];
+	}
+};
+$dze_r = $dze_rotten( '[]' );
+ok( 'a page with only a dead link in it is still a result', $dze_r['ok'], true );
+ok( 'and the dead page is named',      $dze_r['res']['dead'] ?? [], [ 'https://kula.test/gone' ] );
+ok( 'no link was placed',              (int) ( $dze_r['res']['added'] ?? -1 ), 0 );
+ok( 'the dead link is gone',           false !== strpos( (string) $dze_r['res']['html'], 'kula.test/gone' ), false );
+ok( 'but its words are kept',          false !== strpos( (string) $dze_r['res']['html'], 'three' ), true );
+ok( 'and the living links are untouched',
+	substr_count( (string) $dze_r['res']['html'], '<a href="https://kula.test/a">' ), 1 );
+
+echo "\nUN COUPLE IMPOSSIBLE EST ECARTE AVANT D'ETRE PAYE\n";
+//
+// Le maillage choisit quelle page doit pointer vers quelle autre, et rien ne
+// regardait si l'une avait quoi que ce soit a voir avec l'autre : il
+// l'apprenait en achetant une reponse au modele. « How To Wear Military Trench
+// Coat? » a ete envoye pointer vers « How To Wear A Bomber Jacket? » sur un
+// article qui dit « trench » 53 fois, « coat » 62, et « bomber » et « jacket »
+// pas une seule. Aucun mot ou accrocher le lien, donc aucun lien, et une ligne
+// rouge pour l'expliquer.
+$dze_trench = '<p>' . str_repeat( 'A trench coat is a coat. ', 30 ) . '</p>';
+ok( 'un article de trench ne parle pas de bomber',
+	DZE_Category_Content::mentions( $dze_trench, 'How To Wear A Bomber Jacket?' ), false );
+ok( 'mais il parle bien de trench coats',
+	DZE_Category_Content::mentions( $dze_trench, 'Military Trench Coats' ), true );
+// Le singulier et le pluriel sont le meme sujet.
+ok( 'un titre au pluriel trouve un texte au singulier',
+	DZE_Category_Content::mentions( '<p>Every tactical boot needs care.</p>', 'Tactical boots' ), true );
+ok( 'et une forme en -es aussi',
+	DZE_Category_Content::mentions( '<p>The admin pouch holds a map.</p>', 'Admin pouches' ), true );
+// Les accents et la casse ne comptent pas.
+ok( 'les accents ne comptent pas',
+	DZE_Category_Content::mentions( '<p>Nos vestes militaires sont chaudes.</p>', 'Vestes Militaires' ), true );
+// Un titre qui ne dit rien de precis n'est pas notre affaire.
+ok( 'un titre sans mot parlant est garde',
+	DZE_Category_Content::mentions( '<p>Rien a voir du tout.</p>', 'The Best For You' ), true );
+// Et le balisage ne compte pas comme du texte.
+// LE VERBE DUN TITRE NE DIT RIEN DU SUJET. « How To Wear A Bomber Jacket? »
+// etait juge acceptable pour un article sur les trenchs parce que cet article
+// dit « wear » une ligne sur deux — et « bomber » et « jacket » pas une fois.
+ok( 'le verbe du titre ne suffit pas',
+	DZE_Category_Content::mentions( '<p>' . str_repeat( 'You wear a trench coat to wear it well. ', 20 ) . '</p>', 'How To Wear A Bomber Jacket?' ), false );
+ok( 'mais le sujet du titre, oui',
+	DZE_Category_Content::mentions( '<p>' . str_repeat( 'You wear a bomber jacket well. ', 20 ) . '</p>', 'How To Wear A Bomber Jacket?' ), true );
+ok( 'un mot cache dans une balise ne compte pas',
+	DZE_Category_Content::mentions( '<a href="/ghillie-suits">x</a><p>rien</p>', 'Ghillie suits' ), false );
+
+// ET LA PASSE REFUSE AVANT D'APPELER LE MODELE.
+DZE_Marketing_Ai::$sent   = [];
+DZE_Marketing_Ai::$decide = null;
+$dze_far = $dze_weave( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
+ok( 'un couple possible passe toujours', $dze_far['ok'], true );
+$dze_loin = [ [ 'label' => 'Bomber jackets', 'url' => 'https://kula.test/bombers', 'kind' => 'post', 'score' => 9, 'products' => 0 ] ];
+DZE_Marketing_Ai::$sent = [];
+try {
+	DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_loin, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
+	$dze_pourquoi = '';
+} catch ( \Throwable $e ) { $dze_pourquoi = $e->getMessage(); }
+ok( 'un couple impossible est refuse',        '' !== $dze_pourquoi, true );
+ok( 'et le modele na jamais ete appele',      count( DZE_Marketing_Ai::$sent ), 0 );
+ok( 'le message nomme larticle',              false !== strpos( $dze_pourquoi, 'How snipers work' ), true );
+ok( 'et la page quon lui demandait',          false !== strpos( $dze_pourquoi, 'Bomber jackets' ), true );
+ok( 'et rassure : rien na bouge',             false !== stripos( $dze_pourquoi, 'left exactly as it was' ), true );
+// LA BASE REPOND AVANT LE RESEAU, POUR NOS PROPRES PAGES.
+//
+// L'hebergeur de cette boutique repond 403 aux requetes que le site s'adresse a
+// lui-meme, par intermittence : une heure plus tot, les douze memes adresses
+// repondaient 200. Un controle qui interroge le reseau est donc aveugle
+// exactement quand il compte. Une page de la boutique est dans la base ou elle
+// n'y est pas, et cette question-la n'a pas d'humeur.
+$GLOBALS['db']   = [
+	'posts'  => [ 'https://kula.test/article-vivant' => 12, 'https://kula.test/brouillon' => 13 ],
+	'status' => [ 12 => 'publish', 13 => 'draft' ],
+	'terms'  => [ 'boonie-hats' ],
+];
+$GLOBALS['http']  = [];
+$GLOBALS['tr']    = [];
+$GLOBALS['heads'] = [];
+ok( 'un article publie est vivant',        DZE_Category_Content::dead_url( 'https://kula.test/article-vivant' ), false );
+ok( 'un brouillon ne l\'est pas',          DZE_Category_Content::dead_url( 'https://kula.test/brouillon' ), true );
+ok( 'une categorie connue est vivante',    DZE_Category_Content::dead_url( 'https://kula.test/boonie-hats' ), false );
+ok( 'la page d\'accueil est vivante',      DZE_Category_Content::dead_url( 'https://kula.test/' ), false );
+ok( 'et le reseau n\'a pas ete derange',   count( $GLOBALS['heads'] ), 0 );
+// Ce que la base ne connait pas peut encore repondre : une redirection, une
+// regle de reecriture. Le reseau a le dernier mot, lui seul.
+$GLOBALS['http'] = [ 'https://kula.test/redirigee' => 200, 'https://kula.test/nulle-part' => 404 ];
+ok( 'une adresse inconnue passe au reseau', DZE_Category_Content::dead_url( 'https://kula.test/redirigee' ), false );
+ok( 'et le reseau a bien ete interroge',    count( $GLOBALS['heads'] ) > 0, true );
+$GLOBALS['tr'] = [];
+ok( 'une adresse inconnue et absente est morte', DZE_Category_Content::dead_url( 'https://kula.test/nulle-part' ), true );
+// Un site qui n'est pas le notre n'est jamais jugé.
+$GLOBALS['tr'] = [];
+ok( 'un site exterieur n\'est jamais juge', DZE_Category_Content::dead_url( 'https://ailleurs.test/quoi' ), false );
+$GLOBALS['db'] = [];
+$GLOBALS['http'] = [];
+$GLOBALS['tr'] = [];
+// LE MEME JUGEMENT SERT A CHOISIR LES CIBLES. Une cible ecartee sur un 403
+// est une categorie reelle que le module ne proposera jamais : le vivier se
+// vide en silence et le module a lair de navoir rien a offrir.
+$GLOBALS['tr']   = [];
+$GLOBALS['http'] = [ 'https://kula.test/pare-feu' => 403, 'https://kula.test/disparue' => 404 ];
+$dze_pool3 = DZE_Category_Content::only_alive( [
+	[ 'label' => 'Vivante',  'url' => 'https://kula.test/ghillie' ],
+	[ 'label' => 'Pare-feu', 'url' => 'https://kula.test/pare-feu' ],
+	[ 'label' => 'Disparue', 'url' => 'https://kula.test/disparue' ],
+] );
+ok( 'une cible en 403 reste proposable', wp_list_pluck( $dze_pool3, 'label' ), [ 'Vivante', 'Pare-feu' ] );
+$GLOBALS['http'] = []; $GLOBALS['tr'] = [];
+
+// AND ONLY "CETTE PAGE NEXISTE PAS" COMPTE. This is the one thing on the
+// site that deletes something a human wrote. Twelve good addresses on this
+// shop answer 403 to a request made from the server itself; a 429 is us
+// asking too fast and a 500 is a bad minute. None is proof a page is gone.
+foreach ( [ 403, 401, 429, 500, 503 ] as $dze_code ) {
+	$GLOBALS['http'] = [ 'https://kula.test/gone' => $dze_code ];
+	$GLOBALS['tr']   = [];
+	$dze_r = $dze_rotten( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
+	ok( "a $dze_code is not a page that is gone", $dze_r['res']['dead'] ?? null, [] );
+	ok( "and the link survives a $dze_code",
+		false !== strpos( (string) $dze_r['res']['html'], 'kula.test/gone' ), true );
+}
+$GLOBALS['http'] = [ 'https://kula.test/gone' => 410 ];
+$GLOBALS['tr']   = [];
+$dze_r = $dze_rotten( '[]' );
+ok( 'but a 410 is gone for good', $dze_r['res']['dead'] ?? [], [ 'https://kula.test/gone' ] );
+$GLOBALS['http'] = [ 'https://kula.test/gone' => 404 ];
+$GLOBALS['tr']   = [];
+
+// AND THE SWEEP PLUS A LINK IS BOTH.
+$GLOBALS['tr'] = [];
+$dze_r = $dze_rotten( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
+ok( 'a sweep and a link together go through', $dze_r['ok'], true );
+ok( 'the link is counted',                    (int) ( $dze_r['res']['added'] ?? 0 ), 1 );
+ok( 'and the sweep is reported beside it',    $dze_r['res']['dead'] ?? [], [ 'https://kula.test/gone' ] );
+$GLOBALS['http'] = [];
+$GLOBALS['tr']   = [];
+
+// AND IT IS A SETTING.
+// "Retirer les liens morts doit faire partie du module de maillage interne,
+// parametres ca." Sweeping is the default; the tick turns it off.
+$GLOBALS['tr']['dze_category_content'] = [ 'dead_off' => 1 ];
+$dze_r = $dze_weave( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
+ok( 'with the sweep off, nothing is swept', $dze_r['res']['dead'] ?? null, [] );
+unset( $GLOBALS['tr']['dze_category_content'] );
+
+// WORDS THAT ARE NOT IN THE TEXT ARE NOT WORDS WE CAN LINK.
+ok( 'an invented anchor is refused',
+	$dze_weave( $dze_pick( 'a sentence nobody wrote', 'https://kula.test/ghillie' ) )['ok'], false );
+
+// NOR WORDS THAT APPEAR ALL OVER: we would not know which ones were meant.
+ok( 'an anchor found twice is refused',
+	$dze_weave( $dze_pick( 'word word', 'https://kula.test/ghillie' ) )['ok'], false );
+
+// NOR WORDS ALREADY INSIDE A LINK — a link opened inside a link breaks both.
+ok( 'an anchor inside an existing link is refused',
+	$dze_weave( $dze_pick( 'one', 'https://kula.test/ghillie' ) )['ok'], false );
+
+// NOR ANYTHING CARRYING MARKUP.
+ok( 'an anchor carrying a tag is refused',
+	$dze_weave( $dze_pick( 'outline. </p>', 'https://kula.test/ghillie' ) )['ok'], false );
+
+// NOR A LINK TO SOMEWHERE THAT WAS NEVER OFFERED.
+ok( 'a link to an address that was not offered is refused',
+	$dze_weave( $dze_pick( 'ghillie suit hides the outline', 'https://elsewhere.test/x' ) )['ok'], false );
+// A GREETING BEFORE THE JSON IS NOT A FAILED RUN. Throwing away a 1,600-word
+// article because the model opened with "Here are the links:" left the shop to
+// start the pass again by hand, over nothing.
+$dze_r = $dze_weave( "Here are the links I found:\n" . $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) . "\nLet me know if you want more." );
+ok( 'a JSON list with a greeting around it still works', $dze_r['ok'], true );
+ok( 'and the link is placed', (int) ( $dze_r['res']['added'] ?? 0 ), 1 );
+
+// A LONE OBJECT IS A LIST OF ONE.
+ok( 'a single object instead of a list still works', $dze_weave( (string) wp_json_encode(
+	[ 'anchor' => 'ghillie suit hides the outline', 'url' => 'https://kula.test/ghillie' ] ) )['ok'], true );
+
+// "[]" IS A JUDGEMENT, NOT A BREAKDOWN: the model looked and found nowhere
+// the link belonged. Read as gibberish it cost a second call and a failed row
+// telling the shop the model had answered with a note, quoting "[]".
+DZE_Marketing_Ai::$sent = [];
+$dze_r = $dze_weave( '[]' );
+ok( 'nowhere to put it is still no link', $dze_r['ok'], false );
+ok( 'but it is not asked twice',          count( DZE_Marketing_Ai::$sent ), 1 );
+// ET IL NOMME LES DEUX ARTICLES. Le couple a ete choisi par le maillage tout
+// seul : dire a la boutique de « choisir une page plus proche » lui demandait
+// de corriger une decision quelle navait jamais prise, sans lui montrer le
+// moindre bouton pour le faire.
+$dze_why = (string) ( $dze_r['why'] ?? '' );
+ok( 'il nomme larticle travaille',   false !== strpos( $dze_why, 'How snipers work' ), true );
+ok( 'et la page quon lui demandait', false !== strpos( $dze_why, 'Ghillie suits' ), true );
+ok( 'et il rassure : rien na bouge', false !== stripos( $dze_why, 'left exactly as it was' ), true );
+ok( 'et il nordonne rien a personne', false !== stripos( $dze_why, 'choose' ), false );
+
+// AN OBJECT THAT IS NOT A LINK IS NOT AN EMPTY ANSWER EITHER.
+ok( 'a note dressed as JSON is refused',
+	$dze_weave( '{"note":"I could not find a good spot"}' )['ok'], false );
+
+// NOR PROSE WHERE A LIST WAS ASKED FOR.
+ok( 'an answer that is not a list is refused',
+	$dze_weave( 'I have added the links you asked for.' )['ok'], false );
 
 // THE TAIL CUT OFF. This is the shop's own case: 3298 → 3038 words is a loss
 // of 8%, which sailed straight through a guard that only refused below 80%.
@@ -673,8 +929,19 @@ $dze_r   = $dze_weave( $dze_cut );
 ok( 'a text that came back short is refused', $dze_r['ok'], false );
 // AND IT SAYS WHAT HAPPENED. "Try again" over a silent loss is what let this
 // reach the review screen looking like an ordinary result.
+// Read from the guard itself. `weave()` no longer accepts a document at
+// all, so this loss can only be reached by asking `only_linked()` — which
+// still stands behind every edit the pass applies, as a second pair of eyes.
+$dze_why = static function ( string $after ) use ( $dze_good ): string {
+	try {
+		DZE_Category_Content::only_linked( $dze_good, $after, DZE_Category_Content::linked_urls( $dze_good ), 1 );
+		return '';
+	} catch ( \Throwable $e ) {
+		return $e->getMessage();
+	}
+};
 ok( 'and says a part is missing',
-	false !== stripos( (string) ( $dze_r['why'] ?? '' ), 'missing' ), true );
+	false !== stripos( $dze_why( $dze_cut ), 'missing' ), true );
 
 // A LINK THAT WAS ALREADY THERE IS NOT THE PASS'S TO DROP — 4 links → 3. The
 // old guard never looked at them at all: it counted words and nothing else.
@@ -682,7 +949,7 @@ $dze_lost = str_replace( '<a href="https://kula.test/c">three</a>', 'three', $dz
 $dze_r    = $dze_weave( $dze_lost );
 ok( 'a link taken away is refused',        $dze_r['ok'], false );
 ok( 'and the dropped page is named',
-	false !== strpos( (string) ( $dze_r['why'] ?? '' ), 'kula.test/c' ), true );
+	false !== strpos( $dze_why( $dze_lost ), 'kula.test/c' ), true );
 
 // A REWRITE THAT KEEPS THE SHAPE. Same blocks, same links, different words:
 // a percentage cannot see it and the word budget can — the pass may only move
@@ -700,8 +967,15 @@ ok( 'a text that came back rewritten is refused', $dze_weave( $dze_fat )['ok'], 
 $dze_seen = 0;
 DZE_Marketing_Ai::$decide = static function ( string $user ) use ( $dze_good ): string { return $dze_good; };
 DZE_Marketing_Ai::$sent = [];
-DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_targets, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
-ok( 'the ceiling is asked for at all',     count( DZE_Marketing_Ai::$sent ), 1 );
+// The ceiling is read from what was SENT, so the answer is beside the point
+// here — and a document is no longer an answer the pass accepts.
+try {
+	DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_targets, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
+} catch ( \Throwable $e ) { /* the ceiling is what is being read, not the answer. */ }
+// An answer that is not a list is asked for once more, plainly, before the
+// run is thrown away — so a refused answer is two calls, not one.
+ok( 'the ceiling is asked for at all',     count( DZE_Marketing_Ai::$sent ) >= 1, true );
+ok( 'and a shapeless answer is asked again, once', count( DZE_Marketing_Ai::$sent ), 2 );
 // IT IS MEASURED ON WHAT MUST COME BACK — the HTML — and a document cannot be
 // returned in fewer tokens than it is made of.
 ok( 'and it is big enough for the text',
@@ -717,6 +991,7 @@ for ( $i = 1; $i <= 30; $i++ ) {
 	$dze_heavy .= '<div class="elementor-element elementor-element-' . $i . 'a7f3c elementor-widget elementor-widget-text-editor" data-id="' . $i . 'a7f3c" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;none&quot;}" data-widget_type="text-editor.default">'
 		. '<div class="elementor-widget-container"><h2 class="wp-block-heading has-large-font-size" id="sec-' . $i . '">Section ' . $i . '</h2>'
 		. '<p class="wp-block-paragraph has-text-color has-medium-font-size" style="line-height:1.7;color:#1d2327">'
+		. ( 3 === $i ? 'A ghillie suit hides the outline. ' : '' )
 		. str_repeat( 'word ', 10 ) . '</p></div></div>';
 }
 DZE_Marketing_Ai::$decide = static fn( string $user ): string => $dze_heavy;

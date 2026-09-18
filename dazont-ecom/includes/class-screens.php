@@ -45,30 +45,48 @@ final class DZE_Screens {
 	public static function catalog(): array {
 		return [
 			'dashboard'    => [
-				'label'  => __( 'Dashboard', 'dazont-ecom' ),
+				// NAMED BY THE QUESTION IT ANSWERS. "Je ne comprends pas la ou il
+				// faut donner de l'attention": a screen called Dashboard does not
+				// say it is the one that knows.
+				'label'  => __( 'Overview', 'dazont-ecom' ),
+				// WHAT PRESSING "DAZONT ECOM" OPENS IS THE FIRST SUBMENU, not the
+				// parent's own page: wp-admin/menu-header.php builds that anchor
+				// from $submenu_items[0][2]. So this screen opens the menu by being
+				// FIRST in menu_order() — no address has to move for that, and the
+				// one that did was a public address changed for nothing.
 				'slug'   => 'dazont-ecom-dashboard',
-				'module' => 'dashboard',
+				// GATED ON NO MODULE, like the Logs and the Setup. The screen
+				// that answers "what needs me" must not vanish with a switch:
+				// switched off, the shop lost the one place that says where to
+				// give its attention — and the menu then opened on whatever
+				// happened to be first.
 			],
 			'content'      => [
-				'label'  => __( 'Content', 'dazont-ecom' ),
+				// NAMED BY WHAT IT DOES, not by one of the things it reads.
+				// "Content" named the module. "Products" was worse: this screen
+				// reads the WHOLE site — 52 criteria, of which 15 are about
+				// articles and 5 about categories — so the name lied about the
+				// subject on the very first tile. It is the reading of the shop
+				// against the shop's own standards, and it says where to go.
+				'label'  => __( 'Diagnostic', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-diagnostic',
 				'module' => 'diagnostic',
-				'tabs'   => [
-					'diagnostic' => [ 'label' => __( 'Diagnostic', 'dazont-ecom' ) ],
-					'linking'    => [ 'label' => __( 'Linking', 'dazont-ecom' ), 'module' => 'mesh' ],
-					'review'     => [ 'label' => __( 'To review', 'dazont-ecom' ), 'module' => 'queue' ],
-					'products'   => [ 'label' => __( 'Products', 'dazont-ecom' ), 'module' => 'content' ],
-				],
 			],
 			'marketing'    => [
 				'label'  => __( 'Marketing', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-marketing-events',
-				'module' => 'discounts',
+				// GATED PER TAB, NOT ON ONE MODULE. Held to 'discounts' alone,
+				// switching the discount rules off took the whole entry with it
+				// — the marketing calendar (marketing_ai) and Merchant Center
+				// (gmc) went too, which are other modules. A disabled module
+				// must leave zero trace; it must not take its neighbours' work.
+				// With no module of its own, the entry is offered while ANY of
+				// its tabs is (see offered()).
 				'tabs'   => [
-					'events'    => [ 'label' => __( 'Events & calendar', 'dazont-ecom' ) ],
+					'events'    => [ 'label' => __( 'Events & calendar', 'dazont-ecom' ), 'module' => 'marketing_ai' ],
 					// The rules have a page of their own — the tab has to open
 					// on something — taken out of the menu, so it is a tab here.
-					'discounts' => [ 'label' => __( 'Discount rules', 'dazont-ecom' ), 'slug' => 'dazont-ecom-discounts' ],
+					'discounts' => [ 'label' => __( 'Discount rules', 'dazont-ecom' ), 'slug' => 'dazont-ecom-discounts', 'module' => 'discounts' ],
 					'gmc'       => [ 'label' => __( 'Google Merchant Center', 'dazont-ecom' ), 'module' => 'gmc' ],
 				],
 			],
@@ -91,10 +109,33 @@ final class DZE_Screens {
 					'past' => [ 'label' => __( 'Past work', 'dazont-ecom' ) ],
 				],
 			],
+			// A BENCH IS NOT A PREFERENCE. This one has a prompt box and a
+			// Generate button, it makes images and files them in the media
+			// library — that is work, and it lived inside Settings. "Image lab,
+			// peut-être dans le menu directement, c'est un petit module séparé."
+			'lab'          => [
+				'label'  => __( 'Image lab', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-lab',
+				'module' => 'image_lab',
+			],
+			'linking'      => [
+				'label'  => __( 'Internal linking', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-linking',
+				'module' => 'mesh',
+			],
 			'restock'      => [
 				'label'  => __( 'Restock', 'dazont-ecom' ),
 				'slug'   => self::PARENT,
 				'module' => 'restock',
+			],
+			// Recommendations (frequently bought together). It registered a menu
+			// entry without being declared here, so it could not be named in a
+			// sentence, linked to, ordered or gated — it simply appeared, after
+			// everything the catalogue knew about.
+			'fbt'          => [
+				'label'  => __( 'Recommendations', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-fbt',
+				'module' => 'fbt',
 			],
 			'sourcing'     => [
 				'label'  => __( 'Sourcing Assistant', 'dazont-ecom' ),
@@ -105,17 +146,26 @@ final class DZE_Screens {
 			// otherwise: switching one module off must never hide a function
 			// that has nothing to do with it.
 			'review'       => [
-				'label'  => __( 'Content to review', 'dazont-ecom' ),
+				// THE INBOX. "Content to review" named one of the things on it and
+				// hid the rest: it holds category descriptions, article links,
+				// photographs and product texts. What it IS, is the list of what
+				// waits for a decision.
+				'label'  => __( 'To review', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-queue',
 				'module' => 'queue',
-				'hosted' => [ 'content', 'review' ],
 			],
+			// ONE BENCH, ONE SUBJECT PER TAB. The categories had a menu entry of
+			// their own that held three lines and a switch — "menu Categories
+			// existant et vide, aucun sens" — while the products had a bench.
+			// Same work, two shapes, two places. Here they are two tabs of one
+			// bench, and the articles will be a third when they get one.
 			'bulk'         => [
-				'label'  => __( 'Products AI bulk', 'dazont-ecom' ),
+				'label'  => __( 'Bulk writing', 'dazont-ecom' ),
 				'slug'   => 'dazont-content-bulk',
-				'module' => 'content',
-				'parent' => 'edit.php?post_type=product',
-				'hosted' => [ 'content', 'products' ],
+				'tabs'   => [
+					'products'   => [ 'label' => __( 'Products', 'dazont-ecom' ), 'module' => 'content' ],
+					'categories' => [ 'label' => __( 'Categories', 'dazont-ecom' ), 'module' => 'category_content' ],
+				],
 			],
 			'shortcodes'   => [
 				'label' => __( 'Shortcodes', 'dazont-ecom' ),
@@ -135,6 +185,12 @@ final class DZE_Screens {
 					'calls'  => [ 'label' => __( 'AI calls', 'dazont-ecom' ) ],
 					'spend'  => [ 'label' => __( 'Spend', 'dazont-ecom' ) ],
 					'health' => [ 'label' => __( 'Connections', 'dazont-ecom' ), 'module' => 'health' ],
+					// WHAT THE PLUGIN DID ON ITS OWN, and the undo for it. It was the
+					// second tab of an Automation page that left the menu, so the one
+					// place a shop could take back what a nightly pass published was
+					// reachable from nothing at all. A record of what happened is a
+					// log, and this is where the logs are.
+					'past'   => [ 'label' => __( 'Automatic passes', 'dazont-ecom' ), 'module' => 'automation' ],
 				],
 			],
 			'settings'     => [
@@ -143,12 +199,11 @@ final class DZE_Screens {
 				'module' => 'marketing_ai',
 				'tabs'   => [
 					'general'        => [ 'label' => __( 'General', 'dazont-ecom' ) ],
-					'sourcing'       => [ 'label' => __( 'Sourcing Assistant', 'dazont-ecom' ), 'module' => 'sourcing' ],
+					'sourcing'       => [ 'label' => __( 'Sourcing preferences', 'dazont-ecom' ), 'module' => 'sourcing' ],
 					'content'        => [ 'label' => __( 'Product content', 'dazont-ecom' ), 'module' => 'content' ],
 					'categories'     => [ 'label' => __( 'Categories', 'dazont-ecom' ), 'module' => 'category_content' ],
 					'reviews'        => [ 'label' => __( 'Reviews', 'dazont-ecom' ), 'module' => 'reviews' ],
 					'translate'      => [ 'label' => __( 'Translation', 'dazont-ecom' ), 'module' => 'translate' ],
-					'lab'            => [ 'label' => __( 'Image lab', 'dazont-ecom' ), 'module' => 'image_lab' ],
 					'discounts'      => [ 'label' => __( 'Discounts', 'dazont-ecom' ), 'module' => 'discounts' ],
 					// The PREFERENCES of the marketing work — calendar languages,
 					// countries, context, prompt. Not the work itself, which is
@@ -192,6 +247,18 @@ final class DZE_Screens {
 			return false;
 		}
 		if ( '' === $tab ) {
+			// A PAGE WITH TABS BUT NO MODULE OF ITS OWN IS OFFERED WHILE ANY OF
+			// THEM IS. Otherwise it would either always show — with every tab
+			// gone and nothing under the title — or be held to one of its
+			// tabs' modules and take the others down with it.
+			if ( '' === (string) ( $page['module'] ?? '' ) && ! empty( $page['tabs'] ) ) {
+				foreach ( $page['tabs'] as $one ) {
+					if ( self::on( (string) ( $one['module'] ?? '' ) ) ) {
+						return true;
+					}
+				}
+				return false;
+			}
 			return true;
 		}
 		$one = $page['tabs'][ $tab ] ?? null;
@@ -281,6 +348,18 @@ final class DZE_Screens {
 		if ( '' === $label ) {
 			return '';
 		}
+		// AND A SENTENCE NEVER NAMES A SCREEN NOBODY CAN FIND.
+		//
+		// This checked the LABEL and nothing else, so a page registered and
+		// then taken out of the menu kept being named all over the admin:
+		// "Dazont Ecom → Content to review" was printed on screen after
+		// screen while the entry it named was in no menu at all. A page
+		// HOSTED by another is findable — it wears its host's address, which
+		// is the invariant this catalogue is built on — so only a page that
+		// is neither in the menu nor hosted is refused.
+		if ( ! in_array( $id, self::menu_order(), true ) && null === self::hosted_by( $id ) ) {
+			return '';
+		}
 		if ( 'settings' === $id && '' !== $tab ) {
 			/* translators: %s: the name of a settings tab */
 			return sprintf( __( 'Settings → %s', 'dazont-ecom' ), self::label( $id, $tab ) );
@@ -334,12 +413,17 @@ final class DZE_Screens {
 	public static function menu_order(): array {
 		return [
 			'dashboard',
-			'content',
+			// LA BOITE DE RECEPTION, juste apres laccueil : cest la reponse a
+			// « je ne comprends pas la ou il faut donner de lattention ».
 			'review',
-			'marketing',
+			'content',
+			'bulk',
+			'linking',
+			'lab',
 			'translations',
-			'automation',
+			'marketing',
 			'restock',
+			'fbt',
 			'sourcing',
 			'shortcodes',
 			'setup',
@@ -378,6 +462,48 @@ final class DZE_Screens {
 		return array_map( static fn( array $one ): array => $one[2], $keyed );
 	}
 
+	/**
+	 * THE TAB STRIP, PRINTED IN ONE PLACE.
+	 *
+	 * Six screens built their own, each a near-copy of the others: the same
+	 * markup, the same classes, the same count span — and one of them, the
+	 * linking screen's, was hand-built with keys the catalogue had never heard
+	 * of, so its second view could not be named in a sentence or linked to
+	 * from anywhere. Two builders is how two screens start behaving
+	 * differently while looking the same, which is the rule `check-methods`
+	 * already holds block builders to.
+	 *
+	 * @param array<string,array{label:string,url:string,n?:int|null}> $items
+	 */
+	public static function strip( array $items, string $now, string $style = 'margin:12px 0 0;' ): string {
+		if ( ! $items ) {
+			return '';
+		}
+		$out = '<h2 class="nav-tab-wrapper" style="' . esc_attr( $style ) . '">';
+		foreach ( $items as $id => $one ) {
+			$n = array_key_exists( 'n', $one ) ? $one['n'] : null;
+			// A TAB THE PAGE'S OWN SCRIPT HAS TO FIND. The Diagnostic keeps its
+			// two counts in step without reloading, so it needs a hook on the
+			// anchor — and that was reason enough for it to build its whole
+			// strip by hand, markup, classes and all. Two optional keys here
+			// and it does not have to.
+			$cls  = 'nav-tab' . ( (string) $id === $now ? ' nav-tab-active' : '' );
+			$cls .= '' !== (string) ( $one['class'] ?? '' ) ? ' ' . (string) $one['class'] : '';
+			$att  = '';
+			foreach ( (array) ( $one['data'] ?? [] ) as $k => $v ) {
+				$att .= ' data-' . sanitize_key( (string) $k ) . '="' . esc_attr( (string) $v ) . '"';
+			}
+			$out .= sprintf(
+				'<a class="%1$s"%2$s href="%3$s">%4$s%5$s</a>',
+				esc_attr( $cls ),
+				$att, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built and escaped above.
+				esc_url( (string) ( $one['url'] ?? '' ) ),
+				esc_html( (string) ( $one['label'] ?? $id ) ),
+				null === $n ? '' : ' <span class="dze-tab-n">' . esc_html( number_format_i18n( (int) $n ) ) . '</span>'
+			);
+		}
+		return $out . '</h2>';
+	}
 	public static function reorder_menu(): void {
 		global $submenu;
 		if ( isset( $submenu[ self::PARENT ] ) && is_array( $submenu[ self::PARENT ] ) ) {

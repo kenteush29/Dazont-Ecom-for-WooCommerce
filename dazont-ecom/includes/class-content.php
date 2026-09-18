@@ -2634,7 +2634,7 @@ Answer with STRICT JSON and nothing else: "
 			printf(
 				/* translators: %s: link to the products bulk screen */
 				esc_html__( 'What the plugin writes on a product — its texts, its photographs, its price — and the prompts it writes them with. The work happens on each product\'s own page and under %s.', 'dazont-ecom' ),
-				'<a href="' . esc_url( DZE_Screens::url( 'content', 'products' ) ) . '">' . esc_html( DZE_Screens::name( 'content', 'products' ) ) . '</a>'
+				'<a href="' . esc_url( DZE_Screens::url( 'bulk' ) ) . '">' . esc_html( DZE_Screens::name( 'bulk' ) ) . '</a>'
 			);
 			?>
 		</p>
@@ -3605,15 +3605,12 @@ Answer with STRICT JSON and nothing else: "
 	 * @param int $over How many the list had no room for, said on arrival.
 	 */
 	public static function bulk_url( int $over = 0 ): string {
-		// WHERE THE PRODUCT WORK IS DONE, which is a tab of Content diagnostic
-		// whenever that screen is there to hold it. Every link in the plugin
-		// goes through here, so there is one address to be right.
-		$url = self::bulk_hosted()
-			? add_query_arg(
-				[ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'products' ],
-				admin_url( 'admin.php' )
-			)
-			: self::bulk_page_url();
+		// WHERE THE PRODUCT WORK IS DONE: a screen of its own, under Dazont
+		// Ecom. It used to be a tab of the diagnostic whenever that screen was
+		// there to hold it — so the address of the bench changed with another
+		// module's switch. Every link in the plugin goes through here, so
+		// there is one address to be right, and it no longer moves.
+		$url = add_query_arg( [ 'page' => self::BULK_SLUG ], admin_url( 'admin.php' ) );
 		return $over > 0 ? add_query_arg( 'dze_over', (int) $over, $url ) : $url;
 	}
 
@@ -3634,9 +3631,16 @@ Answer with STRICT JSON and nothing else: "
 	 * bulk": the entry was taken out of the menu for a host that never held
 	 * it, so the screen had no home at all.
 	 */
+	/**
+	 * NOT HOSTED ANY MORE: the bench has an entry of its own.
+	 *
+	 * As a tab of the diagnostic, its address depended on another module's
+	 * switch — and the screen that writes every product text was named after
+	 * a screen that reads the whole site. Kept because callers ask it, and it
+	 * answers the only true thing: no.
+	 */
 	public static function bulk_hosted(): bool {
-		return class_exists( 'DZE_Diagnostic' )
-			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'diagnostic' ) );
+		return false;
 	}
 
 	/**
@@ -3717,6 +3721,24 @@ Answer with STRICT JSON and nothing else: "
 
 	public function register_bulk_page(): void {
 		$label = DZE_Screens::label( 'bulk' );
+		// THE BENCH HAS ITS OWN ENTRY, under Dazont Ecom, named for what it
+		// works on. It was a tab of the Diagnostic — a screen that reads the
+		// WHOLE site — so the plugin printed "Diagnostic → Bulk writing" over a
+		// bench that only ever touches products, and its own entry under
+		// WooCommerce's Products menu was registered and taken straight back
+		// out. One entry, one name, one place.
+		add_submenu_page(
+			class_exists( 'DZE_Screens' ) ? DZE_Screens::PARENT : 'dazont-ecom',
+			$label,
+			$label,
+			'edit_products',
+			self::BULK_SLUG,
+			[ $this, 'render_bulk_page' ]
+		);
+		// AND THE OLD ADDRESS UNDER WooCommerce → Products STILL ANSWERS: it is
+		// where the products list sends a bulk action, and where every link
+		// ever printed at this screen points. Registered, then taken out of
+		// that menu so there is one entry and not two.
 		add_submenu_page(
 			'edit.php?post_type=product',
 			$label,
@@ -3725,28 +3747,10 @@ Answer with STRICT JSON and nothing else: "
 			self::BULK_SLUG,
 			[ $this, 'render_bulk_page' ]
 		);
-		// AND TAKEN STRAIGHT BACK OUT OF THE MENU. "Writing queue » / bulk
-		// produit > Pourquoi pas dans un onglet réuni (catégorie + produits +
-		// blog) sous le nom Content to review ?" — two menus for one question
-		// ("what is waiting for me?") is two places to remember and two counts
-		// that disagree. Content to review names everything waiting, this
-		// included, and links here; the products list sends here on a bulk
-		// action; every link ever printed at this screen still lands on it.
-		// The page stays registered, so nothing is unreachable — it simply
-		// stops being a second entry in the menu.
-		//
-		// remove_submenu_page() and not a null parent: passing null to
-		// add_submenu_page() is deprecated, and a deprecation notice printed
-		// before our own output is a white admin page.
-		// Taken out of the menu ONLY where Content diagnostic shows it as a
-		// tab. It used to be removed whenever the review queue owned its own
-		// screen — a host that never drew this one — so the shop was left with
-		// a function it could not find from any menu at all.
-		if ( self::bulk_hosted() ) {
+		if ( function_exists( 'remove_submenu_page' ) ) {
 			remove_submenu_page( 'edit.php?post_type=product', self::BULK_SLUG );
 		}
 	}
-
 	/** Products queued for the bulk screen (from the last bulk action). */
 	/**
 	 * What this screen is showing: 'selection', 'log' or 'empty'.
@@ -4305,13 +4309,44 @@ Answer with STRICT JSON and nothing else: "
 			] );
 	}
 
+	/**
+	 * ONE BENCH, ONE TAB PER SUBJECT.
+	 *
+	 * The categories had a menu entry of their own holding a switch and two
+	 * links, beside a products bench doing the same job on the other subject.
+	 * They are tabs of one screen now, and the blog posts will be a third.
+	 *
+	 * The tab strip is the catalogue's, so a subject whose module is off is
+	 * not offered — and when only one is left the strip does not print at
+	 * all, because a row of one tab says nothing.
+	 */
 	public function render_bulk_page(): void {
 		if ( ! current_user_can( 'edit_products' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
+		$tabs = DZE_Screens::tabs_of( 'bulk' );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading which tab to draw.
+		$tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+		if ( ! isset( $tabs[ $tab ] ) ) {
+			$tab = (string) array_key_first( $tabs );
+		}
 		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'bulk' ) ) . '</h1>';
-		$this->bulk_body( self::bulk_page_url() );
+		if ( count( $tabs ) > 1 ) {
+			$strip = [];
+			foreach ( $tabs as $id => $label ) {
+				$strip[ (string) $id ] = [
+					'label' => $label,
+					'url'   => DZE_Screens::url( 'bulk', (string) $id ),
+				];
+			}
+			echo wp_kses_post( DZE_Screens::strip( $strip, $tab, 'margin:12px 0 0;' ) );
+		}
+		if ( 'categories' === $tab && class_exists( 'DZE_Category_Content' ) ) {
+			DZE_Category_Content::instance()->render_bench();
+		} else {
+			$this->bulk_body( self::bulk_page_url() );
+		}
 		echo '</div>';
 	}
 
@@ -4352,14 +4387,18 @@ Answer with STRICT JSON and nothing else: "
 			?>
 			<!-- Two states, and that is the whole screen: the products being
 			     worked on, and the products that are done with. -->
-			<h2 class="nav-tab-wrapper dze-cb-tabs">
+			<ul class="subsubsub dze-cb-tabs">
+				<?php $dze_last = array_key_last( $dze_tabs ); ?>
 				<?php foreach ( $dze_tabs as $dze_key => $dze_tab ) : ?>
-					<a href="<?php echo esc_url( $dze_tab[1] ); ?>" data-tab="<?php echo esc_attr( $dze_key ); ?>" class="nav-tab<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? ' nav-tab-active' : ''; ?>">
-						<?php echo esc_html( $dze_tab[0] ); ?>
-						<span class="dze-cb-count"><?php echo $dze_tab[2] ? esc_html( number_format_i18n( $dze_tab[2] ) ) : ''; ?></span>
-					</a>
+					<li>
+						<a href="<?php echo esc_url( $dze_tab[1] ); ?>" data-tab="<?php echo esc_attr( $dze_key ); ?>" class="<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? 'current' : ''; ?>">
+							<?php echo esc_html( $dze_tab[0] ); ?>
+							<span class="dze-cb-count"><?php echo $dze_tab[2] ? esc_html( number_format_i18n( $dze_tab[2] ) ) : ''; ?></span>
+						</a><?php echo $dze_key === $dze_last ? '' : ' |'; ?>
+					</li>
 				<?php endforeach; ?>
-			</h2>
+			</ul>
+			<div style="clear:both;"></div>
 			<?php
 			if ( 'log' === $dze_mode ) {
 				$this->render_bulk_log();
@@ -4743,7 +4782,7 @@ Answer with STRICT JSON and nothing else: "
 		if ( ! $on_product && ! $on_list && ! $on_bulk && ! $on_settings && ! $on_diag ) {
 			return;
 		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		// Dense thumbnails everywhere: the full image on hover instead of
 		// screen space spent on being legible.
 		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );

@@ -129,6 +129,9 @@ class DZE_Prompts {
 }
 
 // The catalogue of screens: every page reads its name and its tabs from it.
+// The one place that versions this plugin's admin files; every screen
+// class asks it rather than hanging DZE_VERSION on the same handle.
+require DZE_DIR . 'includes/class-assets.php';
 require DZE_DIR . 'includes/class-screens.php';
 require DZE_DIR . 'includes/class-setup.php';
 
@@ -348,7 +351,7 @@ $GLOBALS['chosen'] = [ 'pages' => 35, 'on' => 0 ];
 DZE_Setup::forget();
 ok( 'none chosen is a suggestion',      step( 'mesh_pages' )['state'], 'idea' );
 ok( 'saying the figures',               step( 'mesh_pages' )['said'], '0 of 35 pages take part.' );
-ok( 'and the way to choose',            [ step( 'mesh_pages' )['do'], false !== strpos( step( 'mesh_pages' )['url'], 'tab=linking' ) ], [ 'Choose them', true ] );
+ok( 'and the way to choose',            [ step( 'mesh_pages' )['do'], false !== strpos( step( 'mesh_pages' )['url'], 'page=dazont-ecom-linking' ) ], [ 'Choose them', true ] );
 ok( 'never counted as a thing to do',   in_array( 'Pages that take part in linking', DZE_Setup::score()['todo'], true ), false );
 $GLOBALS['chosen'] = [ 'pages' => 35, 'on' => 8 ];
 DZE_Setup::forget();

@@ -152,6 +152,20 @@ final class DZE_Automation {
 			self::MENU_SLUG,
 			[ __CLASS__, 'render_page' ]
 		);
+		// AND IT LEAVES THE MENU.
+		//
+		// "Dans automations en fait il n'y aura rien, c'était peut-être
+		// maladroit de faire ce module. C'est plutôt une façon de faire pour
+		// automatiser différents modules." Every switch it held is now on
+		// the screen of the work it acts on, so the entry stood for nothing
+		// but a second place to look.
+		//
+		// Registered, then taken out: the page keeps answering, so every
+		// link, bookmark and redirect ever printed at it still lands — and
+		// it is still where the whole day's work is read side by side.
+		if ( function_exists( 'remove_submenu_page' ) ) {
+			remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );
+		}
 	}
 
 	public static function render_page(): void {
@@ -161,16 +175,11 @@ final class DZE_Automation {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		$now = self::tab_now( (array) $_GET );
 		echo '<div class="wrap dze-wrap"><h1>' . esc_html( DZE_Screens::label( 'automation' ) ) . '</h1>';
-		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 18px;">';
+		$strip = [];
 		foreach ( self::tabs() as $key => $label ) {
-			printf(
-				'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
-				$key === $now ? ' nav-tab-active' : '',
-				esc_url( self::page_url( $key ) ),
-				esc_html( $label )
-			);
+			$strip[ (string) $key ] = [ 'label' => $label, 'url' => self::page_url( (string) $key ) ];
 		}
-		echo '</h2>';
+		echo wp_kses_post( DZE_Screens::strip( $strip, $now, 'margin:12px 0 18px;' ) );
 		if ( 'past' === $now ) {
 			self::render_past();
 		} else {
@@ -1293,7 +1302,7 @@ final class DZE_Automation {
 
 	/** The site has not been read: the one sentence, and the way to the reading. */
 	public static function unread_said(): string {
-		$where = class_exists( 'DZE_Screens' ) ? DZE_Screens::name( 'content', 'linking' ) : '';
+		$where = class_exists( 'DZE_Screens' ) ? DZE_Screens::name( 'linking' ) : '';
 		return '' !== $where
 			/* translators: %s: the screen where the site is read */
 			? sprintf( __( 'The site has not been read yet, so there is nothing to link. Read it under %s.', 'dazont-ecom' ), $where )
@@ -1458,8 +1467,18 @@ final class DZE_Automation {
 		}
 	}
 
-	/** The text one pass is about to replace, kept for the undo. */
+	/**
+	 * The text one pass is about to replace, kept for the undo.
+	 *
+	 * SLASHED ON THE WAY IN. `update_post_meta()` hands its value to
+	 * `wp_unslash()`, which is right for a form and wrong for a copy being
+	 * filed away: every backslash in the article would be gone from the copy
+	 * we put back. Prose rarely holds one, a code sample always does, and an
+	 * undo that quietly returns a slightly different article is worse than one
+	 * that refuses.
+	 */
 	private static function keep_copy( int $oid, string $type, string $html ): void {
+		$html = function_exists( 'wp_slash' ) ? wp_slash( $html ) : $html;
 		if ( 'post' === $type ) {
 			update_post_meta( $oid, self::META_PREV, $html );
 		} else {
@@ -1943,28 +1962,158 @@ final class DZE_Automation {
 		return $next ? human_time_diff( time(), (int) $next ) : '';
 	}
 
-	public static function render_settings(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+	/**
+	 * ONE TASK'S SWITCH, WHEREVER THE WORK IS.
+	 *
+	 * "Dans automations en fait il n'y aura rien, c'était peut-être maladroit
+	 * de faire ce module. C'est plutôt une façon de faire pour automatiser
+	 * différents modules." Exactly so: running by itself is a PROPERTY of a
+	 * piece of work, not a destination of its own. A setting that lives three
+	 * menus away from the screen it acts on is a setting nobody finds, and a
+	 * menu holding nothing but other modules' switches is a menu that exists
+	 * for the code's convenience rather than the shop's.
+	 *
+	 * So this block is printed by whoever owns that work. One block, many
+	 * hosts, never two forms that have to be kept in step.
+	 */
+	public static function panel( string $id, bool $open = false ): void {
+		$tasks = self::tasks();
+		if ( ! isset( $tasks[ $id ] ) || ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		// A BODY THAT MOVES TAKES ITS ASSETS WITH IT. The chips, the folds and
-		// the to-do rows are all drawn with these styles, and nothing else on
-		// this page asks for them: enqueued from a page hook somewhere else,
-		// the one forgotten is always the screen that comes out unstyled.
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
-		self::$needs_review = false;
+		$task = $tasks[ $id ];
+		$conf = self::conf( $id );
+		$name = self::OPT . '[tasks][' . $id . ']';
+		self::panel_body( $id, $task, $conf, $name, $open );
+	}
+
+	/**
+	 * The panels a screen is responsible for, in the form that saves them.
+	 *
+	 * Everything a host needs in one call: the styles, WordPress's own options
+	 * form, the blocks, the button, and the scripts the blocks' buttons need.
+	 * A host that had to remember four calls is a host where one of them is
+	 * missing on one screen.
+	 *
+	 * @param array<int,string> $ids
+	 */
+	public static function panel_form( array $ids, string $title = '' ): void {
+		// A DISABLED MODULE LEAVES ZERO TRACE. `class_exists()` is not a module
+		// check — the class file is always there — so this panel was printed on
+		// four screens whatever the state of the module, with a Save and a Run
+		// that do nothing once its hooks are gone. CLAUDE.md: "every CROSS-module
+		// surface must be gated with DZE_Modules::enabled( $id )".
+		if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'automation' ) ) {
+			return;
+		}
+		$tasks = self::tasks();
+		$ids   = array_values( array_filter( $ids, static fn( $one ): bool => isset( $tasks[ (string) $one ] ) ) );
+		if ( ! $ids || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		if ( class_exists( 'DZE_Assets' ) ) {
+			DZE_Assets::admin_css();
+		}
+		// SON PROPRE NOM. « dze-auto-bar » etait deja pris par la barre de
+		// PROGRESSION d'une passe, qui vit a l'interieur de ce panneau. Ma
+		// regle arrivant plus bas dans la feuille l'emportait, et la barre de
+		// progression heritait du cadre, du fond degrade et du padding du
+		// panneau. Deux choses differentes ne partagent pas un nom.
+		// DISCREET, AND AT THE TOP. "Run it by itself devrait être en haut de
+		// page… Tu peux le rendre discret, mais en haut de page obligatoirement,
+		// partout là où il existe." So it is a thin bar, not a panel: the
+		// switch is the cherry, not the plate — it must be within reach without
+		// taking the room the work needs.
+		echo '<div class="dze-admin dze-auto dze-auto-strip">';
+		if ( '' !== $title ) {
+			echo '<h2 class="dze-auto-h2">' . esc_html( $title ) . '</h2>';
+		}
+		// AND IT SAYS WHAT IT HAS LEFT FOR YOU, with the way there. A switch
+		// that runs every night and never mentions the pile it is making is a
+		// switch nobody can follow: "Run it by itself ne propose à aucun moment
+		// une redirection vers To review… et pas de comptage de ce qui est en
+		// attente."
+		$kinds = [];
+		foreach ( $ids as $one ) {
+			foreach ( (array) ( $tasks[ (string) $one ]['jobs'] ?? [] ) as $k ) {
+				$kinds[] = (string) $k;
+			}
+		}
+		$waiting = ( $kinds && class_exists( 'DZE_Queue' ) )
+			? (int) ( DZE_Queue::counts_for( $kinds )['review'] ?? 0 )
+			: 0;
+		if ( $waiting && class_exists( 'DZE_Screens' ) ) {
+			printf(
+				'<p class="dze-auto-waitline">%1$s <a href="%2$s">%3$s</a></p>',
+				esc_html( sprintf(
+					/* translators: %s: how many results */
+					_n( '%s result is waiting for your yes or no.', '%s results are waiting for your yes or no.', $waiting, 'dazont-ecom' ),
+					number_format_i18n( $waiting )
+				) ),
+				esc_url( add_query_arg( [ 'kind' => implode( ',', array_unique( $kinds ) ) ], DZE_Screens::url( 'review' ) ) ),
+				esc_html__( 'Read them →', 'dazont-ecom' )
+			);
+		}
+		echo '<form method="post" action="' . esc_url( admin_url( 'options.php' ) ) . '">';
+		settings_fields( 'dze_auto_options' );
+		echo '<input type="hidden" name="' . esc_attr( self::OPT ) . '[form]" value="1" />';
+		// EVERY TASK TRAVELS, NOT ONLY THE ONES ON SCREEN. `sanitize()` reads
+		// the whole list and writes what it is given: a form carrying one task
+		// would save that one and blank the others. So the tasks this screen
+		// does not show ride along as hidden fields, exactly as they stand.
+		foreach ( $tasks as $tid => $t ) {
+			if ( in_array( (string) $tid, $ids, true ) ) {
+				continue;
+			}
+			$other = self::conf( (string) $tid );
+			$base  = self::OPT . '[tasks][' . $tid . ']';
+			foreach ( [ 'on', 'per_day', 'apply', 'kw_only' ] as $key ) {
+				if ( ! isset( $other[ $key ] ) || ! $other[ $key ] ) {
+					continue; // an unticked box sends nothing, here as anywhere.
+				}
+				printf(
+					'<input type="hidden" name="%1$s[%2$s]" value="%3$s" />',
+					esc_attr( $base ),
+					esc_attr( $key ),
+					esc_attr( (string) ( true === $other[ $key ] ? 1 : $other[ $key ] ) )
+				);
+			}
+		}
+		// A host screen shows the one task it is about: open. Several, and
+		// they fold, because a wall of open blocks is not a screen.
+		$open = 1 === count( $ids );
+		foreach ( $ids as $one ) {
+			self::panel( (string) $one, $open );
+		}
+		submit_button( __( 'Save Changes', 'dazont-ecom' ) );
+		echo '</form>';
+		echo '</div>';
+		self::render_assets();
+		$more = [];
+		foreach ( $ids as $one ) {
+			$more[ (string) $one ] = [
+				'title' => (string) ( $tasks[ (string) $one ]['label'] ?? '' ),
+				'text'  => (string) ( $tasks[ (string) $one ]['more'] ?? $tasks[ (string) $one ]['what'] ?? '' ),
+			];
+		}
+		if ( class_exists( 'DZE_Hub' ) ) {
+			DZE_Hub::more_assets( $more );
+		}
+	}
+
+	/**
+	 * @param array<string,mixed> $task
+	 * @param array<string,mixed> $conf
+	 */
+	private static function panel_body( string $id, array $task, array $conf, string $name, bool $open = false ): void {
+		$ready = self::task_ready( $id );
 		?>
-		<div class="dze-admin dze-auto">
-		<form method="post" action="options.php">
-			<?php settings_fields( 'dze_auto_options' ); ?>
-			<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[form]" value="1" />
-			<?php foreach ( self::tasks() as $id => $task ) : ?>
-				<?php
-				$conf  = self::conf( $id );
-				$ready = self::task_ready( $id );
-				$name  = self::OPT . '[tasks][' . $id . ']';
-				?>
-				<details class="dze-set dze-auto-task">
+				<?php // OPEN WHERE IT IS THE ONLY ONE. Folded, on the screen of the
+					// work it pilots, the switch the shop asked to have within
+					// reach is a switch behind a fold — which is the click it was
+					// complaining about. Folded still on the page that lists all
+					// four side by side, where four open blocks is a wall. ?>
+				<details class="dze-set dze-auto-task"<?php echo $open ? ' open' : ''; ?>>
 					<summary>
 						<span class="dze-auto-name"><?php echo esc_html( (string) $task['label'] ); ?><?php
 							// HOW it works is for whoever wants it, one press
@@ -2017,6 +2166,25 @@ final class DZE_Automation {
 					<?php // THE PROGRESS BELONGS TO THE PRESS THAT STARTED IT. ?>
 					<div class="dze-auto-live" data-task="<?php echo esc_attr( $id ); ?>"><?php self::render_run( $id ); ?></div>
 				</details>
+		<?php
+	}
+	public static function render_settings(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		// A BODY THAT MOVES TAKES ITS ASSETS WITH IT. The chips, the folds and
+		// the to-do rows are all drawn with these styles, and nothing else on
+		// this page asks for them: enqueued from a page hook somewhere else,
+		// the one forgotten is always the screen that comes out unstyled.
+		DZE_Assets::admin_css();
+		self::$needs_review = false;
+		?>
+		<div class="dze-admin dze-auto">
+		<form method="post" action="options.php">
+			<?php settings_fields( 'dze_auto_options' ); ?>
+			<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[form]" value="1" />
+			<?php foreach ( array_keys( self::tasks() ) as $id ) : ?>
+				<?php self::panel( (string) $id ); ?>
 			<?php endforeach; ?>
 			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 		</form>
@@ -2184,7 +2352,7 @@ final class DZE_Automation {
 			return;
 		}
 		$url = class_exists( 'DZE_Diagnostic' )
-			? add_query_arg( [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'linking' ], admin_url( 'admin.php' ) )
+			? add_query_arg( [ 'page' => DZE_Mesh::MENU_SLUG ], admin_url( 'admin.php' ) )
 			: '';
 		echo '<p class="description dze-auto-orphnote">' . esc_html( sprintf(
 			/* translators: %s: how many pages are not part of the linking work */
@@ -2211,8 +2379,28 @@ final class DZE_Automation {
 	 * answering differently.
 	 */
 	public static function render_assets(): void {
+		// JQUERY, ICI, MAINTENANT. "Runs by itself ne fonctionne pas." The
+		// panel prints its script in the page BODY, and on these screens
+		// jQuery is only a dependency of a FOOTER script — so WordPress
+		// printed it after, the script threw on its first line, and every
+		// control in the bar was dead with nothing on screen to say so.
+		// wp_enqueue_script() at this point is too late to change anything:
+		// the head is already sent, and an enqueue made now simply joins the
+		// footer queue. wp_print_scripts() prints it HERE, and marks it done
+		// so the footer does not print it a second time.
+		if ( function_exists( 'wp_print_scripts' ) ) {
+			wp_print_scripts( 'jquery' );
+		}
 		?>
 		<script>
+		// AND IT SAYS SO RATHER THAN DYING IN SILENCE. A control that does
+		// nothing and explains nothing is the worst kind of broken.
+		if ( typeof jQuery === 'undefined' ) {
+			document.addEventListener( 'DOMContentLoaded', function () {
+				var b = document.querySelector( '.dze-auto-strip' );
+				if ( b ) { b.insertAdjacentHTML( 'beforeend', '<p class="notice notice-error inline" style="margin:8px 0 0;padding:6px 10px;"><?php echo esc_js( __( 'This panel needs jQuery, which this screen did not load. Its buttons will not answer.', 'dazont-ecom' ) ); ?></p>' ); }
+			} );
+		} else {
 		jQuery( function ( $ ) {
 			// A PRESS SAYS IT IS WORKING. "Il faut des roues de chargement quand
 			// on fait quelque chose sur cette page." Put here, in the one
@@ -2465,6 +2653,7 @@ final class DZE_Automation {
 				post( 'dze_auto_undo', { term: $b.data( 'term' ), what: $b.data( 'what' ) }, $b, $b.closest( 'li' ).find( '.dze-auto-msg' ) );
 			} );
 		} );
+		}
 		</script>
 		<?php
 	}

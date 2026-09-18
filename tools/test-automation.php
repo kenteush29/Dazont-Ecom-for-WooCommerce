@@ -436,6 +436,9 @@ class DZE_Queue {
 	public static int $assets = 0;
 	public static function review_assets(): void { self::$assets++; }
 }
+// The one place that versions this plugin's admin files; every screen
+// class asks it rather than hanging DZE_VERSION on the same handle.
+require __DIR__ . '/../' . $dir . '/includes/class-assets.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 /** The module switches. A class file always exists; this is the real check. */
 class DZE_Modules {
@@ -711,7 +714,7 @@ $GLOBALS['opts']['dze_mesh_census'] = [];
 delete_transient( 'dze_mesh_thin' );
 ok( 'nothing is next in line',         DZE_Automation::shortlist( 'mesh_links', 5 ), [] );
 ok( 'and the sentence says which nothing',
-	DZE_Automation::nothing_said(), 'The site has not been read yet, so there is nothing to link. Read it under Dazont Ecom → Content → Linking.' );
+	DZE_Automation::nothing_said(), 'The site has not been read yet, so there is nothing to link. Read it under Dazont Ecom → Internal linking.' );
 ob_start(); DZE_Automation::render_state( 'mesh_links' ); $dze_unread = (string) ob_get_clean();
 ok( 'the block prints it',             false !== strpos( $dze_unread, 'The site has not been read yet' ), true );
 $dze_res = DZE_Automation::tick( 'mesh_links', true );
@@ -1551,7 +1554,8 @@ ok( 'no decision is taken on a row',   false !== strpos( $list, 'dze-auto-aside'
 ok( 'the pages left out are counted',  1 === preg_match( '/\\d+ pages? of this site takes? no part in linking/', $list ), true );
 ok( 'and it says which always do',     false !== strpos( $list, 'Every article and every product category does' ), true );
 // A SENTENCE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN.
-ok( 'with the way to choose them',     false !== strpos( $list, 'tab=linking' ), true );
+// Le maillage a sa propre page : la phrase y mene directement.
+ok( 'with the way to choose them',     false !== strpos( $list, 'page=dazont-ecom-linking' ), true );
 ok( 'and the word for it',             false !== strpos( $list, 'Choose them' ), true );
 // NOTHING IS SAID WHEN THERE IS NOTHING TO SAY: a line reporting nought every
 // day is a line nobody reads by the end of the week.

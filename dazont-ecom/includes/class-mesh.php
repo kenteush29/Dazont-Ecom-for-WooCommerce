@@ -90,6 +90,11 @@ final class DZE_Mesh {
 		add_action( 'admin_init', [ $this, 'maybe_install' ] );
 		add_action( 'admin_init', [ __CLASS__, 'schedule' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'assets' ] );
+		// A MENU OF ITS OWN. This work runs by itself, like the translations,
+		// and it was the second tab of a screen called "Content": three
+		// clicks from the dashboard to see the day's linking. The order of
+		// the entry is the catalogue's business, not this page's.
+		add_action( 'admin_menu', [ $this, 'register_menu' ], 12 );
 		add_action( 'wp_ajax_dze_mesh_scan', [ __CLASS__, 'ajax_scan' ] );
 		add_action( 'wp_ajax_dze_mesh_pairs', [ __CLASS__, 'ajax_pairs' ] );
 		add_action( 'wp_ajax_dze_mesh_queue', [ __CLASS__, 'ajax_queue' ] );
@@ -1318,6 +1323,8 @@ final class DZE_Mesh {
 		$pages = self::pages();
 		$by    = [];
 		$order = [];
+		// One page's text read once, however many targets are tried against it.
+		$body  = [];
 		foreach ( self::needs( max( 1, $limit ) * 4 ) as $row ) {
 			$to_key = $row['kind'] . ':' . $row['id'];
 			$url    = (string) ( $pages[ $to_key ]['url'] ?? '' );
@@ -1328,12 +1335,35 @@ final class DZE_Mesh {
 			// link, not another three.
 			$want = max( 1, self::WANT_IN - (int) $row['in'] );
 			foreach ( array_slice( self::pairs_for( $to_key, $want, $judge )['rows'], 0, $want ) as $from ) {
-				$key = (string) $from['key'];
-				if ( ! isset( $by[ $key ] ) ) {
-					$page = $pages[ $key ] ?? [];
-					if ( ! $page || ! empty( $page['built'] ) ) {
-						continue; // a page nothing can be written into is not work.
+				$key  = (string) $from['key'];
+				$page = $pages[ $key ] ?? [];
+				if ( ! $page || ! empty( $page['built'] ) ) {
+					continue; // a page nothing can be written into is not work.
+				}
+				// THE PAIRING IS CHECKED BEFORE THE PAGE IS WRITTEN DOWN.
+				//
+				// A link can only be hung on words the text already holds, so
+				// pairing an article with a subject it never names produces a
+				// job that cannot succeed: bought from the model, refused, and
+				// shown to the shop as a red row it can do nothing about. "How
+				// To Wear Military Trench Coat?" was sent to link to "How To
+				// Wear A Bomber Jacket?" on a text saying "bomber" not once.
+				//
+				// And it is checked HERE, before the page joins the day's list,
+				// rather than after: written down first, five pages whose every
+				// target was impossible filled the day's quota, the loop stopped
+				// on a full list, and the plan came out empty with real work
+				// still waiting behind them.
+				$title = (string) ( $pages[ $to_key ]['title'] ?? '' );
+				if ( '' !== $title && class_exists( 'DZE_Category_Content' ) ) {
+					if ( ! isset( $body[ $key ] ) ) {
+						$body[ $key ] = self::body_of( (string) $page['kind'], (int) $page['id'] );
 					}
+					if ( ! DZE_Category_Content::mentions( $body[ $key ], $title ) ) {
+						continue;
+					}
+				}
+				if ( ! isset( $by[ $key ] ) ) {
 					$by[ $key ] = [
 						'key'  => $key,
 						'kind' => (string) $page['kind'],
@@ -1355,6 +1385,14 @@ final class DZE_Mesh {
 		$out = [];
 		foreach ( array_slice( $order, 0, max( 1, $limit ) ) as $key ) {
 			$row = $by[ $key ];
+			// A PAGE LEFT WITH NOTHING TO POINT AT IS NOT WORK. Every target
+			// tried against it turned out to be a subject it never names, so
+			// there is nothing to ask of it — and a row carrying no address is
+			// read further down as one that LOST its addresses, which is an
+			// error where this is simply nothing to do.
+			if ( ! $row['urls'] ) {
+				continue;
+			}
 			// THE ROW NAMES THE PAGE THAT WILL BE WRITTEN INTO, and the urls
 			// are what it will point AT — so the sentence beside it has to
 			// read in that direction. It used to say "2 pages short of links
@@ -1478,8 +1516,11 @@ final class DZE_Mesh {
 			return $none;
 		}
 		$conf = DZE_Automation::conf( 'mesh_links' );
-		$url  = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'automation' ) : '';
-		$name = class_exists( 'DZE_Screens' ) ? DZE_Screens::name( 'automation' ) : '';
+		// NO SCREEN IS NAMED HERE: the switch is the bar at the top of this
+		// very page. Sending the shop to a menu to press a control it is
+		// already looking at is the click this whole reorganisation was about.
+		$url  = '';
+		$name = '';
 		if ( ! empty( $conf['on'] ) ) {
 			$n = (int) $conf['per_day'];
 			return [
@@ -1492,10 +1533,14 @@ final class DZE_Mesh {
 				'name' => $name,
 			];
 		}
+		// AND IT NAMES NO OTHER SCREEN. The switch is at the top of this very
+		// page now; sending the shop to a menu — one that no longer exists —
+		// to press a control it is already looking at is the click this whole
+		// reorganisation was about.
 		return [
-			'said' => __( 'Nothing links pages on its own yet — the Internal linking task is off under', 'dazont-ecom' ),
-			'url'  => $url,
-			'name' => $name,
+			'said' => __( 'Nothing links pages on its own yet. Switch it on above and it works through the list a few pages a day.', 'dazont-ecom' ),
+			'url'  => '',
+			'name' => '',
 		];
 	}
 
@@ -1564,17 +1609,98 @@ final class DZE_Mesh {
 			: admin_url( 'post.php?post=' . $id . '&action=edit' );
 	}
 
-	public function assets( string $hook ): void {
-		if ( ! class_exists( 'DZE_Diagnostic' ) ) {
+	public const MENU_SLUG = 'dazont-ecom-linking';
+
+	/** The two kinds of job this screen owns. */
+	public const KINDS = [ 'cat_links', 'post_links' ];
+
+	public function register_menu(): void {
+		if ( ! class_exists( 'DZE_Screens' ) ) {
 			return;
 		}
+		// WHAT WAITS IS VISIBLE WITHOUT OPENING ANYTHING, the way WordPress
+		// shows comments waiting. "Je dois souvent trop cliquer pour avoir
+		// acces a x ou y chose": a count in the menu is the cheapest click
+		// there is — the one you do not make.
+		$label   = DZE_Screens::label( 'linking' );
+		$waiting = class_exists( 'DZE_Queue' )
+			? (int) ( DZE_Queue::counts_for( self::KINDS )['review'] ?? 0 )
+			: 0;
+		add_submenu_page(
+			DZE_Screens::PARENT,
+			$label,
+			$waiting
+				? $label . ' <span class="update-plugins count-' . $waiting . '"><span class="plugin-count">' . esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
+				: $label,
+			'manage_woocommerce',
+			self::MENU_SLUG,
+			[ $this, 'render_page' ]
+		);
+	}
+
+	/**
+	 * The same body the Content screen used to host, on a page of its own.
+	 *
+	 * One body, two hosts, never two screens that have to be kept in step —
+	 * the rule every other tab here is held to.
+	 */
+	public function render_page(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$waiting = class_exists( 'DZE_Queue' )
+			? (int) ( DZE_Queue::counts_for( self::KINDS )['review'] ?? 0 )
+			: 0;
+		echo '<div class="wrap">';
+		echo '<h1>' . esc_html( class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'linking' ) : __( 'Internal linking', 'dazont-ecom' ) ) . '</h1>';
+		// AND ITS RESULTS ARE NOT A SECOND LIST. A tab here drawing the queue's
+		// table with its own scope is the third copy of one table, with a third
+		// count that can disagree with the other two. What waits is said in one
+		// line, with the way into the ONE list, pre-filtered to this work.
+		if ( $waiting && class_exists( 'DZE_Queue' ) && class_exists( 'DZE_Screens' ) ) {
+			printf(
+				'<div class="notice notice-info inline" style="margin:0 0 16px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
+				esc_html( sprintf(
+					/* translators: %s: how many pages */
+					_n( '%s page has links waiting for your yes or no.', '%s pages have links waiting for your yes or no.', $waiting, 'dazont-ecom' ),
+					number_format_i18n( $waiting )
+				) ),
+				esc_url( add_query_arg( [ 'kind' => implode( ',', self::KINDS ) ], DZE_Screens::url( 'review' ) ) ),
+				esc_html__( 'Read them →', 'dazont-ecom' )
+			);
+		}
+		{
+			// THE SWITCH FIRST, THEN THE WORK.
+			//
+			// "Run it by itself devrait être en haut de page, tu m'assènes avec
+			// des dizaines de lignes et juste en bas de page le réglage
+			// standard." Two tables that run to two hundred rows stood between
+			// the shop and the one control that makes this screen unnecessary.
+			// The decision comes before the list the decision is about.
+			if ( class_exists( 'DZE_Automation' ) ) {
+				DZE_Automation::panel_form( [ 'mesh_links' ], __( 'Runs by itself', 'dazont-ecom' ) );
+			}
+			$this->render_tab();
+		}
+		echo '</div>';
+	}
+
+	public function assets( string $hook ): void {
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
 		$tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
 		// phpcs:enable
-		if ( DZE_Diagnostic::MENU_SLUG !== $page || 'linking' !== $tab ) {
+		// The screen moved out of Content into a menu of its own; the old
+		// address still works, so both are served.
+		$mine = self::MENU_SLUG === $page
+			|| ( class_exists( 'DZE_Diagnostic' ) && DZE_Diagnostic::MENU_SLUG === $page && 'linking' === $tab );
+		if ( ! $mine ) {
 			return;
 		}
+		// THE REVIEW TAB IS THE QUEUE'S OWN SCREEN, and it brings its own
+		// assets when its body is printed — scoped by the host. Nothing for
+		// the mesh to load there.
+
 		$v = defined( 'DZE_VERSION' ) ? DZE_VERSION : '1';
 		wp_enqueue_script( 'dze-mesh', plugins_url( 'admin/js/mesh.js', DZE_FILE ), [ 'jquery' ], $v, true );
 		wp_localize_script( 'dze-mesh', 'dzeMesh', [
@@ -1659,15 +1785,29 @@ final class DZE_Mesh {
 		$needs = self::needs();
 		$ends  = self::dead_ends( 50 );
 		?>
-		<h2 style="margin-top:28px;"><?php esc_html_e( 'Pages short of links', 'dazont-ecom' ); ?></h2>
+		<?php
+		// FOLDED, LIKE THE ONE UNDER IT. "Je t'ai dit d'utiliser le meme
+		// type d'affichage que Pages that take part in linking — 55 of 69.
+		// Parce que la tout est ouvert et c'est tres bordelique." Two
+		// tables of two hundred rows each opened on arrival, and the work
+		// of the screen — the reading, the switch, the plan — was buried
+		// under them. The figure is on the summary, so the fold answers
+		// the question without being opened.
+		?>
+		<details class="dze-set dze-mesh-listbox" id="dze-mesh-needsbox">
+			<summary><?php echo esc_html( sprintf(
+				/* translators: %s: how many pages are short of links */
+				__( 'Pages short of links — %s', 'dazont-ecom' ),
+				number_format_i18n( max( (int) ( $counts['short'] ?? 0 ), count( $needs ) ) )
+			) ); ?></summary>
 		<?php if ( ! $needs ) : ?>
 			<p class="description"><?php echo esc_html( self::rule_said() ); ?> <?php esc_html_e( 'Every page is pointed at from enough places. Nothing to do here.', 'dazont-ecom' ); ?></p>
 		<?php else : ?>
 			<p class="description">
 				<?php
-				// The rule and the figure on one line under a heading of the
-				// same rank as the block below it: a bold paragraph over one
-				// table and a heading over the next read as two kinds of thing.
+				// The rule and the figure on one line, inside the fold: the
+				// summary already carries the count, so this says what the rule
+				// is and how much of the site the table under it shows.
 				echo esc_html( self::rule_said() ) . ' ';
 				echo esc_html( self::listed_said( (int) ( $counts['short'] ?? 0 ), count( $needs ), 200, 'short' ) );
 				?>
@@ -1694,8 +1834,14 @@ final class DZE_Mesh {
 				</tbody>
 			</table>
 		<?php endif; ?>
+		</details>
 
-		<h2 style="margin-top:28px;"><?php esc_html_e( 'Pages that point at nothing', 'dazont-ecom' ); ?></h2>
+		<details class="dze-set dze-mesh-listbox" id="dze-mesh-endsbox">
+			<summary><?php echo esc_html( sprintf(
+				/* translators: %s: how many pages point at nothing */
+				__( 'Pages that point at nothing — %s', 'dazont-ecom' ),
+				number_format_i18n( max( (int) ( $counts['ends'] ?? 0 ), count( $ends ) ) )
+			) ); ?></summary>
 		<?php if ( ! $ends ) : ?>
 			<p class="description"><?php esc_html_e( 'Every page sends its reader somewhere. Nothing to do here.', 'dazont-ecom' ); ?></p>
 		<?php else : ?>
@@ -1744,6 +1890,7 @@ final class DZE_Mesh {
 				</tbody>
 			</table>
 		<?php endif; ?>
+		</details>
 		<?php
 		// THE SETTING SITS WITH THE THING IT GOVERNS: which pages take part is
 		// a question about this screen's own lists, so it is on this screen

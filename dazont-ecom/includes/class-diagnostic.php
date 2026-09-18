@@ -2311,7 +2311,17 @@ final class DZE_Diagnostic {
 		// no; the shortfall is a figure on the tab that is about it.
 		$waiting = 0;
 		if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
-			$waiting = DZE_Queue::review_count() + DZE_Queue::bulk_waiting();
+			// THE LINKING WORK IS COUNTED ON ITS OWN MENU NOW, so it is taken
+			// out here: two entries showing the same number, one of which
+			// cannot act on it, is worse than no number at all. What is left
+			// is everything else waiting — so a kind nobody thought of still
+			// shows up somewhere.
+			// WHAT WAITS ON *THIS* SCREEN, and nothing else. The queue's rows are
+			// the inbox's business now — counting them here put a figure on this
+			// menu that its own screen could not show, which is the fault the
+			// shop spotted: "le bloc review dans le menu products ne recense que
+			// des actions de internal linking".
+			$waiting = DZE_Queue::bulk_waiting();
 		}
 		// ONE NAME PER SCREEN. "Content diagnostic" was worn by TWO screens at
 		// once — this page and the settings tab holding the criteria — and a
@@ -2433,6 +2443,13 @@ final class DZE_Diagnostic {
 		// A tab named here and in a sentence elsewhere is two names the day
 		// either is edited.
 		$names = DZE_Screens::tabs_of( 'content' );
+		// ONE SUBJECT, NO VIEWS. This screen reads the shop against its own
+		// standards and says where to go; the benches it used to hold — the
+		// product one, the linking one, the waiting list — each have a screen
+		// of their own now. A strip of one tab is a strip nobody needs.
+		if ( ! $names ) {
+			return [];
+		}
 		$out   = [
 			'diagnostic' => [
 				'label' => (string) ( $names['diagnostic'] ?? '' ),
@@ -2498,27 +2515,20 @@ final class DZE_Diagnostic {
 		echo '<div class="wrap dze-wrap">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'content' ) ) . '</h1>';
 		if ( count( $tabs ) > 1 ) {
-			echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 0;">';
+			$strip = [];
 			foreach ( $tabs as $id => $one ) {
-				printf(
-					'<a class="nav-tab%1$s" href="%2$s">%3$s <span class="dze-tab-n">%4$s</span></a>',
-					$tab === $id ? ' nav-tab-active' : '',
-					esc_url( (string) ( $one['url'] ?? add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ) ),
-					esc_html( $one['label'] ),
-					esc_html( number_format_i18n( (int) $one['n'] ) )
-				);
+				$strip[ (string) $id ] = [
+					'label' => (string) $one['label'],
+					'url'   => (string) ( $one['url'] ?? add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ),
+					'n'     => (int) $one['n'],
+				];
 			}
-			echo '</h2>';
+			echo wp_kses_post( DZE_Screens::strip( $strip, $tab ) );
 		}
 		if ( 'linking' === $tab && class_exists( 'DZE_Mesh' ) ) {
 			// The body belongs to the module that owns that work, like every
 			// other tab here: one function, printed by whoever shows it.
 			DZE_Mesh::instance()->render_tab();
-		} elseif ( 'review' === $tab && class_exists( 'DZE_Queue' ) ) {
-			// The body belongs to the module that owns that work: one body,
-			// printed here and on its own page alike, never two screens that
-			// have to be kept in step.
-			DZE_Queue::instance()->body();
 		} elseif ( 'products' === $tab && class_exists( 'DZE_Content' ) ) {
 			// The same rule again: one body, and it is handed the address of
 			// the screen showing it so its own two tabs — Selected products,
@@ -2528,6 +2538,10 @@ final class DZE_Diagnostic {
 			$this->render_list( $check );
 		} else {
 			$this->render_overview();
+			// THE CATEGORY SWITCH LEFT THIS SCREEN. Running the category writer
+			// by itself is a property of THAT work, and this screen is the
+			// reading of the whole site — it is about categories no more than it
+			// is about articles. It lives on Dazont Ecom -> Categories now.
 		}
 		echo '</div>';
 	}
@@ -3232,7 +3246,7 @@ final class DZE_Diagnostic {
 		if ( $split['live'] ) {
 			// WordPress's own tabs, because that is what every other screen of
 			// this admin uses to say "the same list, seen two ways".
-			echo '<h2 class="nav-tab-wrapper" style="margin:14px 0 0;">';
+			$strip = [];
 			foreach ( [
 				'todo'  => [ __( 'Issues', 'dazont-ecom' ), count( $split['todo'] ) ],
 				// A DIFF, NOT A STORE. It holds what was on the last reading's
@@ -3245,19 +3259,18 @@ final class DZE_Diagnostic {
 				// The COUNT is its own element. A product mended in the popup
 				// leaves this list on the spot, and both figures follow it —
 				// without reloading the page to ask a question about one row.
-				printf(
-					'<a class="nav-tab%1$s dze-diag-tab" data-tab="%2$s" href="%3$s">%4$s (<span class="dze-diag-n">%5$s</span>)</a>',
-					$show === $dze_tab ? ' nav-tab-active' : '',
-					esc_attr( $dze_tab ),
-					esc_url( add_query_arg(
+				$strip[ (string) $dze_tab ] = [
+					'label' => (string) $dze_label[0],
+					'n'     => (int) $dze_label[1],
+					'class' => 'dze-diag-tab',
+					'data'  => [ 'tab' => $dze_tab ],
+					'url'   => add_query_arg(
 						array_merge( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $dze_tab, 'by' => $by, 'dir' => $dir ], $catarg ),
 						admin_url( 'admin.php' )
-					) ),
-					esc_html( $dze_label[0] ),
-					esc_html( number_format_i18n( $dze_label[1] ) )
-				);
+					),
+				];
 			}
-			echo '</h2>';
+			echo wp_kses_post( DZE_Screens::strip( $strip, $show, 'margin:14px 0 0;' ) );
 		}
 		printf(
 			'<p class="description" style="margin-top:10px;">%s</p>',
@@ -4009,8 +4022,8 @@ final class DZE_Diagnostic {
 							return;
 						}
 						// FIXED. Out of this list, and both figures follow it.
-						var $todo = $('.dze-diag-tab[data-tab="todo"] .dze-diag-n');
-						var $done = $('.dze-diag-tab[data-tab="fixed"] .dze-diag-n');
+						var $todo = $('.dze-diag-tab[data-tab="todo"] .dze-tab-n');
+						var $done = $('.dze-diag-tab[data-tab="fixed"] .dze-tab-n');
 						$todo.text(Math.max(0, (parseInt($todo.text(), 10) || 0) - 1));
 						$done.text((parseInt($done.text(), 10) || 0) + 1);
 						$row.css('background', '#edfaef').fadeOut(400, function () { $(this).remove(); });
@@ -4300,7 +4313,7 @@ final class DZE_Diagnostic {
 		// The card styling belongs to the prompt library's stylesheet, and this
 		// screen is the same list in the same clothes.
 		if ( ! wp_style_is( 'dze-content', 'enqueued' ) ) {
-			wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+			DZE_Assets::admin_css();
 		}
 		$opt    = self::OPT;
 		$fields = self::fields();

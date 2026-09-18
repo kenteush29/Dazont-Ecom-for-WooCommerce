@@ -224,7 +224,7 @@ final class DZE_Prompt_Defaults {
 		}
 		self::$printed = true;
 		if ( ! wp_style_is( 'dze-content', 'enqueued' ) ) {
-			wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+			DZE_Assets::admin_css();
 		}
 		// A control can be drawn from inside a popup printed in the footer, when
 		// 'admin_footer' is already over; the screen's own footer hook runs last.

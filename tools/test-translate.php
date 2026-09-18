@@ -49,7 +49,8 @@ function sanitize_textarea_field( $s ) { return trim( (string) $s ); }
 function wp_kses_post( $s ) { return (string) $s; }
 function wp_strip_all_tags( $s ) { return strip_tags( (string) $s ); }
 function absint( $n ) { return abs( (int) $n ); }
-function wp_unslash( $v ) { return $v; }
+function wp_unslash( $v ) { return is_string( $v ) ? stripslashes( $v ) : $v; }
+function wp_slash( $v ) { return is_string( $v ) ? addslashes( $v ) : $v; }
 function wp_json_encode( $v, $f = 0 ) { return json_encode( $v, $f ); }
 function add_action( ...$a ) {}
 function add_filter( ...$a ) {}
@@ -94,7 +95,10 @@ function get_post_meta( $id, $key = '', $single = false ) {
 	$v = $GLOBALS['meta'][ (int) $id ][ $key ] ?? ( $GLOBALS['postmeta'][ (int) $id ][ $key ] ?? '' );
 	return $single ? $v : ( '' === $v ? [] : [ $v ] );
 }
-function update_post_meta( $id, $key, $value ) { $GLOBALS['meta'][ (int) $id ][ $key ] = $value; return true; }
+// COMME WORDPRESS : update_post_meta() passe la valeur a wp_unslash() avant
+// de l'enregistrer. Un double qui garde la valeur telle quelle ne peut pas
+// voir le defaut qui rendait tout le registre d'annulation illisible.
+function update_post_meta( $id, $key, $value ) { $GLOBALS['meta'][ (int) $id ][ $key ] = is_string( $value ) ? stripslashes( $value ) : $value; return true; }
 
 /**
  * WPML, answering the way WPML answers — including the one thing that matters
@@ -174,6 +178,30 @@ class DZE_Tr_Test_Wpdb {
 			$q = preg_replace( '/%[ds]/', is_int( $one ) ? (string) $one : "'" . $one . "'", (string) $q, 1 );
 		}
 		return $q;
+	}
+	/**
+	 * ONE ROW. `term_row()` reads a term from the tables rather than through
+	 * `get_term()`, because WPML filters that to the current language and
+	 * answers with the ORIGINAL when asked for a translation. The double has to
+	 * answer the same question, or the check passes on a reading the shop never
+	 * makes.
+	 */
+	public function get_row( $q, $output = OBJECT ) {
+		$sql = (string) $q;
+		if ( false !== strpos( $sql, 'FROM wp_terms' ) && preg_match( '/t\.term_id = (\d+)/', $sql, $m ) ) {
+			$id = (int) $m[1];
+			$t  = $GLOBALS['terms'][ $id ] ?? null;
+			if ( ! $t ) {
+				return null;
+			}
+			$row = [
+				'name'        => (string) ( $t['name'] ?? '' ),
+				'slug'        => (string) ( $t['slug'] ?? '' ),
+				'description' => (string) ( $t['description'] ?? '' ),
+			];
+			return ARRAY_A === $output ? $row : (object) $row;
+		}
+		return null;
 	}
 	public function get_var( $q ) {
 		$sql = (string) $q;
@@ -268,6 +296,12 @@ class DZE_Marketing_Ai {
 		// By default nothing is ever paid for: a check that expects silence
 		// must FAIL loudly if a call is made. The batch checks below set an
 		// answer on purpose, and read back what was actually sent.
+		// A CALL AT A TIME. Cutting a long text sends one request per piece,
+		// and a double that answers the same thing every time cannot tell
+		// whether the pieces were put back in the right order.
+		if ( isset( $GLOBALS['model_answer_fn'] ) ) {
+			return (string) call_user_func( $GLOBALS['model_answer_fn'], $user );
+		}
 		if ( ! isset( $GLOBALS['model_answer'] ) ) {
 			throw new RuntimeException( 'The gate never pays a provider.' );
 		}
@@ -320,7 +354,8 @@ function get_term_meta( $id, $key = '', $single = false ) {
 	$v = $GLOBALS['termmeta'][ (int) $id ][ $key ] ?? '';
 	return $single ? $v : ( '' === $v ? [] : [ $v ] );
 }
-function update_term_meta( $id, $key, $value ) { $GLOBALS['termmeta'][ (int) $id ][ $key ] = $value; return true; }
+// Fidele lui aussi : update_term_meta() deshabille comme son cousin.
+function update_term_meta( $id, $key, $value ) { $GLOBALS['termmeta'][ (int) $id ][ $key ] = is_string( $value ) ? stripslashes( $value ) : $value; return true; }
 function delete_term_meta( $id, $key ) { unset( $GLOBALS['termmeta'][ (int) $id ][ $key ] ); return true; }
 function delete_post_meta( $id, $key, $v = '' ) { unset( $GLOBALS['meta'][ (int) $id ][ $key ] ); return true; }
 function wp_insert_term( $name, $tax, $args = [] ) {
@@ -488,6 +523,9 @@ class DZE_Modules { public static function enabled( $id ) { return true; } }
 class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
 class DZE_Prompt_Defaults { public static function pick( $id, $d ) { return $d; } public static function control( ...$a ) {} }
 
+// The one place that versions this plugin's admin files; every screen
+// class asks it rather than hanging DZE_VERSION on the same handle.
+require __DIR__ . '/../' . $dir . '/includes/class-assets.php';
 require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
 // THE SHAPE IS BUILT IN ONE PLACE. The batch screen draws its blocks with
 // DZE_Hub, exactly as the product bulk screen does, so the gate has to load the
@@ -1286,20 +1324,31 @@ $GLOBALS['postmeta'][ 701 ]['attribute_pa_colour'] = 'olive-drab';
 $GLOBALS['terms'][ 50 ] = [ 'name' => 'Olive Drab', 'description' => '', 'taxonomy' => 'pa_colour', 'parent' => 0, 'term_taxonomy_id' => 1050 ];
 $dze_shirt = DZE_Translate::obj( 'post', 700, 'product' );
 
+// WHAT CHANGED, AND WHY. "On ne veut pas traduire les descriptions de
+// variation, normalement c'est réglé comme ça dans WPML." It is: WPML
+// decides per field what travels, and a shop that has told it to leave
+// variation descriptions alone has answered already. Offering them here put
+// ten empty boxes on the screen, each marked "words have moved", for text
+// nobody intends to write. They are COUNTED and said, never offered.
 $dze_vf = DZE_Translate::variation_fields( $dze_shirt );
-ok( 'a variation that holds words is a field of its product', array_keys( $dze_vf ), [ 'var:701' ] );
-ok( 'an empty one is not a line somebody has to decide about',
-	isset( $dze_vf['var:702'] ), false );
+ok( 'a variation description is not a field of its product', $dze_vf, [] );
+$dze_tally = DZE_Translate::variation_tally( $dze_shirt );
+ok( 'but the variations are counted, so the screen can say they exist',
+	$dze_tally['total'], 2 );
+ok( 'and how many of them hold words of their own',
+	$dze_tally['with_text'], 1 );
 // A VARIATION IS NAMED BY WHAT IT IS, never by its id: "#4182" is not a colour.
 ok( 'and it is named by its attributes', DZE_Translate::variation_label( 701 ), 'Variation — Olive Drab' );
-// IT TRAVELS WITH THE PRODUCT, through the reading every path already uses.
+// IT DOES NOT TRAVEL WITH THE PRODUCT, and no screen asks about it.
 $dze_read = DZE_Translate::obj_read( $dze_shirt );
-ok( 'the words it carries are read with the product',
-	$dze_read['var:701'] ?? '', '<p>The olive one has a black zip.</p>' );
-ok( 'so the whole of it is owed when nothing is translated',
-	in_array( 'var:701', array_keys( DZE_Translate::obj_stale( $dze_shirt, 'fr' ) ), true ), true );
-// AND THE SCREEN CAN NAME IT. A field the screen cannot name prints `var:701`.
-ok( 'and the screens can name it', DZE_Translate::labels_for( $dze_shirt )['var:701'] ?? '', 'Variation — Olive Drab' );
+ok( 'a variation\'s words are not read with the product',
+	isset( $dze_read['var:701'] ), false );
+ok( 'nor owed when nothing is translated',
+	in_array( 'var:701', array_keys( DZE_Translate::obj_stale( $dze_shirt, 'fr' ) ), true ), false );
+ok( 'nor named on any screen', isset( DZE_Translate::labels_for( $dze_shirt )['var:701'] ), false );
+// THE NAMING STILL WORKS, because the count line uses it.
+ok( 'a variation is still named by what it is, for the line that counts them',
+	DZE_Translate::variation_label( 701 ), 'Variation — Olive Drab' );
 
 // WRITING: onto the variation WooCommerce Multilingual made, never one of ours.
 $GLOBALS['posts'][ 800 ] = [ 'type' => 'product', 'post_title' => 'Chemise', 'post_content' => '', 'post_excerpt' => '' ];
@@ -1557,13 +1606,14 @@ ok( 'and names the object by its id',
 ok( 'it offers to translate it',       substr_count( $dze_ed, 'id="dze-tr-auto"' ), 1 );
 // EVERY FIELD, SIDE BY SIDE, variations included and named for what they are.
 ok( 'every field of the object is a row',
-	substr_count( $dze_ed, 'class="dze-tr-field"' ), 3 );
-ok( 'a variation\'s own words are a field like any other',
-	false !== strpos( $dze_ed, 'data-field="var:701"' ), true );
-ok( 'and it is named by what it is, not by an id',
-	false !== strpos( $dze_ed, 'Variation — Olive Drab' ), true );
-ok( 'the original is printed beside it',
-	false !== strpos( $dze_ed, 'Olive, black zip.' ), true );
+	substr_count( $dze_ed, 'class="dze-tr-field"' ), 2 );
+// A VARIATION IS NOT ONE OF THEM. Its description is WPML's to carry or to
+// leave; offering it here filled the screen with boxes for text nobody
+// writes. It is counted in a sentence, never offered as a field.
+ok( 'a variation\'s own words are not a row',
+	false !== strpos( $dze_ed, 'data-field="var:701"' ), false );
+ok( 'and its words are not printed either',
+	false !== strpos( $dze_ed, 'Olive, black zip.' ), false );
 // A FIELD THE ORIGINAL DOES NOT HOLD IS NOT A DECISION.
 ok( 'an empty field of the original is not a row',
 	false !== strpos( $dze_ed, 'data-field="excerpt"' ), false );
@@ -1571,10 +1621,29 @@ ok( 'an empty field of the original is not a row',
 ok( 'it ends with save and cancel, side by side',
 	[ substr_count( $dze_ed, 'id="dze-tr-publish"' ), substr_count( $dze_ed, 'id="dze-tr-drop"' ) ], [ 1, 1 ] );
 // WHICH FIELDS MOVED is on the row — the module's whole value, and the only
-// way to understand why "Translate automatically" left a field alone. Here
-// the translation exists and holds no register, so every field has moved.
-ok( 'a field whose words moved says so on its row',
-	substr_count( $dze_ed, 'dze-tr-moved' ) >= 1, true );
+// way to understand why "Translate automatically" left a field alone.
+//
+// BUT NOT KNOWING IS NOT HAVING MOVED. Here the translation exists and holds
+// no register, so there is NOTHING to compare against — and the screen used
+// to mark every field "words have moved since the last translation" on a
+// product where nothing had moved at all. It now says, once, that it has no
+// record, and marks no row.
+ok( 'with no register, no row claims to have moved',
+	substr_count( $dze_ed, 'dze-tr-moved' ), 0 );
+// THE VARIATIONS ARE A PANEL, NOT A SENTENCE. "Je n'aime pas trop comment tu as
+// fait c'est caché dans un petit texte. On ne lit jamais ces textes." WPML gives
+// them a section of their own and so does this: what is worth showing is not
+// their descriptions — WPML is set to leave those alone — but whether the
+// translation HAS them, because a variable product with none tells the customer
+// it is unavailable while every admin screen calls it translated.
+ok( 'the variations get a panel of their own',
+	substr_count( $dze_ed, '>Variations<' ), 1 );
+ok( 'each one is a row, named by what it is',
+	false !== strpos( $dze_ed, 'Variation — Olive Drab' ), true );
+ok( 'and a variation the translation does not have is called missing',
+	substr_count( $dze_ed, 'is-missing' ) >= 1, true );
+ok( 'and the screen says why, once',
+	substr_count( $dze_ed, 'no record of the words it was made from' ), 1 );
 // WHOSE TRANSLATION THIS IS: one not written here is replaced by a save, and
 // the screen says so before the press rather than in a string nobody printed.
 ok( 'a translation not written here is said so',
@@ -1607,6 +1676,209 @@ ok( 'the popup no longer exists at all', method_exists( 'DZE_Translate', 'popup'
 ok( 'nor its two handlers', method_exists( 'DZE_Translate', 'ajax_preview' ), false );
 ok( 'nor the panel the lists used to unfold', method_exists( 'DZE_Translate', 'ajax_panel' ), false );
 $_GET = [];
+
+echo "\nA TEXT TOO LONG FOR ONE REPLY IS CUT, TRANSLATED, AND PUT BACK TOGETHER\n";
+//
+// The model answers in ONE reply and that reply has a ceiling. A 1,600-word
+// article asked for more room than the ceiling allows, so the JSON came back
+// cut in half and the whole object failed with "the model did not answer with
+// the expected format" — the longest texts, the ones worth the most, were the
+// only ones that never translated.
+$tr_art = '';
+for ( $p = 1; $p <= 26; $p++ ) {
+	$tr_art .= "<!-- wp:paragraph -->\n<p>Paragraph $p. " . str_repeat( 'Des bottes tactiques tiennent debout. ', 12 ) . "</p>\n<!-- /wp:paragraph -->\n\n";
+}
+$tr_cut = DZE_Translate::split_text( $tr_art, 5000 );
+ok( 'a long text is cut in pieces',        count( $tr_cut ) > 1, true );
+ok( 'each piece fits under the ceiling',   max( array_map( 'mb_strlen', $tr_cut ) ) <= 5000, true );
+ok( 'and the pieces are the text again',   implode( '', $tr_cut ) === $tr_art, true );
+ok( 'no piece holds half a tag',           (bool) array_filter( $tr_cut, static function ( $p ) {
+	return substr_count( $p, '<' ) !== substr_count( $p, '>' );
+} ), false );
+ok( 'a short text is not cut at all',      DZE_Translate::split_text( 'Trois mots.', 5000 ), [ 'Trois mots.' ] );
+// A paragraph longer than the ceiling on its own still has to travel.
+$tr_wall = str_repeat( 'Un mur de texte sans respiration aucune. ', 400 );
+ok( 'a wall of text is cut too',           count( DZE_Translate::split_text( $tr_wall, 5000 ) ) > 1, true );
+ok( 'and is still the text it was',        implode( '', DZE_Translate::split_text( $tr_wall, 5000 ) ) === $tr_wall, true );
+// Accents count as one character, not two: cutting on bytes cuts them in half.
+$tr_acc = str_repeat( 'Des chaussures françaises très éprouvées. ', 300 );
+ok( 'an accented text survives the cut',   implode( '', DZE_Translate::split_text( $tr_acc, 5000 ) ) === $tr_acc, true );
+
+// EACH PIECE IS ITS OWN CALL, and the answers go back in order.
+$GLOBALS['calls'] = [];
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match( '/### (\S+) /', $user, $m );
+	$fid = $m[1] ?? '?';
+	// Answer with a marker per piece, so the order can be read off the result.
+	return (string) wp_json_encode( [ $fid => '[' . $fid . ']' ] );
+};
+$tr_got = DZE_Translate::translate( [ 'post:content' => $tr_art ], 'fr', 'post', [ 'post:content' => 'Article body' ] );
+ok( 'one call per piece', count( $GLOBALS['calls'] ), count( $tr_cut ) );
+$tr_want = '';
+foreach ( array_keys( $tr_cut ) as $i ) { $tr_want .= '[post:content~p' . $i . ']'; }
+ok( 'the pieces come back in order', $tr_got['post:content'] ?? '', $tr_want );
+ok( 'and each piece said which part it was',
+	false !== strpos( (string) end( $GLOBALS['calls'] ), 'part ' . count( $tr_cut ) . ' of ' . count( $tr_cut ) ), true );
+
+// THE KEY IS THE FIELD ID, WHATEVER SHAPE IT COMES BACK IN. Handed
+// `### post:content (Article body)`, a model answers now and again with the
+// whole line as the key — and every word it translated was thrown away.
+$GLOBALS['calls'] = [];
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match( '/### (\S+) \(([^)]*)\)/', $user, $m );
+	return (string) wp_json_encode( [ ( $m[1] ?? '?' ) . ' (' . ( $m[2] ?? '' ) . ')' => 'Traduit' ] );
+};
+$tr_got = DZE_Translate::translate( [ 'post:title' => 'Boots' ], 'fr', 'post', [ 'post:title' => 'Title' ] );
+ok( 'a key with the label stuck to it is still the field', $tr_got['post:title'] ?? '', 'Traduit' );
+
+// AND A PIECE THAT NEVER CAME BACK LEAVES THE FIELD ALONE. Half a description
+// in two languages is worse than a description that was not translated.
+$GLOBALS['calls'] = [];
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match( '/### (\S+) /', $user, $m );
+	$fid = $m[1] ?? '?';
+	return (string) wp_json_encode( [ $fid => '~p1' === substr( $fid, -3 ) ? '' : '[' . $fid . ']' ] );
+};
+$tr_got = DZE_Translate::translate( [ 'post:content' => $tr_art ], 'fr', 'post', [ 'post:content' => 'Article body' ] );
+ok( 'a piece that never came back drops the whole field', isset( $tr_got['post:content'] ), false );
+ok( 'and the missing piece was asked for once more',
+	count( $GLOBALS['calls'] ), count( $tr_cut ) + 1 );
+unset( $GLOBALS['model_answer_fn'] );
+
+echo "\nONE BAD ANSWER TAKES ITS OWN FIELDS DOWN, NOT THE WHOLE OBJECT\n";
+//
+// An Elementor page of 63 fields translated nothing at all because the seventh
+// call answered badly — on a page whose first fifty-four fields were already
+// translated and paid for.
+$tr_many = [];
+for ( $i = 0; $i < 8; $i++ ) { $tr_many[ 'meta:_f' . $i ] = str_repeat( "Champ $i. ", 90 ); }
+$GLOBALS['calls'] = [];
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match_all( '/### (\S+) /', $user, $m );
+	// The batch holding _f7 answers rubbish; asked one field at a time it is fine.
+	if ( in_array( 'meta:_f7', $m[1], true ) && count( $m[1] ) > 1 ) {
+		return 'Je ne peux pas faire ça.';
+	}
+	$o = [];
+	foreach ( $m[1] as $fid ) { $o[ $fid ] = '[' . $fid . ']'; }
+	return (string) wp_json_encode( $o );
+};
+$tr_got = DZE_Translate::translate( $tr_many, 'fr', 'post', array_combine( array_keys( $tr_many ), array_keys( $tr_many ) ) );
+ok( 'every field still comes back', count( $tr_got ), count( $tr_many ) );
+ok( 'including the one in the bad batch', $tr_got['meta:_f7'] ?? '', '[meta:_f7]' );
+
+// AND A FIELD THAT WILL NOT COME BACK AT ALL IS LEFT AS IT WAS.
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match_all( '/### (\S+) /', $user, $m );
+	if ( in_array( 'meta:_f7', $m[1], true ) ) { return 'Non.'; }
+	$o = [];
+	foreach ( $m[1] as $fid ) { $o[ $fid ] = '[' . $fid . ']'; }
+	return (string) wp_json_encode( $o );
+};
+$tr_got = DZE_Translate::translate( $tr_many, 'fr', 'post', array_combine( array_keys( $tr_many ), array_keys( $tr_many ) ) );
+ok( 'the field that never came back is left alone', isset( $tr_got['meta:_f7'] ), false );
+ok( 'and the others are still translated',          count( $tr_got ), count( $tr_many ) - 1 );
+
+// UN MORCEAU QUI CASSE DEUX FOIS NEMPORTE PAS LE RESTE. La reprise dun
+// morceau manquant nétait pas protégée : elle jetait hors de translate(),
+// par-dessus les champs déjà traduits et payés. La page annonçait « 0 sur 63 »
+// alors que six de ses dix lots avaient réussi.
+$tr_mix = [ 'meta:_court' => 'Bottes', 'meta:_long' => $tr_art ];
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match_all( '/### (\S+) /', $user, $m );
+	foreach ( $m[1] as $fid ) { if ( false !== strpos( $fid, '_long' ) ) { return 'Non.'; } }
+	$o = []; foreach ( $m[1] as $fid ) { $o[ $fid ] = '[' . $fid . ']'; }
+	return (string) wp_json_encode( $o );
+};
+$tr_got = DZE_Translate::translate( $tr_mix, 'fr', 'post', array_combine( array_keys( $tr_mix ), array_keys( $tr_mix ) ) );
+ok( 'le champ court survit au champ long qui casse', $tr_got['meta:_court'] ?? '', '[meta:_court]' );
+ok( 'et le champ long est laisse tel quel',        isset( $tr_got['meta:_long'] ), false );
+
+// NOTHING AT ALL BACK IS AN ERROR, NOT AN EMPTY ANSWER.
+$GLOBALS['model_answer_fn'] = static function (): string { return 'Non.'; };
+$tr_why = '';
+try {
+	DZE_Translate::translate( [ 'meta:_a' => 'Bottes' ], 'fr', 'post', [ 'meta:_a' => 'A' ] );
+} catch ( Throwable $e ) { $tr_why = $e->getMessage(); }
+ok( 'nothing back at all says why', false !== stripos( $tr_why, 'expected format' ), true );
+
+// A SENTENCE AROUND THE JSON IS NOT A FAILED CALL.
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match( '/### (\S+) /', $user, $m );
+	return "Voici la traduction :\n" . (string) wp_json_encode( [ $m[1] => 'Bottes' ] ) . "\nBonne journée.";
+};
+$tr_got = DZE_Translate::translate( [ 'meta:_a' => 'Boots' ], 'fr', 'post', [ 'meta:_a' => 'A' ] );
+ok( 'JSON with a greeting around it still reads', $tr_got['meta:_a'] ?? '', 'Bottes' );
+unset( $GLOBALS['model_answer_fn'] );
+
+echo "\nSUR UNE PAGE ELEMENTOR, LA COPIE APLATIE NEST PAS DU TEXTE\n";
+// `post_content` y est un vidage de la page RENDUE : tracés SVG, URL de
+// vignettes, le shortcode des avis et ses quarante paramètres. Sur laccueil,
+// 27 000 caractères contre 5 600 de vrais mots — cinq appels sur sept passés
+// à traduire du balisage machine, et la page ne traduisait rien du tout.
+ok( 'elementor_fields sait reconnaitre une page Elementor',
+	method_exists( 'DZE_Translate', 'elementor_fields' ), true );
+$tr_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+ok( 'et la copie aplatie est retiree quand il y en a',
+	false !== strpos( $tr_src, "if ( \$el ) {\n\t\t\tunset( \$out['content'] );" ), true );
+ok( 'apres la lecture des champs Elementor, pas avant',
+	strpos( $tr_src, "unset( \$out['content'] )" ) > strpos( $tr_src, '$el = self::elementor_fields' ), true );
+
+echo "\nLARBRE ELEMENTOR EST ECRIT EN DERNIER\n";
+// wp_update_post() sur une traduction est un enregistrement, et un
+// enregistrement est le moment ou WPML recopie depuis loriginal tout ce
+// quil doit recopier, _elementor_data compris. Ecrit avant lui, larbre
+// traduit repassait en anglais en sortant : 61 champs traduits, payes,
+// ecrits, et identiques a la source une seconde plus tard.
+$tr_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+$tr_up  = strpos( $tr_src, 'wp_update_post( $post );' );
+$tr_el  = strpos( $tr_src, 'self::elementor_put( $target_id, $el );' );
+ok( 'les deux ecritures sont bien la', $tr_up > 0 && $tr_el > 0, true );
+ok( 'et larbre passe apres lenregistrement', $tr_el > $tr_up, true );
+
+echo "\nUNE ANNULATION NE VIDE JAMAIS UNE PAGE\n";
+// Sur une traduction créée dans la même passe, la page ne portait pas encore
+// d'arbre Elementor quand obj_write a commencé : WPML le recopie pendant le
+// wp_update_post() qui suit. Lu trop tôt, chaque champ était retenu comme
+// vide — et l'annulation VIDAIT la page au lieu d'y remettre les mots
+// d'origine. Soixante et un titres et paragraphes effacés, avec un
+// « annulé » pour tout résultat.
+$tr_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+$tr_get = strpos( $tr_src, "\$prev_el[ 'el:' . \$path ] = self::elementor_get(" );
+$tr_put = strpos( $tr_src, 'self::elementor_put( $target_id, $el );' );
+ok( 'ce qui va etre remplace est relu',        $tr_get > 0, true );
+ok( 'et relu AVANT le remplacement',           $tr_get < $tr_put, true );
+$tr_upd = strpos( $tr_src, 'wp_update_post( $post );' );
+ok( 'donc apres que WPML ait recopie l\'arbre', $tr_get > $tr_upd, true );
+ok( 'et un champ Elementor vide n\'est jamais remis',
+	false !== strpos( $tr_src, "0 === strpos( (string) \$fid, 'el:' ) && '' === trim( (string) \$prev[ \$fid ] )" ), true );
+
+echo "\nCE QUI EST MIS EN MEMOIRE DOIT POUVOIR EN RESSORTIR\n";
+// update_post_meta() passe par wp_unslash(). JSON echappe chaque guillemet en
+// \" et chaque barre oblique en \/ : deshabille de ses antislashes, il cesse
+// d'etre du JSON. Le registre d'annulation — les mots que portait une
+// traduction avant qu'on ecrive par-dessus — etait donc enregistre entier et
+// revenait illisible chaque fois que le texte contenait un guillemet ou une
+// adresse, c'est-a-dire toujours sur une boutique. 7 271 octets sur le disque,
+// zero champ a la relecture, et un bouton « Annuler » qui n'avait rien
+// derriere lui.
+$tr_w = new ReflectionMethod( 'DZE_Translate', 'meta_write' );
+$tr_w->setAccessible( true );
+$tr_r = new ReflectionMethod( 'DZE_Translate', 'meta_read' );
+$tr_r->setAccessible( true );
+$tr_o = [ 'kind' => 'post', 'id' => 4242, 'type' => 'page' ];
+$tr_hard = [
+	'title'          => 'Il a dit "bonjour"',
+	'el:abc:title'   => 'Voir https://kula.test/bottes-tactiques/ pour la suite',
+	'meta:_x'        => "Une ligne\nune autre, et un antislash \\ tout seul",
+];
+$tr_w->invoke( null, $tr_o, 4242, '_dze_tr_prev', (string) wp_json_encode( $tr_hard ) );
+$tr_back = json_decode( $tr_r->invoke( null, $tr_o, 4242, '_dze_tr_prev' ), true );
+ok( 'ce qui ressort est bien du JSON', is_array( $tr_back ), true );
+ok( 'et tous les champs sont la',      is_array( $tr_back ) ? count( $tr_back ) : 0, 3 );
+ok( 'les guillemets sont intacts',     $tr_back['title'] ?? '', 'Il a dit "bonjour"' );
+ok( 'les adresses aussi',              $tr_back['el:abc:title'] ?? '', 'Voir https://kula.test/bottes-tactiques/ pour la suite' );
+ok( 'et les antislashes aussi',        $tr_back['meta:_x'] ?? '', "Une ligne\nune autre, et un antislash \\ tout seul" );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

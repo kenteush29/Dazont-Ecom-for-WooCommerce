@@ -179,17 +179,19 @@ final class DZE_Health {
 		$now  = self::tab_now( (array) $_GET );
 		$tabs = self::tabs();
 		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'logs' ) ) . '</h1>';
-		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 18px;">';
+		// One printer for every strip in the plugin: two builders is how two
+		// screens start behaving differently while looking the same.
+		$strip = [];
 		foreach ( $tabs as $key => $label ) {
-			printf(
-				'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
-				$key === $now ? ' nav-tab-active' : '',
-				esc_url( self::page_url( $key ) ),
-				esc_html( $label )
-			);
+			$strip[ (string) $key ] = [ 'label' => (string) $label, 'url' => self::page_url( (string) $key ) ];
 		}
-		echo '</h2>';
-		if ( 'health' === $now ) {
+		echo wp_kses_post( DZE_Screens::strip( $strip, $now, 'margin:12px 0 18px;' ) );
+		if ( 'past' === $now && class_exists( 'DZE_Automation' ) ) {
+			// One body, printed by whoever shows it — the rule every other tab
+			// in this plugin is held to. Its undo buttons bring their own script.
+			DZE_Automation::render_past();
+			DZE_Automation::render_assets();
+		} elseif ( 'health' === $now ) {
 			self::render();
 		} elseif ( 'spend' === $now ) {
 			DZE_Ai_Usage::render_graph();

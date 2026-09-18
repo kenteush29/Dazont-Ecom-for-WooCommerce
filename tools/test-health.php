@@ -36,6 +36,7 @@ define( 'DZE_FILE', DZE_DIR . 'dazont-ecom.php' );
 
 function __( $s, $d = '' ) { return $s; }
 function _n( $a, $b, $n, $d = '' ) { return 1 === (int) $n ? $a : $b; }
+function wp_kses_post( $s ) { return $s; }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_attr( $s ) { return esc_html( $s ); }
 function esc_html__( $s, $d = '' ) { return esc_html( $s ); }

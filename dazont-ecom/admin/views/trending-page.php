@@ -27,6 +27,10 @@ defined( 'ABSPATH' ) || exit;
 		<li><code>time_period</code> — <?php esc_html_e( 'look-back window in days. Omit it (or use "all") for the all-time ranking.', 'dazont-ecom' ); ?></li>
 	</ul>
 
+	<ul style="list-style-type:disc;margin-left:20px;">
+		<li><code>exclude_on_sale="true"</code> — <?php esc_html_e( 'leave out the products that are on sale, so a block of best sellers and a block of promotions do not show the same thing twice. It reads WooCommerce\'s own on-sale list, which also holds whatever the Discounts module has marked down.', 'dazont-ecom' ); ?></li>
+	</ul>
+
 	<h4><?php esc_html_e( 'Everything else is passed straight to WooCommerce [products]', 'dazont-ecom' ); ?></h4>
 	<ul style="list-style-type:disc;margin-left:20px;">
 		<li><code>limit</code> — <?php esc_html_e( 'products per page', 'dazont-ecom' ); ?></li>

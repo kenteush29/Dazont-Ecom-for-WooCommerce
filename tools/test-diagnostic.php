@@ -913,17 +913,17 @@ $GLOBALS['dze_transients'] = [];
 $GLOBALS['dze_meta'][102]['_product_image_gallery'] = '11,12,13';
 $GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-01 12:00:00'; // as a save moves it
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
-ok( 'the tab says how much work is left',  false !== strpos( $html, 'Issues (<span class="dze-diag-n">2</span>)' ), true );
+ok( 'the tab says how much work is left',  false !== strpos( $html, 'Issues <span class="dze-tab-n">2</span>' ), true );
 // A DIFF, NOT A STORE: it holds what the last reading listed and that no
 // longer falls short, so the next reading empties it. The name says so —
 // "le compte Fixed revient constamment à 0" was it doing exactly what it is.
 ok( 'and how much is done since the reading',
-	false !== strpos( $html, 'Fixed since the reading (<span class="dze-diag-n">1</span>)' ), true );
+	false !== strpos( $html, 'Fixed since the reading <span class="dze-tab-n">1</span>' ), true );
 // The figure is its OWN element, so a row mended in the popup can leave the
 // list and take both counts with it — without reloading the page to ask a
 // question about one row.
 ok( 'and each figure can be changed on its own',
-	substr_count( $html, 'class="dze-diag-n"' ), 2 );
+	substr_count( $html, 'class="dze-tab-n"' ), 2 );
 
 // AND THE CENSUS ROW ABOVE IT ANSWERS THE SAME QUESTION.
 //
@@ -980,7 +980,7 @@ $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
 
 /** What one tab says it holds, read off the page the way a reader reads it. */
 $dze_tab_n = static function ( string $html, string $tab ): string {
-	return preg_match( '/data-tab="' . $tab . '"[^>]*>[^(]*\(<span class="dze-diag-n">([^<]*)<\/span>\)/', $html, $m )
+	return preg_match( '/data-tab="' . $tab . '"[^>]*>[^<]*<span class="dze-tab-n">([^<]*)<\/span>/', $html, $m )
 		? (string) $m[1]
 		: 'missing';
 };
@@ -1236,9 +1236,11 @@ echo "One subject, several views: the tabs of Content\n";
 $GLOBALS['review_n'] = 4;
 $GLOBALS['bulk_n']   = 1;
 $dze_tabs = DZE_Diagnostic::tabs();
-ok( 'the reading is a view',            isset( $dze_tabs['diagnostic'] ), true );
-ok( 'and what waits for a person is another', isset( $dze_tabs['review'] ), true );
-ok( 'each view carries its own figure', (int) $dze_tabs['review']['n'], 4 );
+ok( 'la lecture nest plus une vue, cest lecran entier', isset( $dze_tabs['diagnostic'] ), false );
+// LA LISTE DATTENTE NEST PLUS UNE VUE DICI : cest la boite de reception, une
+// entree de menu a elle. Un onglet ici portait un chiffre fait des lignes de
+// maillage au-dessus dune liste batie pour les exclure.
+ok( 'la liste dattente nest plus une vue dici', isset( $dze_tabs['review'] ), false );
 // A COUNT BELONGS TO ONE VIEW. Products waiting for a decision used to be
 // added into the review tab's figure AND announced by a notice inside it —
 // two accounts of the same thing on one screen, neither of them the screen
@@ -1248,16 +1250,16 @@ ok( 'each view carries its own figure', (int) $dze_tabs['review']['n'], 4 );
 // "Products AI bulk > toujours caché, introuvable dans aucun menu. Products,
 // dans Content diagnostic, redirige vers Products AI bulk. Démèles ce
 // bordel." One screen, reached the way the others are.
-ok( 'products are a view of their own',  isset( $dze_tabs['products'] ), true );
-ok( 'and never a way out of the page',   isset( $dze_tabs['products']['url'] ), false );
-// The figure the tab OPENS on, which is the list it shows.
-ok( 'carrying the figure it opens on',   (int) $dze_tabs['products']['n'], 2 );
+// LE DIAGNOSTIC NE FAIT PLUS QUE LIRE. Letabli produits a son ecran, sous son
+// propre nom : « Diagnostic -> Bulk writing » imprimait le nom dun ecran qui
+// lit TOUT le site au-dessus dun etabli qui ne touche que des produits.
+ok( 'le diagnostic na plus de vues', $dze_tabs, [] );
 // A TAB EXISTS ONLY WHILE ITS MODULE DOES. Switching a module off must take
 // its view with it — and leave the others exactly where they were.
 $GLOBALS['module_off'] = [ 'queue' => 1 ];
 $dze_tabs = DZE_Diagnostic::tabs();
 ok( 'a module switched off has no tab',  isset( $dze_tabs['review'] ), false );
-ok( 'and the reading is still there',    isset( $dze_tabs['diagnostic'] ), true );
+ok( 'et la lecture nest plus une vue non plus',    isset( $dze_tabs['diagnostic'] ), false );
 $GLOBALS['module_off'] = [];
 
 // THE PAGE ITSELF: the tabs are drawn, and the view asked for is the one
@@ -1270,31 +1272,15 @@ $dze_page = (string) ob_get_clean();
 // linking, what waits and the products — and the standards it reads against
 // are Settings → Content rules. Both used to be called "Content diagnostic",
 // which is a name that answers neither question.
-ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Content</h1>' ), true );
-ok( 'it draws WordPress\'s own tabs',     false !== strpos( $dze_page, 'nav-tab-wrapper' ), true );
-// THE PRODUCTS TAB IS DRAWN HERE, with its own two tabs inside it — "tu peux
-// rendre l'onglet Products fonctionnel et y faire dedans 2 onglets, Selected
-// products 2 / Done 82". The body belongs to the module that owns that work
-// and is printed by this tab and by its own page alike.
-$GLOBALS['dze_diag_on'] = 1;
-$_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'products' ];
-ob_start();
-DZE_Diagnostic::instance()->render_page();
-$dze_out = (string) ob_get_clean();
-ok( 'the products tab is the one shown',
-	(bool) preg_match( '/class="nav-tab nav-tab-active" href="[^"]*tab=products"/', $dze_out ), true );
-ok( 'and the reading is not drawn under it',
-	false !== strpos( $dze_out, 'What the shop is short of' ), false );
-ok( 'the screen brings its own two tabs',
-	substr_count( $dze_out, 'dze-cb-tabs' ), 1 );
-ok( 'naming what is selected',           false !== strpos( $dze_out, 'Selected products' ), true );
-ok( 'and what is done with',             false !== strpos( $dze_out, 'Done' ), true );
-// THEY STAY WHERE THEY WERE PRESSED. Built from the bulk page's own address
-// they would jump off this screen the moment one of them was clicked.
-ok( 'and both of them stay on this screen',
-	substr_count( $dze_out, 'page=' . DZE_Diagnostic::MENU_SLUG . '&tab=products' ) >= 2, true );
+ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Diagnostic</h1>' ), true );
+// ET IL NE DESSINE PLUS DE BARRE DU TOUT : un seul sujet, pas de vues. Letabli
+// produits, le maillage et la liste dattente ont chacun leur ecran ; une barre
+// dun seul onglet est une barre dont personne na besoin.
+ok( 'il ne dessine plus de barre',       false !== strpos( $dze_page, 'nav-tab-wrapper' ), false );
+ok( 'et cest la lecture qui est imprimee',
+	false !== strpos( $dze_page, 'What the shop is short of' ), true );
+
 $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG ];
-ok( 'the reading is the one you land on', false !== strpos( $dze_page, 'nav-tab nav-tab-active' ), true );
 ok( 'and it is the reading that is printed',
 	false !== strpos( $dze_page, 'What the shop is short of' ), true );
 ok( 'not the other view',                false !== strpos( $dze_page, 'the review body' ), false );
@@ -1302,8 +1288,8 @@ $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'review' ];
 ob_start();
 DZE_Diagnostic::instance()->render_page();
 $dze_page = (string) ob_get_clean();
-ok( 'asking for the other view prints it', false !== strpos( $dze_page, 'the review body' ), true );
-ok( 'and not the reading',               false !== strpos( $dze_page, 'What the shop is short of' ), false );
+ok( 'demander la vue disparue ramene a la lecture', false !== strpos( $dze_page, 'the review body' ), false );
+ok( 'et cest bien la lecture qui saffiche',     false !== strpos( $dze_page, 'What the shop is short of' ), true );
 // A view that does not exist is not an error: it lands on the first one.
 $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'nonsense' ];
 ob_start();
@@ -1316,7 +1302,7 @@ $GLOBALS['review_n'] = 0;
 $GLOBALS['bulk_n']   = 0;
 DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
-ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Content' );
+ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Diagnostic' );
 ok( 'and it still points at the same page', (string) ( $dze_menu['slug'] ?? '' ), DZE_Diagnostic::MENU_SLUG );
 // THE BADGE IS WHAT WAITS FOR A PERSON. It used to carry the shortfall —
 // "1,205" in red, for ever, on a menu you look at forty times a day, which is
@@ -1328,8 +1314,13 @@ $GLOBALS['review_n'] = 2;
 $GLOBALS['bulk_n']   = 3;
 DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
-ok( 'what waits for a person is on the menu',
-	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>5<' ), true );
+// ET LA PASTILLE NE COMPTE QUE CE QUI ATTEND SUR CET ECRAN. Elle additionnait la
+// file entiere (2) et les produits en attente (3) : un chiffre que lecran ne
+// pouvait pas montrer. La file est la boite de reception, qui porte le sien.
+ok( 'la pastille ne compte que ce qui attend ici',
+	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>3<' ), true );
+ok( 'et jamais la file, qui a son propre menu',
+	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>5<' ), false );
 $GLOBALS['review_n'] = 0;
 $GLOBALS['bulk_n']   = 0;
 $GLOBALS['dze_opts'] = [];
@@ -1674,7 +1665,7 @@ ok( 'and its neighbour',                 false !== strpos( $dze_one, 'data-id="9
 ok( 'and drops everything else',         false !== strpos( $dze_one, 'data-id="903"' ), false );
 // THE TAB'S FIGURE AND THE LIST UNDER IT ANSWER THE SAME QUESTION.
 ok( 'the tab counts what is shown',
-	false !== strpos( $dze_one, 'Issues (<span class="dze-diag-n">2</span>)' ), true );
+	false !== strpos( $dze_one, 'Issues <span class="dze-tab-n">2</span>' ), true );
 // AND THE SENTENCE SAYS THE WHOLE TRUTH: how many fall short in all, and how
 // many of them are in the category being looked at.
 ok( 'the line says how many in all',     false !== strpos( $dze_one, '3 fall short in all.' ), true );
@@ -1728,7 +1719,7 @@ $dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
 $dze_after = (string) ob_get_clean();
 ok( 'the mended one is off the list',   false !== strpos( $dze_after, 'data-id="902"' ), false );
 ok( 'the one still short is not',       false !== strpos( $dze_after, 'data-id="901"' ), true );
-ok( 'and the tab counts what is left',  false !== strpos( $dze_after, 'Issues (<span class="dze-diag-n">1</span>)' ), true );
+ok( 'and the tab counts what is left',  false !== strpos( $dze_after, 'Issues <span class="dze-tab-n">1</span>' ), true );
 // It is not lost: it is on the other tab, which is a DIFF and says so.
 ok( 'it is named as fixed since the reading',
 	false !== strpos( $dze_after, 'Fixed since the reading' ), true );

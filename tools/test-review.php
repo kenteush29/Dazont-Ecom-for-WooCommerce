@@ -337,6 +337,9 @@ function dze_empty_queue(): void {
 $GLOBALS['wpdb'] = new DZE_Review_Wpdb();
 $GLOBALS['rows'] = [];
 
+// The one place that versions this plugin's admin files; every screen
+// class asks it rather than hanging DZE_VERSION on the same handle.
+require __DIR__ . '/../' . $dir . '/includes/class-assets.php';
 require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
 require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
@@ -486,9 +489,12 @@ $GLOBALS['off'] = [];
 $GLOBALS['menu_added'] = [];
 $GLOBALS['bulk_pending'] = 0;
 DZE_Queue::instance()->menu();
-ok( 'hosted, it takes no menu of its own',
-	isset( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ), false );
-ok( 'and it knows that it is',               DZE_Queue::hosted(), true );
+// IT IS THE INBOX, AND IT HAS ITS OWN ENTRY. As a tab of the diagnostic its
+// address was that screen's — and switching the diagnostic off left the one
+// list holding every kind of waiting work reachable from nowhere at all.
+ok( 'it takes an entry of its own',
+	isset( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ), true );
+ok( 'and it is hosted by nobody',           DZE_Queue::hosted(), false );
 // BUT SWITCHING THE HOST OFF MUST NOT TAKE THIS FUNCTION WITH IT. It goes
 // back to a page of its own, under Dazont Ecom — never under Products, where
 // a screen about everything the plugin writes does not belong.
@@ -496,7 +502,7 @@ $GLOBALS['off'] = [ 'diagnostic' ];
 $GLOBALS['menu_added'] = [];
 DZE_Queue::instance()->menu();
 $dze_menu = $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ?? [];
-ok( 'with no host it keeps its own page',    (string) ( $dze_menu['title'] ?? '' ), 'Content to review' );
+ok( 'with no host it keeps its own page',    (string) ( $dze_menu['title'] ?? '' ), 'To review' );
 ok( 'and it hangs off Dazont Ecom',          (string) ( $dze_menu['parent'] ?? '' ), 'dazont-ecom' );
 ok( 'and never under Products any more',
 	false !== strpos( (string) ( $dze_menu['parent'] ?? '' ), 'post_type=product' ), false );
@@ -539,7 +545,7 @@ ob_start();
 DZE_Queue::instance()->render();
 $dze_page = (string) ob_get_clean();
 ok( 'the page is named for what it holds',
-	false !== strpos( $dze_page, '<h1>Content to review</h1>' ), true );
+	false !== strpos( $dze_page, '<h1>To review</h1>' ), true );
 // AND IT DOES NOT SEND YOU LOOKING FOR THE SCREEN YOU ARE ON. A blue box
 // inside this screen announced that products were waiting somewhere else and
 // offered to take you there — read from the chair of somebody who came here

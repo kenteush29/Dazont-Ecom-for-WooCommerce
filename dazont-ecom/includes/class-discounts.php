@@ -1816,6 +1816,10 @@ final class DZE_Discounts {
 			$queue = [
 				'set'     => $set,
 				'release' => array_values( array_diff( $managed, array_keys( $desired ) ) ),
+				// Whether this sync has written anything at all, so the lookup
+				// tables are rebuilt once at the end and not on a weekly pass
+				// that found nothing to do.
+				'touched' => false,
 			];
 		}
 
@@ -1829,7 +1833,14 @@ final class DZE_Discounts {
 			$processed++;
 		}
 
+		if ( $processed > 0 ) {
+			$queue['touched'] = true;
+		}
+
 		if ( empty( $queue['set'] ) && empty( $queue['release'] ) ) {
+			if ( ! empty( $queue['touched'] ) ) {
+				$this->refresh_price_lookup();
+			}
 			delete_option( self::OPT_SYNC_QUEUE );
 		} else {
 			update_option( self::OPT_SYNC_QUEUE, $queue, false );
@@ -1837,6 +1848,37 @@ final class DZE_Discounts {
 				$this->kick_sale_sync();
 			}
 		}
+	}
+
+	/**
+	 * REBUILDS WHAT WOOCOMMERCE ANSWERS "IS IT ON SALE?" FROM.
+	 *
+	 * `set_row_sale()` and `restore_row()` write the price with
+	 * `update_post_meta()` rather than through a `WC_Product`, on purpose: a
+	 * CRUD save per product would be minutes on a catalogue this size. But the
+	 * CRUD is also what keeps `wc_product_meta_lookup` in step, and nothing was
+	 * doing that job in its place. So a campaign ended, the prices went back to
+	 * normal, and the lookup kept saying `onsale = 1` at the old price — for
+	 * ever, because nothing ever rebuilt it.
+	 *
+	 * Found on kula-tactical.com (17 Sept. 2026): 116 products flagged on sale
+	 * against 4 holding a real sale price, and 152 simple products carrying a
+	 * stale `min_price`. Every "on sale" query on the shop read that table, so
+	 * the home page showed products at full price under a Deals heading.
+	 *
+	 * Rebuilt with WooCommerce's OWN routine, not a query of our own: it owns
+	 * the definition of "on sale", and a second one here would be a second
+	 * answer to the same question. Two full-table updates, well under two
+	 * seconds on 2,000 products, run once when a sync finishes.
+	 */
+	private function refresh_price_lookup(): void {
+		if ( function_exists( 'wc_update_product_lookup_tables_column' ) ) {
+			wc_update_product_lookup_tables_column( 'onsale' );
+			wc_update_product_lookup_tables_column( 'min_max_price' );
+		}
+		// The list WooCommerce hands out is cached for a month; rebuilding the
+		// table underneath it changes nothing until this goes.
+		delete_transient( 'wc_products_onsale' );
 	}
 
 	/**
@@ -2519,15 +2561,11 @@ final class DZE_Discounts {
 		foreach ( DZE_Screens::tabs_of( 'marketing' ) as $key => $label ) {
 			$tabs[ $key ] = [ $label, DZE_Screens::url( 'marketing', $key ) ];
 		}
-		ob_start();
-		?>
-		<h2 class="nav-tab-wrapper" style="margin-bottom:16px;">
-			<?php foreach ( $tabs as $key => $one ) : ?>
-				<a href="<?php echo esc_url( $one[1] ); ?>" class="nav-tab<?php echo $key === $active ? ' nav-tab-active' : ''; ?>"><?php echo esc_html( $one[0] ); ?></a>
-			<?php endforeach; ?>
-		</h2>
-		<?php
-		return (string) ob_get_clean();
+		$strip = [];
+		foreach ( $tabs as $key => $one ) {
+			$strip[ (string) $key ] = [ 'label' => $one[0], 'url' => $one[1] ];
+		}
+		return DZE_Screens::strip( $strip, $active, 'margin-bottom:16px;' );
 	}
 
 	/** "Discounts" page: evergreen cart/bulk rules, set up once. */
@@ -2572,6 +2610,11 @@ final class DZE_Discounts {
 		// failed account left half-sent. Nothing is fetched here: the work is
 		// put in the queue and done in the background.
 		self::gmc_follow_all();
+		// THE SWITCH FIRST, then the work it decides about. Only on the events
+		// side: the discount rules are not what the calendar task writes.
+		if ( 'events' === $mode && class_exists( 'DZE_Automation' ) ) {
+			DZE_Automation::panel_form( [ 'events' ], __( 'Runs by itself', 'dazont-ecom' ) );
+		}
 		require DZE_DIR . 'admin/views/discounts-page.php';
 	}
 

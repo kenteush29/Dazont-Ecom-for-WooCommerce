@@ -730,13 +730,23 @@ final class DZE_Marketing_Ai {
 		// tab keys do not change, so every link ever printed at one of these
 		// screens still lands on it.
 		$groups = [
+			// EVERYTHING THE PLUGIN WRITES OR MAKES FOR THE SHOP, together.
+			// The standards the shop is read against (Content rules) and the
+			// bench the pictures are made on (Image lab) were each a tab of
+			// their own in the top row, beside the three screens they are
+			// about — nine entries where a shop looks for one of three things.
 			'shop'    => [
 				'label' => __( 'Shop content', 'dazont-ecom' ),
-				'tabs'  => [ 'categories', 'content', 'reviews' ],
+				'tabs'  => [ 'categories', 'content', 'reviews', 'lab', 'diagnostic' ],
 			],
 			'promo'   => [
 				'label' => __( 'Discounts', 'dazont-ecom' ),
 				'tabs'  => [ 'discounts', 'events', 'email' ],
+			],
+			// The plugin's own housekeeping, which is not shop work at all.
+			'plugin'  => [
+				'label' => __( 'Plugin', 'dazont-ecom' ),
+				'tabs'  => [ 'transfer', 'modules' ],
 			],
 		];
 		// Sections read the same as the tab they were, except where the group
@@ -767,7 +777,10 @@ final class DZE_Marketing_Ai {
 		}
 		$here = $group_of[ $tab ] ?? '';
 
-		echo '<nav class="nav-tab-wrapper" style="margin-bottom:16px;">';
+		// WHICH TABS ARE ON THE ROW is this screen's question — a group stands
+		// for its members. WHAT THE ROW LOOKS LIKE is not: that is the one
+		// printer's, here as everywhere else.
+		$strip = [];
 		$drawn = [];
 		foreach ( $tabs as $key => $label ) {
 			$gid = $group_of[ $key ] ?? '';
@@ -776,22 +789,15 @@ final class DZE_Marketing_Ai {
 					continue; // its group is already on the row.
 				}
 				$drawn[ $gid ] = true;
-				printf(
-					'<a href="%1$s" class="nav-tab%2$s">%3$s</a>',
-					$link( (string) $members[ $gid ][0] ),
-					$gid === $here ? ' nav-tab-active' : '',
-					esc_html( (string) $groups[ $gid ]['label'] )
-				);
+				$strip[ $gid ] = [
+					'label' => (string) $groups[ $gid ]['label'],
+					'url'   => $link( (string) $members[ $gid ][0] ),
+				];
 				continue;
 			}
-			printf(
-				'<a href="%1$s" class="nav-tab%2$s">%3$s</a>',
-				$link( (string) $key ),
-				$key === $tab ? ' nav-tab-active' : '',
-				esc_html( $label )
-			);
+			$strip[ (string) $key ] = [ 'label' => $label, 'url' => $link( (string) $key ) ];
 		}
-		echo '</nav>';
+		echo wp_kses_post( DZE_Screens::strip( $strip, '' !== $here ? $here : $tab, 'margin-bottom:16px;' ) );
 
 		// The screens inside the group, in WordPress's own quiet sub-navigation.
 		if ( '' !== $here && count( (array) $members[ $here ] ) > 1 ) {

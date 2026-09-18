@@ -630,7 +630,7 @@ PROMPT;
 				delete_transient( $key ); // one run per bulk action, never on refresh.
 			}
 		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		// The panel is an AJAX answer and its "✎ Prompt" opens a popup that has
 		// to be ON THE PAGE already: printed from a footer hook that never
 		// fires for an AJAX answer, it would be a button that does nothing.

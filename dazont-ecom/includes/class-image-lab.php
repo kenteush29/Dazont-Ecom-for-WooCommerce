@@ -39,6 +39,7 @@ final class DZE_Image_Lab {
 
 	private function __construct() {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
+		add_action( 'admin_menu', [ $this, 'register_menu' ], 12 );
 		add_action( 'wp_ajax_dze_lab_generate', [ $this, 'ajax_generate' ] );
 		add_action( 'wp_ajax_dze_lab_keep', [ $this, 'ajax_keep' ] );
 	}
@@ -46,11 +47,13 @@ final class DZE_Image_Lab {
 	/** Only on its own tab: an admin screen pays for what it loads. */
 	private function on_tab(): bool {
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- reading which screen is being drawn.
-		return isset( $_GET['page'], $_GET['tab'] )
-			&& class_exists( 'DZE_Marketing_Ai' )
-			&& DZE_Marketing_Ai::MENU_SLUG === $_GET['page']
-			&& 'lab' === $_GET['tab'];
+		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+		$tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
 		// phpcs:enable
+		// ITS OWN PAGE FIRST, and the Settings tab it used to be while any
+		// link ever printed at that address still lands on it.
+		return self::MENU_SLUG === $page
+			|| ( class_exists( 'DZE_Marketing_Ai' ) && DZE_Marketing_Ai::MENU_SLUG === $page && 'lab' === $tab );
 	}
 
 	public function enqueue( string $hook ): void {
@@ -58,7 +61,7 @@ final class DZE_Image_Lab {
 			return;
 		}
 		wp_enqueue_media();
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );
 		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
@@ -99,6 +102,33 @@ final class DZE_Image_Lab {
 	}
 
 	/** The tab itself. */
+	public const MENU_SLUG = 'dazont-ecom-lab';
+
+	public function register_menu(): void {
+		if ( ! class_exists( 'DZE_Screens' ) ) {
+			return;
+		}
+		add_submenu_page(
+			DZE_Screens::PARENT,
+			DZE_Screens::label( 'lab' ),
+			DZE_Screens::label( 'lab' ),
+			'manage_woocommerce',
+			self::MENU_SLUG,
+			[ $this, 'render_page' ]
+		);
+	}
+
+	/** The bench, on a page of its own. One body, two hosts. */
+	public function render_page(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		echo '<div class="wrap dze-admin">';
+		echo '<h1>' . esc_html( DZE_Screens::label( 'lab' ) ) . '</h1>';
+		$this->render();
+		echo '</div>';
+	}
+
 	public function render(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;

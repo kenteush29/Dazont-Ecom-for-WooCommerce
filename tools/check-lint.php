@@ -28,12 +28,23 @@ foreach ( $it as $file ) {
 		continue;
 	}
 	$n++;
-	$out = [];
-	$rc  = 0;
-	exec( 'php -l ' . escapeshellarg( $file->getPathname() ) . ' 2>&1', $out, $rc );
-	if ( 0 !== $rc ) {
+	// PARSED IN THIS PROCESS, not in another one.
+	//
+	// This gate shelled out to `php -l`, and `exec()` is disabled on the shop's
+	// host — so on the one machine the plugin is actually built on it did not
+	// fail, it DIED, and a pipeline reading its exit code through a pipe was
+	// reading the exit code of `tail`. A gate that cannot run where the work
+	// happens is a gate nobody is held to.
+	//
+	// `token_get_all()` with TOKEN_PARSE runs the real parser and throws the
+	// real ParseError, in-process, with no shell at all.
+	$src = (string) file_get_contents( $file->getPathname() );
+	try {
+		token_get_all( $src, TOKEN_PARSE );
+	} catch ( \ParseError $e ) {
 		$bad++;
-		echo implode( "\n", $out ) . "\n";
+		echo 'Parse error: ' . $e->getMessage() . ' in ' . $file->getPathname()
+			. ' on line ' . $e->getLine() . "\n";
 	}
 }
 printf( "\n%d files, %d that do not parse\n", $n, $bad );

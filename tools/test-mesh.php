@@ -146,7 +146,7 @@ $GLOBALS['terms'] = [
 	16 => [ 'name' => 'Combat boots',       'slug' => 'combat-boots',       'parent' => 15, 'count' => 7, 'description' => '<p>' . str_repeat( 'a boot word ', 40 ) . '</p>' ],
 ];
 $GLOBALS['posts'] = [
-	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>' . str_repeat( 'a backpack word ', 90 ) . '<a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a></p>' ],
+	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>Choosing a pack is a matter of load and season. A boonie hat rides on the strap. ' . str_repeat( 'a backpack word ', 90 ) . '<a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a></p>' ],
 	21 => [ 'type' => 'post', 'title' => 'Boonie hat sizing',                 'content' => '<p>' . str_repeat( 'a hat word ', 90 ) . '</p>' ],
 	22 => [ 'type' => 'page', 'title' => 'About the boonie workshop',         'content' => '' ],
 	// A builder page that points at nothing: the one shape that used to sit at
@@ -717,6 +717,25 @@ $picked = DZE_Category_Content::link_pool( 10 );
 ok( 'the pool alone does not offer it', in_array( 'Boonie hats', wp_list_pluck( $picked, 'label' ), true ), false );
 ok( 'and the mesh can still find it',   DZE_Mesh::page_by_url( 'https://kula.test/category/boonie-hats/' )['title'] ?? '', 'Boonie hats' );
 
+echo "\nUN COUPLE QUE LE TEXTE NE NOMME PAS NEST PAS PROPOSE\n";
+// Un lien ne peut saccrocher quà des mots deja presents. Proposer a un
+// article de pointer vers un sujet quil ne nomme jamais fabrique une tache
+// qui ne peut pas aboutir : payee au modele, refusee, puis montree a la
+// boutique en rouge sans quelle puisse rien y faire.
+$GLOBALS['tr']['dze_mesh_pages'] = DZE_Mesh::pages( true );
+$dze_plan2 = DZE_Mesh::plan( 5 );
+$dze_mauvais = 0;
+foreach ( $dze_plan2 as $r ) {
+	$txt = DZE_Mesh::body_of( (string) $r['kind'], (int) $r['id'] );
+	foreach ( (array) $r['urls'] as $u ) {
+		$cible = DZE_Mesh::page_by_url( $u );
+		$nom   = (string) ( $cible['title'] ?? '' );
+		if ( '' !== $nom && ! DZE_Category_Content::mentions( $txt, $nom ) ) { $dze_mauvais++; }
+	}
+}
+ok( 'le plan ne propose que des couples tenables', $dze_mauvais, 0 );
+ok( 'et il propose quand meme du travail',       count( $dze_plan2 ) > 0, true );
+
 echo "\nThe pass that writes the link is given the page that was picked\n";
 // THE HALF THAT MAKES THE SCREEN WORK. The pool answers "what would this
 // article link to on its own"; the Linking screen asks for the link the MESH
@@ -724,7 +743,14 @@ echo "\nThe pass that writes the link is given the page that was picked\n";
 // the pool, a press on that screen answered with nothing at all.
 $GLOBALS['tr']['dze_mesh_pages'] = DZE_Mesh::pages( true );
 DZE_Marketing_Ai::$sent   = [];
-DZE_Marketing_Ai::$answer = $GLOBALS['posts'][20]['content'];
+// The pass asks for WORDS, not the document and not a sentence of HTML: the
+// model names a run of words already in the text, and the link is written
+// here. A double that hands a document back is answering a question nobody
+// asks any more.
+DZE_Marketing_Ai::$answer = (string) wp_json_encode( [ [
+	'anchor' => 'load and season',
+	'url'    => 'https://kula.test/category/boonie-hats/',
+] ] );
 try {
 	DZE_Post_Links::add_links( 20, [ 'https://kula.test/category/boonie-hats/' ] );
 } catch ( Throwable $e ) {
@@ -1112,8 +1138,11 @@ echo "\nWhat runs by itself, said where the linking is looked at\n";
 DZE_Automation::$conf = [ 'on' => false, 'per_day' => 3, 'apply' => false ];
 $dze_auto = DZE_Mesh::auto_said();
 ok( 'off, it says so',                  false !== strpos( $dze_auto['said'], 'Nothing links pages on its own yet' ), true );
-ok( 'and names the screen from the catalogue', $dze_auto['name'], 'Dazont Ecom → Automation' );
-ok( 'with its address',                 false !== strpos( $dze_auto['url'], 'page=dazont-ecom-automation' ), true );
+// ET IL NE NOMME AUCUN AUTRE ECRAN : linterrupteur est en haut de cette page.
+// Envoyer la boutique vers un menu — disparu — presser un controle quelle a
+// deja sous les yeux, cest le clic que toute cette reorganisation visait.
+ok( 'et il dit ou est linterrupteur', false !== strpos( $dze_auto['said'], 'Switch it on above' ), true );
+ok( 'sans renvoyer ailleurs',        [ $dze_auto['url'], $dze_auto['name'] ], [ '', '' ] );
 DZE_Automation::$conf = [ 'on' => true, 'per_day' => 3, 'apply' => false ];
 ok( 'on, the rhythm and the review',    DZE_Mesh::auto_said()['said'], 'Dazont Ecom also links 3 pages a day on its own, held for your yes or no.' );
 DZE_Automation::$conf = [ 'on' => true, 'per_day' => 1, 'apply' => true ];
@@ -1173,7 +1202,8 @@ ok( 'no warning about the key',         false !== strpos( $screen, 'dze-mesh-nok
 ok( 'and the buttons are live',         substr_count( $screen, 'dze-mesh-pairs" disabled' ), 0 );
 // THE PASS THAT RUNS BY ITSELF IS NAMED, off or on.
 ok( 'the automatic pass is said',       false !== strpos( $screen, 'dze-mesh-auto' ), true );
-ok( 'linking to the catalogue\'s screen', false !== strpos( $screen, '>Dazont Ecom → Automation</a>' ), true );
+// SANS RENVOYER NULLE PART : linterrupteur est en haut de cette page.
+ok( 'et lecran ne renvoie vers aucun menu', false !== strpos( $screen, '>Dazont Ecom → Automation</a>' ), false );
 // A PAGE HAS BEEN CHOSEN, so nothing nags.
 ok( 'no line about choosing pages',     false !== strpos( $screen, 'dze-mesh-unchosen' ), false );
 

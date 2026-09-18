@@ -87,8 +87,8 @@ final class DZE_Fbt {
 	public function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Recommendations', 'dazont-ecom' ),
-			__( 'Recommendations', 'dazont-ecom' ),
+			DZE_Screens::label( 'fbt' ),
+			DZE_Screens::label( 'fbt' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_settings_page' ]

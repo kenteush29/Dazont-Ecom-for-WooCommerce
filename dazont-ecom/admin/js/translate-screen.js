@@ -199,12 +199,18 @@
 
 	// 1. TRANSLATE IT. Only what has moved is sent — the module's whole value —
 	// so a run that pays for nothing says so instead of looking broken.
-	$(document).on('click', '#dze-tr-auto', function () {
+	// ONE HANDLER, TWO BUTTONS. The second sends `all`, which is the only
+	// difference between them: two copies of this would drift the day one of
+	// them learnt something the other did not.
+	$(document).on('click', '#dze-tr-auto, #dze-tr-auto-all', function () {
 		var $e = editor();
 		if (!$e.length) { return; }
+		var all = this.id === 'dze-tr-auto-all';
+		// EVERY FIELD IS PAID FOR, so it is asked before it is spent.
+		if (all && !window.confirm(i18n.confirmAll)) { return; }
 		var $b = $(this).prop('disabled', true);
 		var $st = $('#dze-tr-autostate').removeClass('is-ko').text(i18n.sending);
-		post('dze_tr_batch', { ref: $e.data('ref'), langs: [String($e.data('lang'))] })
+		post('dze_tr_batch', { ref: $e.data('ref'), langs: [String($e.data('lang'))], all: all ? 1 : 0 })
 			.done(function (r) {
 				$b.prop('disabled', false);
 				if (!r || !r.success) { $st.addClass('is-ko').text(said(r)); return; }
@@ -300,5 +306,18 @@
 				}
 				$('tr[data-ref="' + ref + '"]').remove();
 			});
+	});
+
+	// COPY FROM THE ORIGINAL — WPML puts this button between the two boxes and
+	// it earns its place: a product code, a size table, a line that is the same
+	// in every language is copied rather than retyped. It never overwrites
+	// silently: a box already holding words asks first.
+	$(document).on("click", ".dze-tr-copy", function () {
+		var $field = $(this).closest(".dze-tr-field"),
+			$box   = $field.find(".dze-tr-new"),
+			src    = String($box.attr("data-src") || "");
+		if (!$box.length || !src) { return; }
+		if (String($box.val() || "").trim() !== "" && !window.confirm(i18n.overwrite || "Replace what is in the box?")) { return; }
+		$box.val(src).trigger("change").focus();
 	});
 }(jQuery));

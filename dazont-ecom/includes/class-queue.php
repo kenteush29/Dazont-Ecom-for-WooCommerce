@@ -854,12 +854,39 @@ final class DZE_Queue {
 		return $out;
 	}
 
-	public static function rows( int $limit = 200 ): array {
+	/**
+	 * The queue, or the part of it one screen is responsible for.
+	 *
+	 * SCOPE IS THE WHOLE POINT. One list holding categories, articles,
+	 * photographs and linking passes is one list nobody can read: the screen
+	 * about internal linking shows linking, and "Cancel all" on it cannot
+	 * reach a photograph somebody is still thinking about. An empty scope is
+	 * everything, which is what the one inbox wants.
+	 *
+	 * @param array<int,string> $kinds
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function rows( int $limit = 200, array $kinds = [], bool $all = false ): array {
 		global $wpdb;
 		$table = self::table();
+		$kinds = self::clean_kinds( $kinds );
+		$where = $kinds ? "WHERE kind IN ('" . implode( "','", $kinds ) . "')" : '';
+		// WHAT IS DECIDED LEAVES THE LIST.
+		//
+		// "Les tâches acceptées restent dans la liste, j'en vois plein des
+		// saved accepted." A screen called "To review" holding rows that have
+		// been reviewed is a screen where the remaining work has to be hunted
+		// for. Accepted and discarded rows are the RECORD of what happened —
+		// Logs → Automatic passes holds that, with the undo — so this list
+		// shows what still wants a person, and says how many it has put away.
+		$done  = [ 'applied', 'skipped' ];
+		if ( ! $all ) {
+			$where .= ( '' === $where ? 'WHERE ' : ' AND ' ) . "status NOT IN ('" . implode( "','", $done ) . "')";
+		}
 		return (array) $wpdb->get_results( $wpdb->prepare(
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
 			"SELECT id, kind, object_id, status, error, payload, created, updated, decided_by, made_by FROM {$table}
+			 {$where}
 			 ORDER BY FIELD(status,'running','queued','review','failed','applied','skipped'), id ASC LIMIT %d",
 			$limit
 		), ARRAY_A );
@@ -1134,19 +1161,21 @@ final class DZE_Queue {
 	 * back to being its own page: a module switched off must never take a
 	 * function with it that has nothing to do with it.
 	 */
+	/**
+	 * NOT HOSTED ANYWHERE ANY MORE. It is the inbox, and it has its own entry.
+	 *
+	 * It used to live as a tab of the diagnostic screen, so its address was
+	 * that screen's — and when the diagnostic module was switched off, the one
+	 * list holding every kind of waiting work became reachable from nowhere at
+	 * all. Kept as a function because callers ask it, and it now answers the
+	 * only true thing: no.
+	 */
 	public static function hosted(): bool {
-		return class_exists( 'DZE_Diagnostic' )
-			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'diagnostic' ) );
+		return false;
 	}
 
-	/** The screen's address, in one place: the menu it hangs from can move. */
+	/** The screen's address, in one place. */
 	public static function url( array $args = [] ): string {
-		if ( self::hosted() ) {
-			return add_query_arg(
-				array_merge( [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'review' ], $args ),
-				admin_url( 'admin.php' )
-			);
-		}
 		return add_query_arg(
 			array_merge( [ 'page' => self::MENU_SLUG ], $args ),
 			admin_url( 'admin.php' )
@@ -1223,6 +1252,13 @@ final class DZE_Queue {
 			self::MENU_SLUG,
 			[ $this, 'render' ]
 		);
+		// AND IT STAYS IN THE MENU. It was taken out of it earlier today, on
+		// the reasoning that each work screen shows its own part — which left
+		// the shop with three lists of three different scopes and NO list of
+		// everything, the one thing "je ne comprends pas là où il faut donner
+		// de l'attention" actually asks for. It is the inbox: one entry, one
+		// table, one count, filtered by a rail rather than split across
+		// screens. Its rail is printed by `body()`.
 	}
 
 	/**
@@ -1468,12 +1504,68 @@ final class DZE_Queue {
 	 * the tabs is switched off, because switching a module off must never
 	 * hide a function that has nothing to do with it.
 	 */
+	/**
+	 * ONE TABLE, ONE FILTER — WordPress's own Comments pattern.
+	 *
+	 * Three screens each drawing the same table with its own scope is three
+	 * counts that can disagree and no way to clear the day in one place. The
+	 * rail is built from the kinds catalogue, so a kind added tomorrow appears
+	 * here without anybody remembering to add it, and each entry carries its
+	 * own count — read in one query for the whole rail.
+	 *
+	 * @param array<int,string> $active
+	 */
+	public static function rail( array $active ): void {
+		$kinds = self::kinds();
+		$all   = array_keys( $kinds );
+		// The families a shop actually thinks in, named by what waits in them.
+		$groups = [
+			'' => [ 'label' => __( 'All', 'dazont-ecom' ), 'kinds' => $all ],
+		];
+		foreach ( $all as $k ) {
+			$groups[ (string) $k ] = [
+				'label' => (string) ( $kinds[ $k ]['label'] ?? $k ),
+				'kinds' => [ (string) $k ],
+			];
+		}
+		$now  = implode( ',', $active );
+		$base = add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) );
+		$out  = [];
+		foreach ( $groups as $key => $one ) {
+			$n = (int) ( self::counts_for( $one['kinds'] )['review'] ?? 0 );
+			// A family nothing has ever waited in is not a filter, it is noise.
+			if ( '' !== $key && 0 === $n && ! in_array( $key, $active, true ) ) {
+				continue;
+			}
+			$here = ( '' === $key && ! $active ) || ( $now === $key );
+			$out[] = sprintf(
+				'<a href="%1$s"%2$s>%3$s <span class="count">(%4$s)</span></a>',
+				esc_url( '' === $key ? $base : add_query_arg( [ 'kind' => $key ], $base ) ),
+				$here ? ' class="current"' : '',
+				esc_html( (string) $one['label'] ),
+				esc_html( number_format_i18n( $n ) )
+			);
+		}
+		if ( count( $out ) < 2 ) {
+			return; // one family is not a choice.
+		}
+		echo '<ul class="subsubsub" style="float:none;margin:0 0 12px;">';
+		echo '<li>' . implode( ' |</li><li>', $out ) . '</li>';
+		echo '</ul>';
+	}
 	public function render(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
 		echo '<div class="wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'review' ) ) . '</h1>';
-		$this->body();
+		// THE FILTER IS IN THE ADDRESS, so a filtered view is a bookmark and
+		// a link — which is what lets every other screen point AT this list
+		// instead of drawing a second copy of it.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$want = isset( $_GET['kind'] ) ? sanitize_text_field( wp_unslash( $_GET['kind'] ) ) : '';
+		$want = self::clean_kinds( array_map( 'sanitize_key', explode( ',', $want ) ) );
+		self::rail( $want );
+		$this->body( array_values( $want ) );
 		echo '</div>';
 	}
 
@@ -1483,7 +1575,16 @@ final class DZE_Queue {
 	 * Printed by render() on its own page and by the Content tabs alike: one
 	 * body, so the two can never drift into two different screens.
 	 */
-	public function body(): void {
+	/**
+	 * The review list, limited to the work the host screen is about.
+	 *
+	 * THE HOST DECIDES THE SCOPE, because the host is the only one that
+	 * knows what its screen is for. An empty scope is everything, which is
+	 * what the one inbox asks for.
+	 *
+	 * @param array<int,string> $kinds
+	 */
+	public function body( array $kinds = [] ): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
@@ -1546,7 +1647,23 @@ final class DZE_Queue {
 			</table>
 		</div>
 		<?php
-		self::review_assets();
+		// AND WHAT WAS PUT AWAY IS SAID, with the way to it — a list that
+		// quietly drops rows is a list nobody trusts.
+		$counts = self::counts_for( $kinds ?: array_keys( self::kinds() ) );
+		$done   = (int) ( $counts['applied'] ?? 0 ) + (int) ( $counts['skipped'] ?? 0 );
+		if ( $done && class_exists( 'DZE_Screens' ) ) {
+			printf(
+				'<p class="description" style="margin:12px 0 0;">%1$s <a href="%2$s">%3$s</a></p>',
+				esc_html( sprintf(
+					/* translators: %s: how many were decided */
+					_n( '%s decision has already been taken.', '%s decisions have already been taken.', $done, 'dazont-ecom' ),
+					number_format_i18n( $done )
+				) ),
+				esc_url( DZE_Screens::url( 'logs', 'past' ) ),
+				esc_html__( 'See what was published, and undo it →', 'dazont-ecom' )
+			);
+		}
+		self::review_assets( $kinds );
 	}
 
 	/**
@@ -1561,8 +1678,8 @@ final class DZE_Queue {
 	 * its markup come from here, and a screen that borrows the rows next year
 	 * has nothing to remember.
 	 */
-	public static function review_assets(): void {
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+	public static function review_assets( array $kinds = [] ): void {
+		DZE_Assets::admin_css();
 		wp_enqueue_editor();
 		if ( class_exists( 'DZE_Prompts' ) ) {
 			DZE_Prompts::print_assets(); // the review popup shows the prompt behind the job.
@@ -1575,6 +1692,9 @@ final class DZE_Queue {
 		wp_localize_script( 'dze-queue', 'dzeQueue', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
+			// The screen's own work, so every call it makes is already limited
+			// to it and nothing has to remember to pass a scope.
+			'kinds'   => array_values( self::clean_kinds( $kinds ) ),
 			'i18n'    => [
 				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
 				'review'   => __( 'Review', 'dazont-ecom' ),
@@ -1662,11 +1782,26 @@ final class DZE_Queue {
 		}
 	}
 
+	/**
+	 * The kinds the calling screen says it is responsible for.
+	 *
+	 * Sanitised against the catalogue, so a hand-written request cannot ask
+	 * for a kind that does not exist — and an empty answer means "everything",
+	 * which is what the one inbox sends.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function asked_kinds(): array {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- every caller has run guard() first.
+		$raw = isset( $_POST['kinds'] ) ? wp_unslash( $_POST['kinds'] ) : [];
+		$raw = is_array( $raw ) ? $raw : explode( ',', (string) $raw );
+		return array_values( self::clean_kinds( array_map( 'sanitize_key', $raw ) ) );
+	}
 	public function ajax_status(): void {
 		$this->guard();
 		self::recover(); // a run the server killed must not sit here for ever.
 		$rows = [];
-		foreach ( self::rows() as $r ) {
+		foreach ( self::rows( 200, self::asked_kinds() ) as $r ) {
 			$p     = $r['payload'] ?? '';
 			$p     = $p ? (array) json_decode( (string) $p, true ) : [];
 			$total = isset( $p['plan']['sections'] ) ? count( (array) $p['plan']['sections'] ) : 0;
@@ -2116,7 +2251,12 @@ final class DZE_Queue {
 		// when, by which job, and that somebody said yes to it. Wiping it left
 		// no way to check anything after the fact, which is the whole reason
 		// nothing here could be trusted without reopening the product.
-		$n = (int) $wpdb->query( "DELETE FROM " . self::table() . " WHERE status IN ('failed','skipped')" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+		// ONLY THIS SCREEN'S OWN. "Clear" on the linking screen tidying away
+		// a failed photograph is a button that does more than it says.
+		$kinds = self::asked_kinds();
+		$scope = $kinds ? " AND kind IN ('" . implode( "','", $kinds ) . "')" : '';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised.
+		$n = (int) $wpdb->query( "DELETE FROM " . self::table() . " WHERE status IN ('failed','skipped')" . $scope );
 		wp_send_json_success( [ 'removed' => $n ] );
 	}
 }

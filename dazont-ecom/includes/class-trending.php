@@ -115,7 +115,8 @@ final class DZE_Trending {
 	 * columns, paginate, orderby, order, category, … — straight through to
 	 * [products], so all native WooCommerce behaviour (pagination included) works.
 	 *
-	 * Only one attribute is ours: `time_period` (days; "all"/0/absent = all time).
+	 * Two attributes are ours: `time_period` (days; "all"/0/absent = all time)
+	 * and `exclude_on_sale` (keep the discounted ones out).
 	 * Ranking is preserved with orderby="post__in" unless the author sets orderby.
 	 */
 	public function render_shortcode( $atts ): string {
@@ -126,6 +127,13 @@ final class DZE_Trending {
 		unset( $atts['time_period'] );
 		$days = ( '' === $period_raw || 'all' === $period_raw ) ? 0 : absint( $period_raw );
 
+		// OURS TOO, and it never reaches [products]: WooCommerce has `on_sale`
+		// to ask FOR the discounted ones and nothing at all to ask against them.
+		// A shop showing its promotions in one block does not want the same
+		// products filling the block above it.
+		$skip_sale = ! empty( $atts['exclude_on_sale'] ) && filter_var( $atts['exclude_on_sale'], FILTER_VALIDATE_BOOLEAN );
+		unset( $atts['exclude_on_sale'] );
+
 		$paginate = ! empty( $atts['paginate'] ) && filter_var( $atts['paginate'], FILTER_VALIDATE_BOOLEAN );
 		$limit    = isset( $atts['limit'] ) ? absint( $atts['limit'] ) : 0;
 
@@ -135,10 +143,32 @@ final class DZE_Trending {
 		$cap = $paginate
 			? self::PAGINATE_CAP
 			: min( self::CANDIDATE_CAP, max( 1, $limit ) * self::CANDIDATE_MULTIPLIER );
+		// Asking for as many as we mean to show and then throwing some away
+		// is how a block of twelve comes back with five. During a big sale most
+		// of the best-sellers ARE discounted, so the pool is doubled — still
+		// capped, because a ranking nobody will scroll to costs the same query.
+		if ( $skip_sale ) {
+			$cap = min( $paginate ? self::PAGINATE_CAP : self::CANDIDATE_CAP, $cap * 2 );
+		}
 
 		$product_ids = $this->get_trending_product_ids( $days, $cap );
 		if ( empty( $product_ids ) ) {
 			return '';
+		}
+
+		if ( $skip_sale && function_exists( 'wc_get_product_ids_on_sale' ) ) {
+			// WooCommerce's own list, which on a shop running Dazont Ecom's
+			// Discounts module also holds the products IT has marked down —
+			// they are merged into this very function. One answer to "what is
+			// on sale", so this block and the sale block can never disagree.
+			$on_sale = array_flip( array_map( 'absint', (array) wc_get_product_ids_on_sale() ) );
+			$product_ids = array_values( array_filter(
+				$product_ids,
+				static fn( $id ): bool => ! isset( $on_sale[ (int) $id ] )
+			) );
+			if ( empty( $product_ids ) ) {
+				return ''; // everything that sells is discounted: say nothing, not everything.
+			}
 		}
 
 		// Preserve the sales ranking unless the author explicitly reorders.
@@ -183,6 +213,17 @@ final class DZE_Trending {
 	 * @param int $candidate_limit How many ranked product IDs to return.
 	 * @return int[] Product IDs ranked by units sold over the window, cached.
 	 */
+	/**
+	 * THE RANKING, AND WHY IT IS ORDERED TWICE.
+	 *
+	 * `ORDER BY total_qty DESC` alone leaves products that sold the same
+	 * number in no defined order at all, and MySQL is free to return them
+	 * differently for a different LIMIT. So asking for 60 candidates instead
+	 * of 30 could change which ten came out on top, on a block whose whole
+	 * promise is "the best sellers". `product_id` breaks the tie and costs
+	 * nothing: the same shop, the same window and the same cache answer the
+	 * same thing every time, whatever the pool asked for.
+	 */
 	private function get_trending_product_ids( int $days, int $candidate_limit ): array {
 		$candidate_limit = max( 1, $candidate_limit );
 
@@ -213,7 +254,7 @@ final class DZE_Trending {
 				 FROM {$table}
 				 WHERE date_created BETWEEN %s AND %s
 				 GROUP BY product_id
-				 ORDER BY total_qty DESC
+				 ORDER BY total_qty DESC, product_id ASC
 				 LIMIT %d",
 				$start->format( 'Y-m-d H:i:s' ),
 				$now->format( 'Y-m-d H:i:s' ),
@@ -225,7 +266,7 @@ final class DZE_Trending {
 				"SELECT product_id, SUM(product_qty) AS total_qty
 				 FROM {$table}
 				 GROUP BY product_id
-				 ORDER BY total_qty DESC
+				 ORDER BY total_qty DESC, product_id ASC
 				 LIMIT %d",
 				$candidate_limit
 			) );
