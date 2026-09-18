@@ -54,6 +54,7 @@ final class DZE_Health {
 			return;
 		}
 		add_action( 'admin_init', [ $this, 'schedule' ] );
+		add_action( 'admin_post_dze_ai_board', [ 'DZE_Ai_Usage', 'save_board' ] );
 		add_action( 'admin_notices', [ $this, 'notice' ] );
 		add_action( 'wp_ajax_dze_health_run',   [ __CLASS__, 'ajax_run' ] );
 		add_action( 'wp_ajax_dze_health_clear', [ __CLASS__, 'ajax_clear' ] );

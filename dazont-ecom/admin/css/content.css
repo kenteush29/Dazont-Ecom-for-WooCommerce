@@ -1910,3 +1910,11 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	margin: 0; padding: 8px 10px; background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px;
 	font-size: 12px; line-height: 1.5; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
+
+/* L APERCU D UNE LIGNE, ouvert sous elle : original a gauche, traduction a
+   droite, une table par langue. Lecture seule — accepter reste une decision
+   prise sur un bouton. */
+.dze-tr-peekrow > td { background: #f6f7f7; padding: 10px 14px; }
+.dze-tr-peeklang { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #50575e; }
+.dze-tr-peeklang:first-child { margin-top: 0; }
+.dze-tr-peektable td { vertical-align: top; font-size: 12px; line-height: 1.5; }

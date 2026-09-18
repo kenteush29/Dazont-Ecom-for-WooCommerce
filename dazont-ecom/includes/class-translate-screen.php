@@ -1589,6 +1589,12 @@ trait DZE_Translate_Screen {
 						<?php endforeach; ?>
 					</td>
 					<td>
+						<?php
+						// LIRE AVANT D OUVRIR. « Je veux pouvoir visualiser rapidement
+						// les traductions comme sur WPML. » Huit resultats coutaient
+						// huit ecrans, et un par langue dans chacun.
+						?>
+						<button type="button" class="button dze-tr-peek"><?php esc_html_e( 'Read it here', 'dazont-ecom' ); ?></button>
 						<a class="button button-primary dze-tr-open" href="<?php echo esc_url( self::editor_url( $r ) ); ?>"><?php esc_html_e( 'Review', 'dazont-ecom' ); ?></a>
 						<button type="button" class="button dze-tr-refuse" title="<?php esc_attr_e( 'Throws away what was translated. The object and its translations are not touched.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 					</td>

@@ -93,6 +93,7 @@ final class DZE_Translate {
 		add_action( 'wp_ajax_dze_tr_batch', [ $this, 'ajax_batch' ] );
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
 		add_action( 'wp_ajax_dze_tr_accept_all', [ $this, 'ajax_accept_all' ] );
+		add_action( 'wp_ajax_dze_tr_peek', [ $this, 'ajax_peek' ] );
 		// WPML'S OWN BUTTONS, doing this module's work. The + and the pencil in
 		// the Languages column are where a shop already goes to translate one
 		// thing; a second button somewhere else is a second habit to learn.
@@ -3798,6 +3799,57 @@ final class DZE_Translate {
 		] );
 	}
 
+	/**
+	 * WHAT ONE ROW HOLDS, READ WITHOUT LEAVING THE LIST.
+	 *
+	 * "Sur la page review je veux pouvoir visualiser rapidement les
+	 * traductions comme sur WPML (ils utilisent une popup pour les strings,
+	 * mais ça peut marcher avec tout)." Reading eight results meant eight
+	 * screens, and one screen per language inside each — so the answer to
+	 * "is this any good?" cost more than the work itself.
+	 *
+	 * Every language, every field, original beside translation, in the row.
+	 * Read-only: accepting is still a decision taken on a button, and a
+	 * preview that could also write would be a second editor to keep in step.
+	 */
+	public function ajax_peek(): void {
+		$this->screen_guard();
+		$o = self::from_ref( isset( $_POST['ref'] ) ? sanitize_text_field( wp_unslash( $_POST['ref'] ) ) : '' );
+		if ( ! $o ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown object.', 'dazont-ecom' ) ] );
+		}
+		$held   = self::waiting( $o );
+		$made   = (array) ( $held['langs'] ?? [] );
+		$source = self::obj_read( $o );
+		$labels = self::labels_for( $o );
+		$names  = [];
+		foreach ( DZE_Wpml::get_active_languages() as $l ) {
+			$names[ (string) $l['code'] ] = (string) $l['native_name'];
+		}
+		ob_start();
+		if ( ! $made ) {
+			echo '<p class="description">' . esc_html__( 'Nothing is being held for this one any more.', 'dazont-ecom' ) . '</p>';
+		}
+		foreach ( $made as $lang => $fields ) {
+			echo '<div class="dze-tr-peeklang"><strong>'
+				. esc_html( (string) ( $names[ $lang ] ?? strtoupper( (string) $lang ) ) )
+				. '</strong></div>';
+			echo '<table class="widefat striped dze-tr-peektable"><tbody>';
+			foreach ( (array) $fields as $fid => $txt ) {
+				$was = trim( wp_strip_all_tags( (string) ( $source[ $fid ] ?? '' ) ) );
+				$now = trim( wp_strip_all_tags( (string) $txt ) );
+				printf(
+					'<tr><td style="width:150px;"><strong>%1$s</strong></td><td style="width:44%%;"><span class="description">%2$s</span></td><td>%3$s</td></tr>',
+					esc_html( (string) ( $labels[ $fid ] ?? $fid ) ),
+					esc_html( mb_substr( $was, 0, 400 ) . ( mb_strlen( $was ) > 400 ? '…' : '' ) ),
+					esc_html( mb_substr( $now, 0, 400 ) . ( mb_strlen( $now ) > 400 ? '…' : '' ) )
+				);
+			}
+			echo '</tbody></table>';
+		}
+		wp_send_json_success( [ 'html' => ob_get_clean() ] );
+	}
+
 	/** Accept what was kept, or refuse the lot. Both end the wait. */
 	public function ajax_decide(): void {
 		$this->screen_guard();
@@ -3895,6 +3947,9 @@ final class DZE_Translate {
 				/* translators: 1: how many objects, 2: how many fields */
 				'allDone'    => __( '%1$s written, %2$s field(s) in all.', 'dazont-ecom' ),
 				'allNone'    => __( 'Nothing was waiting any more.', 'dazont-ecom' ),
+				'peek'       => __( 'Read it here', 'dazont-ecom' ),
+				'peekHide'   => __( 'Hide', 'dazont-ecom' ),
+				'peekLoad'   => __( 'Reading…', 'dazont-ecom' ),
 				// ONE BLOCK ON ITS OWN, for judging a change to the instructions.
 				'oneSending' => __( 'Translating this block…', 'dazont-ecom' ),
 				'oneDone'    => __( 'filled in — nothing is written until you save.', 'dazont-ecom' ),

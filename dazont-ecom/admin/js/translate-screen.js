@@ -389,4 +389,25 @@
 	}
 	$(document).on('click', '#dze-tr-acceptall', function () { acceptMany([]); });
 	$(document).on('click', '#dze-tr-acceptsel', function () { acceptMany(pickedRefs()); });
+
+	// LIRE UNE LIGNE SANS QUITTER LA LISTE. Une seule ligne ouverte a la fois :
+	// huit tableaux deplies l un sous l autre, c'est la page qu'on fuyait.
+	$(document).on('click', '.dze-tr-peek', function () {
+		var $btn = $(this), $row = $btn.closest('.dze-tr-wrow');
+		var $open = $row.next('.dze-tr-peekrow');
+		if ($open.length) { $open.remove(); $btn.text(i18n.peek); return; }
+		$('.dze-tr-peekrow').remove();
+		$('.dze-tr-peek').text(i18n.peek);
+		var cols = $row.children().length;
+		var $cell = $('<tr class="dze-tr-peekrow"><td colspan="' + cols + '"></td></tr>');
+		$cell.find('td').text(i18n.peekLoad);
+		$row.after($cell);
+		$btn.text(i18n.peekHide);
+		post('dze_tr_peek', { ref: String($row.data('ref')) })
+			.done(function (r) {
+				if (!r || !r.success) { $cell.find('td').text(said(r)); return; }
+				$cell.find('td').html((r.data && r.data.html) || '');
+			})
+			.fail(function () { $cell.find('td').text(i18n.error); });
+	});
 }(jQuery));
