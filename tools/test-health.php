@@ -91,6 +91,8 @@ class DZE_Ai_Usage {
 	public static function render_trace() { echo '<div id="dze-usage-trace">calls</div>'; }
 	// QUI a depense, a cote de COMBIEN : le graphique ne nomme aucun module.
 	public static function render_spend() { echo '<div id="dze-usage-spend">by module</div>'; }
+	// LE TABLEAU ELECTRIQUE : quel modele chaque module utilise, et ou il se regle.
+	public static function render_board() { echo '<div id="dze-usage-board">models</div>'; }
 }
 class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
 class DZE_Marketing_Ai {
