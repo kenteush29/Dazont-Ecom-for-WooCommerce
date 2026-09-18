@@ -276,6 +276,48 @@ final class DZE_Ai_Usage {
 	 *
 	 * @return array<int,array{unit:string,label:string,model:string,where:string,url:string}>
 	 */
+	/**
+	 * THE FUSES THEMSELVES: which option holds each module's model.
+	 *
+	 * Four settings cover the six modules — two of them share one, and two
+	 * follow the model chosen for the whole plugin. Named here so the board
+	 * can WRITE them, and validated against the provider's own list so a
+	 * typed-in model id never reaches the API.
+	 *
+	 * @return array<string,array{opt:string,key:string,label:string}>
+	 */
+	public static function model_fuses(): array {
+		return [
+			'global'   => [ 'opt' => 'dze_mai_settings',        'key' => 'model',          'label' => __( 'The whole plugin, unless a module says otherwise', 'dazont-ecom' ) ],
+			'product'  => [ 'opt' => 'dze_mai_settings',        'key' => 'insights_model', 'label' => __( 'Product texts', 'dazont-ecom' ) ],
+			'translate'=> [ 'opt' => 'dze_translate_settings',  'key' => 'model',          'label' => __( 'Translations', 'dazont-ecom' ) ],
+			'category' => [ 'opt' => 'dze_catcontent_settings', 'key' => 'model',          'label' => __( 'Categories: descriptions and internal linking', 'dazont-ecom' ) ],
+		];
+	}
+
+	/** Writes one fuse, and only its own key. */
+	public static function set_fuse( string $id, string $model ): bool {
+		$fuse = self::model_fuses()[ $id ] ?? null;
+		if ( ! $fuse ) {
+			return false;
+		}
+		$allowed = class_exists( 'DZE_Marketing_Ai' ) ? array_keys( (array) DZE_Marketing_Ai::MODELS ) : [];
+		// EMPTY IS A VALID ANSWER: it means "follow the plugin's own model",
+		// which is what most of these should say most of the time.
+		if ( '' !== $model && ! in_array( $model, $allowed, true ) ) {
+			return false;
+		}
+		$now = get_option( $fuse['opt'], [] );
+		$now = is_array( $now ) ? $now : [];
+		// ONLY ITS OWN KEY. These options belong to other modules and carry
+		// their prompts, their switches and their lists: writing the array back
+		// whole from a form that never showed them is how a settings page
+		// silently empties another one.
+		$now[ $fuse['key'] ] = $model;
+		update_option( $fuse['opt'], $now, false );
+		return true;
+	}
+
 	public static function model_board(): array {
 		$fallback = class_exists( 'DZE_Marketing_Ai' ) && method_exists( 'DZE_Marketing_Ai', 'chosen_model' )
 			? (string) DZE_Marketing_Ai::chosen_model()
@@ -322,6 +364,24 @@ final class DZE_Ai_Usage {
 		return $out;
 	}
 
+	/** Saves the board. Its own handler, because it writes four options at once. */
+	public static function save_board(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
+		}
+		check_admin_referer( 'dze_ai_board' );
+		foreach ( array_keys( self::model_fuses() ) as $id ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- check_admin_referer() above.
+			$v = isset( $_POST[ 'dze_fuse_' . $id ] ) ? sanitize_text_field( wp_unslash( $_POST[ 'dze_fuse_' . $id ] ) ) : null;
+			if ( null !== $v ) {
+				self::set_fuse( $id, $v );
+			}
+		}
+		$back = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'logs', 'spend' ) : admin_url();
+		wp_safe_redirect( add_query_arg( 'dze-fuses', '1', $back ) );
+		exit;
+	}
+
 	/** The fuse board, drawn. */
 	public static function render_board(): void {
 		$rows = self::model_board();
@@ -348,6 +408,40 @@ final class DZE_Ai_Usage {
 			);
 		}
 		echo '</tbody></table>';
+
+		// ET LES FUSIBLES, sous le tableau qui les nomme. « Une sorte de tableau
+		// electrique avec fusibles qui permet facilement de controler les
+		// couts. » Quatre reglages couvrent les six modules ; les deux qui n en
+		// ont pas suivent celui du plugin, et le tableau au-dessus le dit.
+		$models = class_exists( 'DZE_Marketing_Ai' ) ? (array) DZE_Marketing_Ai::MODELS : [];
+		if ( ! $models ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- a notice only.
+		if ( ! empty( $_GET['dze-fuses'] ) ) {
+			echo '<div class="notice notice-success inline" style="margin:12px 0;"><p>'
+				. esc_html__( 'Saved. It applies to the next call, not to work already running.', 'dazont-ecom' ) . '</p></div>';
+		}
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:14px;max-width:1100px;">';
+		echo '<input type="hidden" name="action" value="dze_ai_board" />';
+		wp_nonce_field( 'dze_ai_board' );
+		echo '<table class="form-table" role="presentation">';
+		foreach ( self::model_fuses() as $id => $fuse ) {
+			$cur = (array) get_option( $fuse['opt'], [] );
+			$cur = (string) ( $cur[ $fuse['key'] ] ?? '' );
+			echo '<tr><th scope="row"><label for="dze-fuse-' . esc_attr( $id ) . '">' . esc_html( (string) $fuse['label'] ) . '</label></th><td>';
+			echo '<select id="dze-fuse-' . esc_attr( $id ) . '" name="dze_fuse_' . esc_attr( $id ) . '">';
+			if ( 'global' !== $id ) {
+				echo '<option value=""' . selected( '', $cur, false ) . '>' . esc_html__( '— follow the plugin —', 'dazont-ecom' ) . '</option>';
+			}
+			foreach ( $models as $mid => $mlabel ) {
+				printf( '<option value="%1$s"%2$s>%3$s</option>', esc_attr( (string) $mid ), selected( (string) $mid, $cur, false ), esc_html( (string) $mlabel ) );
+			}
+			echo '</select></td></tr>';
+		}
+		echo '</table>';
+		submit_button( __( 'Save the models', 'dazont-ecom' ) );
+		echo '</form>';
 	}
 
 	/** WHO SPENT IT, as a table, beside the graph that says how much. */
