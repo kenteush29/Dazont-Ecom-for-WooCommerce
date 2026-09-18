@@ -2117,6 +2117,39 @@ final class DZE_Translate {
 	 * translation of the original's parent when there is one, so an aisle
 	 * keeps its place in the tree rather than landing at the root.
 	 */
+	/**
+	 * Un slug que personne ne tient dans cette taxonomie.
+	 *
+	 * Lu dans LES TABLES, jamais par `get_term_by()` : WPML filtre celui-là
+	 * sur la langue courante, donc il répond « libre » pour un slug que la
+	 * traduction voisine occupe — et `wp_insert_term()` refuse ensuite, ce qui
+	 * est exactement le mur qu'on essaie de contourner.
+	 */
+	private static function free_slug( string $base, string $taxonomy ): string {
+		global $wpdb;
+		$base = sanitize_title( $base );
+		if ( '' === $base ) {
+			$base = 'term';
+		}
+		$slug = $base;
+		for ( $n = 2; $n < 100; $n++ ) {
+			$taken = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->terms} t
+				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				  WHERE tt.taxonomy = %s AND t.slug = %s",
+				$taxonomy,
+				$slug
+			) );
+			if ( ! $taken ) {
+				return $slug;
+			}
+			$slug = $base . '-' . $n;
+		}
+		// Cent pris d'affilée n'arrive pas ; si cela arrivait, un slug unique
+		// vaut mieux qu'une boucle sans fin ou qu'un terme qui ne naît pas.
+		return $base . '-' . substr( md5( $base . microtime( true ) ), 0, 6 );
+	}
+
 	private static function create_term( array $o, string $lang ): int {
 		// LE TERME SOURCE, PAS CELUI DE LA LANGUE COURANTE. Ces valeurs partent
 		// droit dans wp_insert_term : lues par get_term(), la nouvelle branche
@@ -2137,8 +2170,23 @@ final class DZE_Translate {
 				$args['parent'] = $parent;
 			}
 		}
-		// A slug is NOT copied: two terms of one taxonomy cannot share one, and
-		// WordPress makes a good one from the name it is given.
+		// UNE TAXONOMIE PLATE REFUSE UN NOM EN DOUBLE, et une traduction naît
+		// avec le nom de son original.
+		//
+		// « A term with the name provided already exists in this taxonomy. »
+		// Le slug n'était pas recopié — à raison, deux termes ne peuvent pas
+		// le partager — mais rien n'était fourni à la place, et WordPress
+		// refuse alors le NOM lui-même dès que la taxonomie est plate :
+		// `wp_insert_term()` ne laisse passer un nom déjà pris que si on lui
+		// donne un slug libre. `product_cat` est hiérarchique, donc le même
+		// nom y passe sous un autre parent et les catégories marchaient ;
+		// `product_tag` est plate, et aucune étiquette n'a jamais pu être
+		// traduite.
+		//
+		// Le slug posé ici ne dure pas : `slug_follow()` le refait depuis le
+		// nom traduit dès que celui-ci est écrit, quelques lignes plus loin.
+		// C'est un laissez-passer, pas une adresse.
+		$args['slug'] = self::free_slug( (string) $term->slug . '-' . $lang, (string) $o['type'] );
 		$made = wp_insert_term( (string) $term->name, (string) $o['type'], $args );
 		if ( is_wp_error( $made ) ) {
 			throw new RuntimeException( $made->get_error_message() );
