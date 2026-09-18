@@ -1560,7 +1560,14 @@ PROMPT;
 		$row  = self::term_row( $term_id );
 		$name = (string) ( $row['name'] ?? $term->name );
 		if ( '' === trim( wp_strip_all_tags( $html ) ) ) {
-			throw new RuntimeException( __( 'This category has no description to work on yet.', 'dazont-ecom' ) );
+			$asked = 0;
+			if ( class_exists( 'DZE_Queue' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'category_content' ) && DZE_Modules::enabled( 'queue' ) ) {
+				$asked = DZE_Queue::add( 'cat_desc', [ $term_id ] );
+			}
+			throw new RuntimeException( $asked
+				? __( 'This category had no description to link inside, so writing one has been queued. The links go in once the text is there — start this pass again after you have accepted it.', 'dazont-ecom' )
+				: __( 'This category has no description to work on yet, and the module that writes one is switched off.', 'dazont-ecom' )
+			);
 		}
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
 			throw new RuntimeException( __( 'The Marketing Assistant module is required for the Anthropic key.', 'dazont-ecom' ) );

@@ -4158,6 +4158,13 @@ Answer with STRICT JSON and nothing else: "
 					'progress' => __( '%1$s / %2$s tasks — %3$s', 'dazont-ecom' ),
 					'finished' => __( 'Finished: %1$s ok, %2$s errors.', 'dazont-ecom' ),
 					'noFields' => __( 'Select at least one thing to generate.', 'dazont-ecom' ),
+					// « Select at least one thing to generate. La coche est la sur le
+					// bloc image pourtant... » Elle l etait : ce qui manquait etait un
+					// GABARIT. La case demande des photographies, le gabarit dit
+					// lesquelles, et sans lui la case ne vaut rien — ce que le message
+					// ne disait pas, si bien qu il accusait la case qui allait bien.
+					'noTpl'    => __( 'Photographs are ticked, but no picture template is chosen — the tick asks for photographs, a template says which ones. Add one in “Which photographs” just below, or untick the box.', 'dazont-ecom' ),
+					'noTplAny' => __( 'Photographs are ticked, but this shop has no usable picture template yet. Make one under Settings → Image lab, or untick the box.', 'dazont-ecom' ),
 					'review'   => __( 'Generated — review below, then "Apply what I kept".', 'dazont-ecom' ),
 					'toReview' => __( 'to review', 'dazont-ecom' ),
 					'tText'    => __( 'Texts', 'dazont-ecom' ),
