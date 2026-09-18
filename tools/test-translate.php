@@ -1009,7 +1009,7 @@ ok( 'and the six are still there',        isset( DZE_Translate::picked_scope()['
 // THE SETTING IS WRITTEN ONLY WHEN THE FORM CARRIED IT, or another tab's save
 // empties the shop's list without anybody touching it.
 $dze_tr = DZE_Translate::instance();
-$dze_tr->sanitize( [ 'glossary' => 'MOLLE' ] );
+$dze_tr->sanitize( [ 'model' => 'peu-importe' ] );
 ok( 'another form saving does not empty the list',
 	DZE_Translate::get_settings()['scope'] ?? null, [ 'post:acme_doc' ] );
 ok( 'and a sanitizer called with null keeps everything',
@@ -1648,7 +1648,7 @@ ok( 'and it says why, rather than being blank',
 // nothing for the save to carry.
 ok( 'and it offers no box to type in',
 	substr_count( $dze_ed, 'class="dze-tr-new' ), substr_count( $dze_ed, 'class="dze-tr-field"' ) );
-echo "\nLES INSTRUCTIONS SONT A PORTEE, ET LE GLOSSAIRE SE COMPTE\n";
+echo "\nLES INSTRUCTIONS SONT A PORTEE, ET LE GLOSSAIRE A DISPARU\n";
 // « Il faut un accès plus facile pour la modification du prompt
 // d'instructions. La qualité des traductions n'est pas bonne. » Elles etaient
 // sous Reglages > Translation, deux menus plus loin : on remarque une
@@ -1658,27 +1658,36 @@ DZE_Translate::instructions_panel( '/wp-admin/admin.php?page=dazont-ecom-transla
 $dze_ip = (string) ob_get_clean();
 ok( 'le panneau existe',            false !== strpos( $dze_ip, 'dze-tr-instr' ), true );
 ok( 'il porte le prompt',           false !== strpos( $dze_ip, 'dze-tr-instr-prompt' ), true );
-ok( 'et le glossaire avec lui',     false !== strpos( $dze_ip, 'dze-tr-instr-gloss' ), true );
 ok( 'il est replie, pas etale',     false !== strpos( $dze_ip, '<details' ), true );
-// LA REGLE QUI NE SERVAIT A RIEN. Le prompt dit depuis toujours « ne jamais
-// traduire un terme du glossaire » et le glossaire de cette boutique etait
-// VIDE — donc rien n'etait protege, et aucun ecran ne le disait. « Viper hood
-// jacket », ou « viper hood » nomme un camouflage de sniper et non une marque
-// de capuche, revenait en « Veste à capuche Viper ».
-ok( 'un glossaire vide se voit sur le repli',
-	false !== strpos( $dze_ip, 'no term protected' ), true );
-ok( 'et il est explique, pas seulement compte',
-	false !== strpos( $dze_ip, 'the glossary is empty' ), true );
+// LE GLOSSAIRE EST PARTI, ET C EST UNE SUPPRESSION, PAS UN OUBLI.
+// « Le glossaire restera vide, impossible de tenir ca a jour, c'est un truc
+// de gros travailleur qui n'apporte aucun resultat. On peut d'ailleurs
+// l'enlever. » Un champ qu'on ne remplit jamais est un champ qui ment : le
+// prompt disait « ne jamais traduire un terme du glossaire » et la liste
+// etait vide, donc la regle ne protegeait rien — « Viper hood jacket »
+// revenait en « Veste à capuche Viper » sans que rien ne s'y oppose. Ce qui
+// doit sortir intact est nomme dans les instructions, pas dans une liste a
+// tenir a jour. Les deux ecrans qui le portaient sont verifies ici : un
+// champ oublie sur l un des deux ecrirait une cle que plus personne ne lit.
+ok( 'plus aucun champ glossaire sur le panneau',
+	false !== stripos( $dze_ip, 'gloss' ), false );
+ob_start(); DZE_Translate::render_settings(); $dze_nogloss = (string) ob_get_clean();
+ok( 'ni sur l ecran de reglages',
+	false !== stripos( $dze_nogloss, 'gloss' ), false );
 // ET IL NE PEUT PAS EFFACER LE RESTE : le sanitiseur part des reglages
-// gardes et n'ecrase que les cles recues, donc ces deux champs suffisent.
+// gardes et n'ecrase que les cles recues, donc ce seul champ suffit.
 $dze_keep = DZE_Translate::get_settings();
-$dze_keep['model'] = 'gardez-moi';
+$dze_keep['model']    = 'gardez-moi';
+$dze_keep['glossary'] = "viper hood\nghillie";
 update_option( DZE_Translate::OPT, $dze_keep );
-$dze_after = DZE_Translate::instance()->sanitize( [ 'prompt' => 'court', 'glossary' => "viper hood\nghillie" ] );
+$dze_after = DZE_Translate::instance()->sanitize( [ 'prompt' => 'court' ] );
 ok( 'enregistrer les instructions ne touche pas au reste',
 	(string) ( $dze_after['model'] ?? '' ), 'gardez-moi' );
-ok( 'et le glossaire est bien pris',
-	false !== strpos( (string) ( $dze_after['glossary'] ?? '' ), 'viper hood' ), true );
+// ET UNE LISTE ENREGISTREE AVANT LA SUPPRESSION S EN VA D ELLE-MEME au
+// premier enregistrement, sinon la boutique traine une cle morte pour
+// toujours et personne ne sait plus si elle est lue ou pas.
+ok( 'un glossaire garde en base est retire',
+	isset( $dze_after['glossary'] ), false );
 
 echo "\nUN BOUTON PAR BLOC, POUR CALIBRER\n";
 // « Pour un calibrage plus facile il faut un bouton traduire par bloc. »

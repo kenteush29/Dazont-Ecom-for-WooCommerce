@@ -238,7 +238,7 @@ trait DZE_Translate_Screen {
 		?>
 		<p class="description" style="max-width:900px;margin:16px 0;">
 			<?php esc_html_e( 'What this site holds in each language, read from WPML. Only the post types and the taxonomies WPML is set to translate appear here — a translation WPML would not link is one nobody would ever see.', 'dazont-ecom' ); ?>
-			<a href="<?php echo esc_url( DZE_Screens::url( 'settings', 'translate' ) ); ?>"><?php esc_html_e( 'The prompt, the glossary and the model are under Settings → Translation.', 'dazont-ecom' ); ?></a>
+			<a href="<?php echo esc_url( DZE_Screens::url( 'settings', 'translate' ) ); ?>"><?php esc_html_e( 'The prompt and the model are under Settings → Translation.', 'dazont-ecom' ); ?></a>
 		</p>
 		<?php if ( ! $scope ) : ?>
 			<div class="notice notice-warning inline"><p>
@@ -495,14 +495,14 @@ trait DZE_Translate_Screen {
 					title="<?php esc_attr_e( 'Translates the fields whose words have changed since the last time, and fills them in below. Nothing is written until you save.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate automatically', 'dazont-ecom' ); ?></button>
 				<?php
 				// THE SECOND BUTTON IS FOR JUDGING THE TRANSLATOR, not the text.
-				// Changing the model, the instructions or the glossary changes
+				// Changing the model or the instructions changes
 				// nothing about the ORIGINAL, so the ordinary run is right to
 				// answer "nothing moved" and would do so for ever. This one
 				// sends every field and pays for every field, which is exactly
 				// why it is second, quiet, and says so before it is pressed.
 				?>
 				<button type="button" class="button" id="dze-tr-auto-all"
-					title="<?php esc_attr_e( 'Sends EVERY field again, even the ones that have not changed — for comparing one model, prompt or glossary against another. It costs a full translation. Nothing is written until you save.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate everything again', 'dazont-ecom' ); ?></button>
+					title="<?php esc_attr_e( 'Sends EVERY field again, even the ones that have not changed — for comparing one model or prompt against another. It costs a full translation. Nothing is written until you save.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate everything again', 'dazont-ecom' ); ?></button>
 				<span id="dze-tr-autostate" class="description"></span>
 			</p>
 
@@ -620,7 +620,7 @@ trait DZE_Translate_Screen {
 									<?php
 									// ONE BLOCK, ON ITS OWN. "Pour un calibrage plus
 									// facile il faut un bouton traduire par bloc."
-									// Judging a change to the prompt or the glossary
+									// Judging a change to the prompt
 									// meant re-sending the whole object and paying for
 									// every field of it, so it was done once and never
 									// again. This sends this block and nothing else,
@@ -628,7 +628,7 @@ trait DZE_Translate_Screen {
 									// precisely when it has NOT moved.
 									?>
 									<button type="button" class="button button-small dze-tr-block"
-										title="<?php esc_attr_e( 'Translates this block on its own, and fills the box on the right. Useful for judging a change to the instructions or the glossary without paying for the whole page. Nothing is written until you save.', 'dazont-ecom' ); ?>"><span class="dashicons dashicons-translation" aria-hidden="true"></span><?php esc_html_e( 'Translate this block', 'dazont-ecom' ); ?></button>
+										title="<?php esc_attr_e( 'Translates this block on its own, and fills the box on the right. Useful for judging a change to the instructions without paying for the whole page. Nothing is written until you save.', 'dazont-ecom' ); ?>"><span class="dashicons dashicons-translation" aria-hidden="true"></span><?php esc_html_e( 'Translate this block', 'dazont-ecom' ); ?></button>
 									<span class="dze-tr-blockstate description"></span>
 								</p>
 								<div class="dze-tr-pair">
@@ -1024,7 +1024,7 @@ trait DZE_Translate_Screen {
 					<?php endforeach; ?>
 					</tbody>
 				</table>
-				<p class="description"><?php esc_html_e( 'Read from WPML\'s own rules. The prompt and the glossary are under Settings → Translation.', 'dazont-ecom' ); ?></p>
+				<p class="description"><?php esc_html_e( 'Read from WPML\'s own rules. The prompt is under Settings → Translation.', 'dazont-ecom' ); ?></p>
 			<?php DZE_Hub::sec_close(); ?>
 
 			<!-- ---- 3. ONE BUTTON THAT RUNS WHAT IS TICKED ---- -->

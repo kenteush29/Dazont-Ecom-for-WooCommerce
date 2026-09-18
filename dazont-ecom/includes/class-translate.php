@@ -9,7 +9,7 @@ defined( 'ABSPATH' ) || exit;
  * catalogue of several hundred products in two languages that is the biggest
  * line of the shop's software budget. The same words through the Anthropic key
  * already configured here cost a fraction of that, and come out in the shop's
- * own voice because the prompt and the glossary are ours.
+ * own voice because the prompt is ours.
  *
  * What this module does NOT touch: price, stock, attributes, images, taxonomy
  * structure. Those are WooCommerce Multilingual's job and it does it well —
@@ -132,9 +132,13 @@ final class DZE_Translate {
 			$p = trim( sanitize_textarea_field( (string) $in['prompt'] ) );
 			$out['prompt'] = ( $p === trim( self::default_prompt() ) ) ? '' : $p;
 		}
-		if ( isset( $in['glossary'] ) ) {
-			$out['glossary'] = sanitize_textarea_field( (string) $in['glossary'] );
-		}
+		// THE GLOSSARY IS GONE. A list of terms never to translate is worth
+		// exactly what somebody keeps up to date, and nobody does: it stayed
+		// empty on every shop it shipped to while the prompt kept pointing at
+		// it, so the rule protected nothing. What must come out untouched is
+		// named in the instructions now. Dropping the key here retires a list
+		// saved before this, on the next save.
+		unset( $out['glossary'] );
 		if ( isset( $in['model'] ) ) {
 			$out['model'] = sanitize_text_field( (string) $in['model'] );
 		}
@@ -257,7 +261,7 @@ final class DZE_Translate {
 			. "- Keep the HTML structure EXACTLY as it is: same tags, same attributes, same order. Translate only the text between the tags.\n"
 			. "- Keep measurements, sizes, references, model names and figures identical. Convert nothing.\n"
 			. "- A meta description stays under 155 characters; a meta title under 60. Rewrite rather than truncate.\n"
-			. "- Never translate a brand name, a product reference, or any term listed in the glossary.";
+			. "- Never translate a brand name, a product reference, or a trade term the shop uses untouched in every market — a camouflage pattern, a fitting standard, a material code: reproduce it exactly.";
 		return class_exists( 'DZE_Prompt_Defaults' )
 			? DZE_Prompt_Defaults::pick( 'translate', $shipped )
 			: $shipped;
@@ -288,13 +292,6 @@ final class DZE_Translate {
 	 * moment it is browsing preferences. So they are here, folded, on the
 	 * screen where the work is judged, and saving comes straight back to it.
 	 *
-	 * THE GLOSSARY IS THE HALF THAT WAS EMPTY. The prompt has said "never
-	 * translate a term listed in the glossary" since the first version, and on
-	 * this shop the list held nothing at all — so "Viper hood jacket", where
-	 * "viper hood" is the name of a sniper's camouflage and not a brand of
-	 * hood, came back as "Veste à capuche Viper". A rule pointing at an empty
-	 * list is a rule that does nothing, and nothing on any screen said so.
-	 *
 	 * The sanitizer starts from the stored settings and overwrites only the
 	 * keys it is handed, so this short form cannot blank the rest of them.
 	 *
@@ -305,9 +302,8 @@ final class DZE_Translate {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		$s     = self::get_settings();
-		$gloss = self::glossary();
-		$own   = '' !== trim( (string) ( $s['prompt'] ?? '' ) );
+		$s   = self::get_settings();
+		$own = '' !== trim( (string) ( $s['prompt'] ?? '' ) );
 		if ( '' === $back ) {
 			$back = remove_query_arg( [ 'settings-updated' ], (string) ( $_SERVER['REQUEST_URI'] ?? '' ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated -- used through esc_url below.
 		}
@@ -316,38 +312,15 @@ final class DZE_Translate {
 			<summary>
 				<?php esc_html_e( 'The instructions the translator follows', 'dazont-ecom' ); ?>
 				<span class="dze-tr-instrsaid">
-					<?php
-					echo esc_html( $own ? __( 'your own wording', 'dazont-ecom' ) : __( 'the wording shipped with the plugin', 'dazont-ecom' ) );
-					echo ' · ';
-					// THE FIGURE THAT MATTERS, on the fold, so an empty
-					// glossary is visible without opening anything.
-					echo esc_html(
-						$gloss
-							? sprintf(
-								/* translators: %s: how many terms are protected */
-								_n( '%s term never translated', '%s terms never translated', count( $gloss ), 'dazont-ecom' ),
-								number_format_i18n( count( $gloss ) )
-							)
-							: __( 'no term protected', 'dazont-ecom' )
-					);
-					?>
+					<?php echo esc_html( $own ? __( 'your own wording', 'dazont-ecom' ) : __( 'the wording shipped with the plugin', 'dazont-ecom' ) ); ?>
 				</span>
 			</summary>
-			<?php if ( ! $gloss ) : ?>
-				<div class="notice notice-warning inline" style="margin:0 0 12px;"><p>
-					<?php esc_html_e( 'The instructions say never to translate a term from the glossary, and the glossary is empty — so nothing is protected. Trade words the shop uses as they are ("ghillie", "viper hood", "MOLLE", "plate carrier"), and every brand name, belong here: one per line.', 'dazont-ecom' ); ?>
-				</p></div>
-			<?php endif; ?>
 			<form method="post" action="<?php echo esc_url( admin_url( 'options.php' ) ); ?>">
 				<?php settings_fields( 'dze_translate_options' ); ?>
 				<input type="hidden" name="_wp_http_referer" value="<?php echo esc_attr( $back ); ?>" />
 				<p>
 					<label for="dze-tr-instr-prompt"><strong><?php esc_html_e( 'What the translator is told', 'dazont-ecom' ); ?></strong></label><br />
 					<textarea id="dze-tr-instr-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="9" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
-				</p>
-				<p>
-					<label for="dze-tr-instr-gloss"><strong><?php esc_html_e( 'Never translate these — one per line', 'dazont-ecom' ); ?></strong></label><br />
-					<textarea id="dze-tr-instr-gloss" name="<?php echo esc_attr( self::OPT ); ?>[glossary]" rows="6" class="large-text code" placeholder="Kula Tactical&#10;viper hood&#10;ghillie&#10;MOLLE"><?php echo esc_textarea( (string) ( $s['glossary'] ?? '' ) ); ?></textarea>
 				</p>
 				<p class="submit" style="margin:0;padding:0;">
 					<?php submit_button( __( 'Save the instructions', 'dazont-ecom' ), 'primary', 'submit', false ); ?>
@@ -540,12 +513,6 @@ final class DZE_Translate {
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();
-	}
-
-	/** Terms that stay as they are, one per line. */
-	public static function glossary(): array {
-		$raw = (string) ( self::get_settings()['glossary'] ?? '' );
-		return array_values( array_filter( array_map( 'trim', preg_split( '/\r\n|\r|\n/', $raw ) ?: [] ) ) );
 	}
 
 	/**
@@ -2317,18 +2284,11 @@ final class DZE_Translate {
 					</td>
 				</tr>
 				<tr>
-					<th scope="row"><label for="dze-tr-glossary"><?php esc_html_e( 'Never translate', 'dazont-ecom' ); ?></label></th>
-					<td>
-						<textarea id="dze-tr-glossary" name="<?php echo esc_attr( self::OPT ); ?>[glossary]" rows="5" class="large-text code" placeholder="Kula Tactical&#10;Jute Land&#10;MOLLE"><?php echo esc_textarea( (string) ( $s['glossary'] ?? '' ) ); ?></textarea>
-						<p class="description"><?php esc_html_e( 'One term per line: brand names, product references, technical names that must come out untouched in every language.', 'dazont-ecom' ); ?></p>
-					</td>
-				</tr>
-				<tr>
 					<th scope="row"><label for="dze-tr-prompt"><?php esc_html_e( 'Translation prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
 						<textarea id="dze-tr-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="10" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
 						<p class="description">
-							<?php esc_html_e( 'Empty = shipped default (shown greyed). The target language, the glossary and the answer format are added automatically.', 'dazont-ecom' ); ?>
+							<?php esc_html_e( 'Empty = shipped default (shown greyed). The target language and the answer format are added automatically.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link" id="dze-tr-prompt-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'translate', '#dze-tr-prompt' ); } ?>
 						</p>
@@ -2645,8 +2605,8 @@ final class DZE_Translate {
 	public static function produce( array $o, array $langs, bool $all = false, string $only = '' ): array {
 		$out     = [ 'langs' => [], 'skipped' => [], 'errors' => [], 'cost' => false ];
 		// ONE FIELD AT A TIME, FOR CALIBRATING. "Pour un calibrage plus facile
-		// il faut un bouton traduire par bloc." Judging a prompt or a glossary
-		// entry meant re-sending the whole object and paying for all of it, so
+		// il faut un bouton traduire par bloc." Judging a change to the
+		// prompt meant re-sending the whole object and paying for all of it, so
 		// nobody did it twice. Asked for one field, this sends that one and
 		// nothing else — and it reads it from the object rather than from what
 		// has MOVED, because a field is re-run precisely when it has not.
@@ -2679,7 +2639,7 @@ final class DZE_Translate {
 			// raised because a category was renamed sends nothing at all, and
 			// is closed on the spot.
 			// $all IS FOR JUDGING THE TRANSLATOR, NOT THE TEXT. Changing the
-			// model, the instructions or the glossary changes nothing about the
+			// model or the instructions changes nothing about the
 			// ORIGINAL, so the register is right to say nothing moved and the
 			// screen would answer "nothing was sent" for ever. Asked for
 			// everything, it sends everything and pays for everything — which
@@ -3412,10 +3372,8 @@ final class DZE_Translate {
 			$lines[] = '### ' . $fid . ' (' . ( $names[ $fid ] ?? $fid ) . ")\n" . $v;
 			$cut     = $cut || false !== strpos( (string) $fid, self::PART );
 		}
-		$glossary = self::glossary();
-		$system   = self::prompt()
+		$system = self::prompt()
 			. "\n\nTarget language: " . self::language_name( $lang_code ) . '.'
-			. ( $glossary ? "\n\nNever translate these terms, reproduce them exactly:\n- " . implode( "\n- ", $glossary ) : '' )
 			// A PIECE IS TRANSLATED AS A PIECE. It may open mid-thought and
 			// stop mid-thought; finishing it off, or opening it with a fresh
 			// introduction, is what breaks a text back into shape wrongly when
@@ -3989,7 +3947,7 @@ final class DZE_Translate {
 				// ASKED BEFORE IT IS SPENT. "Translate everything again" pays
 				// for fields that had not moved, on purpose, and a button that
 				// costs money without saying so is a button pressed by mistake.
-				'confirmAll' => __( 'Send every field again, including the ones that have not changed? This costs a full translation. Use it to compare one model, prompt or glossary against another.', 'dazont-ecom' ),
+				'confirmAll' => __( 'Send every field again, including the ones that have not changed? This costs a full translation. Use it to compare one model or prompt against another.', 'dazont-ecom' ),
 				// The copy button never replaces words already written without asking.
 				'overwrite'  => __( 'Replace what is in the box with the original?', 'dazont-ecom' ),
 				'langFirst'  => __( 'Tick at least one language.', 'dazont-ecom' ),
