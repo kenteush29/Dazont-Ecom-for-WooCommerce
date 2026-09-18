@@ -877,6 +877,46 @@ ok( 'named for what it is',                     $list[0]['label'] ?? '', 'Balacl
 ok( 'with the language waiting on it',          $list[0]['langs'] ?? [], [ 'fr' ] );
 ok( 'and the count answers the same',           DZE_Translate::review_count(), 1 );
 
+echo "\nET LA LISTE DIT QUAND\n";
+// « WPML Translations - Onglet To Review. Manque une colonne de date ! Je ne
+// sais pas quand ces trads ont été faites. » Une file d attente sans date ne
+// dit pas si une ligne est arrivee il y a dix minutes ou il y a trois
+// semaines — et c est ce qui separe « je lis ca maintenant » de « l original
+// a bouge depuis, autant la refaire ».
+ok( 'chaque ligne porte son moment',
+	isset( $list[0]['at'] ) && (int) $list[0]['at'] > 0, true );
+
+if ( ! function_exists( 'date_i18n' ) ) {
+	function date_i18n( $f, $ts = null ) { return gmdate( (string) $f, null === $ts ? time() : (int) $ts ); }
+}
+ob_start(); DZE_Translate::review_body(); $dze_rev = (string) ob_get_clean();
+ok( 'l en-tete porte la colonne',
+	false !== strpos( $dze_rev, 'Translated' ), true );
+// ET LA DATE EST BIEN CELLE DE LA LIGNE, pas l heure qu il est.
+ok( 'la date rendue est celle du moment garde',
+	false !== strpos( $dze_rev, gmdate( 'Y-m-d', (int) $list[0]['at'] ) ), true );
+ok( 'et « il y a » l accompagne',
+	false !== strpos( $dze_rev, 'ago' ), true );
+// LE TABLEAU RESTE ALIGNE : une colonne ajoutee a l en-tete et pas aux lignes
+// decale tout le tableau d une case, et c est invisible tant qu on ne compte pas.
+preg_match( '#<thead><tr>(.*?)</tr></thead>#s', $dze_rev, $dze_th );
+preg_match( '#<tbody>\s*<tr[^>]*>(.*?)</tr>#s', $dze_rev, $dze_tr );
+$dze_cel = static function ( string $s ): int {
+	preg_match_all( '#<(th|td)\b[^>]*>#i', $s, $m );
+	return count( $m[0] );
+};
+ok( 'autant de cellules en tete que dans une ligne',
+	$dze_cel( (string) ( $dze_th[1] ?? '' ) ), $dze_cel( (string) ( $dze_tr[1] ?? '' ) ) );
+// ET UNE LIGNE SANS MOMENT LE DIT au lieu d inventer aujourd hui : les
+// traductions mises en attente avant que ce moment soit garde n en ont pas.
+$dze_sans = json_decode( (string) $GLOBALS['termmeta'][7]['_dze_tr_wait'], true );
+unset( $dze_sans['at'] );
+$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => (string) wp_json_encode( $dze_sans ) ] ];
+ob_start(); DZE_Translate::review_body(); $dze_rev2 = (string) ob_get_clean();
+ok( 'une ligne sans moment ne l invente pas',
+	false !== strpos( $dze_rev2, 'not recorded' ), true );
+$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $GLOBALS['termmeta'][7]['_dze_tr_wait'] ] ];
+
 echo "\nAccepting writes it, and the register claims only what was written\n";
 $GLOBALS['wpdb']->written = [];
 // A BATCH IS ACCEPTED LATER, and the source can have moved in between — which
