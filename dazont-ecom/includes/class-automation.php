@@ -2287,13 +2287,23 @@ final class DZE_Automation {
 							// contenu » — mais pas pour l'entretien, qui tenu a trois
 							// pages par jour laisse le site en retard pour toujours.
 							?>
-							<label title="<?php esc_attr_e( 'Everything it can: it comes back every ten minutes and keeps going until there is nothing left to do. What stops it is an empty list, or the monthly AI budget. A few a day: a ration, spread over the day, for work that is publishing rather than maintenance.', 'dazont-ecom' ); ?>">
+							<?php
+							// ET LES DEUX ALLURES SE LISENT SANS SURVOL. « Run it
+							// everything it can / a few a day — WTF IS THIS ? Ça veut
+							// dire quoi a few a day, incompréhension totale. » Les
+							// deux etiquettes nommaient une cadence sans jamais dire
+							// combien ni a quel rythme, et la seule explication etait
+							// dans une infobulle que personne n ouvre. Elles disent
+							// maintenant ce qu elles font, et la phrase sous la ligne
+							// dit ce qui va se passer avec le reglage choisi.
+							?>
+							<label>
 								<select name="<?php echo esc_attr( $name ); ?>[pace]">
-									<option value="all" <?php selected( 'all', (string) $conf['pace'] ); ?>><?php esc_html_e( 'Everything it can', 'dazont-ecom' ); ?></option>
-									<option value="daily" <?php selected( 'daily', (string) $conf['pace'] ); ?>><?php esc_html_e( 'A few a day', 'dazont-ecom' ); ?></option>
+									<option value="all" <?php selected( 'all', (string) $conf['pace'] ); ?>><?php esc_html_e( 'Everything it can, no daily limit', 'dazont-ecom' ); ?></option>
+									<option value="daily" <?php selected( 'daily', (string) $conf['pace'] ); ?>><?php esc_html_e( 'A set number per day, then stop', 'dazont-ecom' ); ?></option>
 								</select>
 							</label>
-							<label<?php echo 'all' === (string) $conf['pace'] ? ' title="' . esc_attr__( 'Taking everything, this is the ration kept for products and articles only — attributes and categories are never held back, because an untranslated attribute breaks a page.', 'dazont-ecom' ) . '"' : ''; ?>>
+							<label>
 								<input type="number" name="<?php echo esc_attr( $name ); ?>[per_day]" class="small-text" min="1" max="20" value="<?php echo (int) $conf['per_day']; ?>" />
 								<?php
 								echo 'all' === (string) $conf['pace'] && 'translate' === (string) $conf['scope']
@@ -2301,6 +2311,28 @@ final class DZE_Automation {
 									: esc_html__( 'a day', 'dazont-ecom' );
 								?>
 							</label>
+							<p class="description" style="margin:4px 0 0;">
+								<?php
+								if ( 'all' === (string) $conf['pace'] ) {
+									esc_html_e( 'It comes back every ten minutes and keeps going until there is nothing left to do. Only an empty list or the monthly AI budget stops it.', 'dazont-ecom' );
+									if ( 'translate' === (string) $conf['scope'] ) {
+										echo ' ';
+										esc_html_e( 'The number beside it is the ration for products and articles only — attributes and categories are never held back, because an untranslated attribute breaks a page.', 'dazont-ecom' );
+									}
+								} else {
+									printf(
+										/* translators: %s: how many objects a day */
+										esc_html( _n(
+											'It does %s a day, spread across the day, then stops until tomorrow. Use this for work that is publishing rather than maintenance.',
+											'It does %s a day, spread across the day, then stops until tomorrow. Use this for work that is publishing rather than maintenance.',
+											(int) $conf['per_day'],
+											'dazont-ecom'
+										) ),
+										esc_html( number_format_i18n( (int) $conf['per_day'] ) )
+									);
+								}
+								?>
+							</p>
 						<?php endif; ?>
 						<?php if ( 'shop' !== $conf['scope'] ) : ?>
 							<?php // The consequence is on the hover, not in a paragraph under it. ?>
