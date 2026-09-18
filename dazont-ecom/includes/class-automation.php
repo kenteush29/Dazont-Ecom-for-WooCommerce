@@ -93,13 +93,23 @@ final class DZE_Automation {
 	private function __construct() {
 		// The tick runs from cron, where nothing is an admin screen.
 		add_action( self::HOOK, [ __CLASS__, 'tick' ] );
+		// AND SO DOES THE SCHEDULE THE TICK IS BOOKED ON. This was below the
+		// `is_admin()` line, where `wp-cron.php` never sees it — and that
+		// request is precisely the one that has to reschedule the event after
+		// running it. `wp_reschedule_event()` looks the recurrence up in
+		// `wp_get_schedules()`, does not find `dze_ten_minutes` there, and
+		// gives up; core then unschedules the event it just ran. The recurring
+		// tick disappeared on every cron run and only came back on the next
+		// admin page load, where `schedule()` re-armed it — so the shop's
+		// automations ran when somebody was looking at the shop, which is
+		// exactly what "runs by itself" is supposed to stop being.
+		add_filter( 'cron_schedules', [ __CLASS__, 'cron_schedules' ] );
 		if ( ! is_admin() ) {
 			return;
 		}
 		add_action( 'admin_menu', [ __CLASS__, 'register_menu' ], 12 );
 		add_action( 'admin_init', [ __CLASS__, 'maybe_redirect' ] );
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
-		add_filter( 'cron_schedules', [ __CLASS__, 'cron_schedules' ] );
 		add_action( 'admin_init', [ $this, 'schedule' ] );
 		add_action( 'admin_init', [ __CLASS__, 'migrate' ] );
 		add_action( 'wp_ajax_dze_auto_run', [ __CLASS__, 'ajax_run' ] );
