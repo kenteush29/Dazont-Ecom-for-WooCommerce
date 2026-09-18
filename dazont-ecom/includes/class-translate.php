@@ -364,6 +364,47 @@ final class DZE_Translate {
 		<?php
 	}
 
+	/**
+	 * THE CALLS THAT CARRIED ONE FIELD, newest first.
+	 *
+	 * "J'aimerais voir les appels à l'IA par bloc." Everything a call was
+	 * built from is written down already — `DZE_Ai_Usage::trace()` keeps the
+	 * exchange as the model read it — but it was filed nowhere near the words
+	 * it produced, so "pourquoi ce titre" had no answer on the screen showing
+	 * the title. The batch names each field `### <id> (Label)`, and that is
+	 * what picks a call out of the object's log.
+	 *
+	 * @return array<int,array{t:int,model:string,secs:float,system:string,user:string,got:string}>
+	 */
+	public static function calls_for( array $o, string $fid, int $keep = 3 ): array {
+		if ( 'post' !== (string) ( $o['kind'] ?? '' ) || ! class_exists( 'DZE_Ai_Usage' ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( DZE_Ai_Usage::object_log( (int) ( $o['id'] ?? 0 ) ) as $row ) {
+			$sent = (string) ( $row['sent'] ?? '' );
+			if ( 'translate' !== (string) ( $row['unit'] ?? '' ) || false === strpos( $sent, '### ' . $fid . ' ' ) ) {
+				continue;
+			}
+			// The exchange is stored as one string, "SYSTEM:…\n\nUSER:…", so a
+			// reader can be shown the instructions apart from the text: the
+			// instructions are what gets changed, the text is what does not.
+			$cut  = strpos( $sent, "\n\nUSER:\n" );
+			$out[] = [
+				't'      => (int) ( $row['t'] ?? 0 ),
+				'model'  => (string) ( $row['model'] ?? '' ),
+				'secs'   => (float) ( $row['secs'] ?? 0 ),
+				'system' => false === $cut ? '' : trim( substr( $sent, 8, $cut - 8 ) ),
+				'user'   => false === $cut ? $sent : trim( substr( $sent, $cut + 8 ) ),
+				'got'    => (string) ( $row['got'] ?? '' ),
+			];
+			if ( count( $out ) >= max( 1, $keep ) ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();
@@ -2452,8 +2493,15 @@ final class DZE_Translate {
 	 *
 	 * @return array{langs:array<string,array<string,string>>,skipped:string[],errors:array<string,string>,cost:bool}
 	 */
-	public static function produce( array $o, array $langs, bool $all = false ): array {
+	public static function produce( array $o, array $langs, bool $all = false, string $only = '' ): array {
 		$out     = [ 'langs' => [], 'skipped' => [], 'errors' => [], 'cost' => false ];
+		// ONE FIELD AT A TIME, FOR CALIBRATING. "Pour un calibrage plus facile
+		// il faut un bouton traduire par bloc." Judging a prompt or a glossary
+		// entry meant re-sending the whole object and paying for all of it, so
+		// nobody did it twice. Asked for one field, this sends that one and
+		// nothing else — and it reads it from the object rather than from what
+		// has MOVED, because a field is re-run precisely when it has not.
+		$only    = sanitize_key( $only );
 		if ( ! $o ) {
 			return $out;
 		}
@@ -2487,22 +2535,43 @@ final class DZE_Translate {
 			// screen would answer "nothing was sent" for ever. Asked for
 			// everything, it sends everything and pays for everything — which
 			// is why it is a second button and never the default.
-			$texts = $all ? self::obj_read( $o ) : self::obj_stale( $o, $lang );
+			$texts = ( $all || '' !== $only ) ? self::obj_read( $o ) : self::obj_stale( $o, $lang );
+			if ( '' !== $only ) {
+				$texts = array_intersect_key( $texts, [ $only => true ] );
+				if ( ! $texts ) {
+					$out['errors'][ $lang ] = __( 'That field holds no text on the original, so there is nothing to send.', 'dazont-ecom' );
+					continue;
+				}
+			}
 			if ( ! $texts ) {
 				// Nothing to send. Only the ordinary run may call that settled:
 				// an empty answer to "translate everything" means the original
 				// holds no text at all, which settles nothing.
-				if ( ! $all ) {
+				// A SINGLE FIELD NEVER SETTLES A LANGUAGE: saying "this one is up
+				// to date" because one block came back would mark the rest done.
+				if ( ! $all && '' === $only ) {
 					self::obj_settle( $o, $lang );
 				}
 				$out['skipped'][] = $lang;
 				continue;
+			}
+			// FILED ON THE PRODUCT, so the call can be read where the bad
+			// translation is read. The bench has done this since the start;
+			// the translations never did, so "pourquoi ce titre" had no
+			// answer anywhere on the screen that showed the title.
+			$about = ( 'post' === (string) ( $o['kind'] ?? '' ) ) ? (int) $o['id'] : 0;
+			if ( $about > 0 && class_exists( 'DZE_Ai_Usage' ) ) {
+				DZE_Ai_Usage::about( $about );
 			}
 			try {
 				$new = self::translate( $texts, $lang, (string) $o['kind'], self::labels_for( $o ) );
 			} catch ( \Throwable $e ) {
 				$out['errors'][ $lang ] = $e->getMessage();
 				continue;
+			} finally {
+				if ( $about > 0 && class_exists( 'DZE_Ai_Usage' ) ) {
+					DZE_Ai_Usage::about();
+				}
 			}
 			if ( ! $new ) {
 				$out['errors'][ $lang ] = __( 'Nothing came back.', 'dazont-ecom' );
@@ -2513,7 +2582,20 @@ final class DZE_Translate {
 			$source               += $texts;
 		}
 		if ( $out['langs'] ) {
-			self::hold( $o, $out['langs'], $source );
+			// IT MERGES, IT DOES NOT REPLACE. A one-field run that overwrote the
+			// register would throw away every other field already translated and
+			// waiting — invisible until the page was reloaded, which is exactly
+			// when somebody calibrating reloads.
+			if ( '' !== $only ) {
+				$held = self::waiting( $o );
+				$keep = (array) ( $held['langs'] ?? [] );
+				foreach ( $out['langs'] as $lg => $fields ) {
+					$keep[ $lg ] = array_merge( (array) ( $keep[ $lg ] ?? [] ), (array) $fields );
+				}
+				self::hold( $o, $keep, array_merge( (array) ( $held['src'] ?? [] ), $source ) );
+			} else {
+				self::hold( $o, $out['langs'], $source );
+			}
 		}
 		return $out;
 	}
@@ -3489,7 +3571,9 @@ final class DZE_Translate {
 		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() checked it.
 		$all  = ! empty( $_POST['all'] );
-		$made = self::produce( $o, $langs, $all );
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() checked it.
+		$only = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
+		$made = self::produce( $o, $langs, $all, $only );
 		wp_send_json_success( [
 			'label'   => self::obj_label( $o ),
 			'done'    => array_keys( $made['langs'] ),
@@ -3594,6 +3678,10 @@ final class DZE_Translate {
 				/* translators: %s: number of fields filled in */
 				'filled'     => __( '%s field(s) filled in below — nothing is written until you save.', 'dazont-ecom' ),
 				'nothingToSave' => __( 'Every field is empty. There is nothing to write.', 'dazont-ecom' ),
+				// ONE BLOCK ON ITS OWN, for judging a change to the instructions.
+				'oneSending' => __( 'Translating this block…', 'dazont-ecom' ),
+				'oneDone'    => __( 'filled in — nothing is written until you save.', 'dazont-ecom' ),
+				'oneNothing' => __( 'Nothing came back for this block.', 'dazont-ecom' ),
 				'dropped'    => __( 'Thrown away. The translation is exactly as it was.', 'dazont-ecom' ),
 				/* translators: %s: number of rows ticked */
 				'nSelected'  => __( '%s selected', 'dazont-ecom' ),

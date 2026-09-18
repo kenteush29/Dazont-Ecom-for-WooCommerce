@@ -320,4 +320,40 @@
 		if (String($box.val() || "").trim() !== "" && !window.confirm(i18n.overwrite || "Replace what is in the box?")) { return; }
 		$box.val(src).trigger("change").focus();
 	});
+
+	// ONE BLOCK ON ITS OWN — « pour un calibrage plus facile il faut un bouton
+	// traduire par bloc ». Judging a change to the prompt or the glossary meant
+	// re-sending the whole object and paying for every field of it, so it was
+	// done once and never again. This sends this block and nothing else, and it
+	// ALWAYS sends it: a field is re-run precisely when it has not moved, so
+	// "nothing has changed" is the wrong answer here.
+	$(document).on('click', '.dze-tr-block', function () {
+		var $e = editor();
+		if (!$e.length) { return; }
+		var $row = $(this).closest('.dze-tr-field');
+		var fid = String($row.data('field') || '');
+		if (!fid) { return; }
+		var $b = $(this).prop('disabled', true);
+		var $st = $row.find('.dze-tr-blockstate').removeClass('is-ko').text(i18n.oneSending || '');
+		post('dze_tr_batch', {
+			ref: $e.data('ref'),
+			langs: [String($e.data('lang'))],
+			field: fid
+		})
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { $st.addClass('is-ko').text(said(r)); return; }
+				var texts = (r.data.texts || {})[String($e.data('lang'))] || {};
+				if (!Object.prototype.hasOwnProperty.call(texts, fid)) {
+					$st.addClass('is-ko').text(i18n.oneNothing || '');
+					return;
+				}
+				// THE BOX IS FILLED, NOT THE PAGE. Nothing else on screen moves,
+				// so what came back for this block can be judged against what was
+				// already beside it.
+				$row.find('.dze-tr-new').val(texts[fid]);
+				$st.text(i18n.oneDone || '');
+			})
+			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
+	});
 }(jQuery));

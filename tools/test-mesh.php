@@ -1256,5 +1256,50 @@ if ( $dze_dump ) {
 	exit( $fails ? 1 : 0 );
 }
 
+
+echo "\nLES MOTS SE TROUVENT COMME UN LECTEUR LES LIT\n";
+// « Ta régression du module de maillage interne rend impossible le maillage
+// sur certaines pages du fait du manque des mots dans le texte. »
+// Le modele voit le TEXTE et repond avec les mots choisis ; il lit a travers
+// les balises en ligne, parce que c est ce que la page montre. « giving rise
+// to the <strong>bomber jacket</strong> » se lit « giving rise to the bomber
+// jacket », et c est ce qui revenait. Cherche tel quel dans le HTML brut :
+// introuvable, edit refuse, aucun lien ecrit.
+$ml_u  = 'https://exemple.test/bomber';
+$ml_go = static function ( string $html, string $anchor ) use ( $ml_u ): array {
+	return DZE_Category_Content::apply_edits( $html, [ [ 'anchor' => $anchor, 'url' => $ml_u ] ], [ $ml_u ] );
+};
+$ml_txt = static fn( string $h ): string => preg_replace( '#</?a\b[^>]*>#i', '', $h );
+
+$ml_real = 'These jackets were soon <strong>adopted by pilots</strong>, giving rise to the <strong>bomber jacket</strong>, a style.';
+$ml_r = $ml_go( $ml_real, 'giving rise to the bomber jacket' );
+ok( 'lancre qui traverse une balise est posee', $ml_r['applied'], 1 );
+ok( 'et le texte na pas bouge dun caractere', $ml_txt( $ml_real ), $ml_txt( (string) $ml_r['html'] ) );
+ok( 'et le HTML reste valide, la balise fermee dedans',
+	false !== strpos( (string) $ml_r['html'], '>giving rise to the <strong>bomber jacket</strong></a>' ), true );
+
+// LES TROIS AUTRES FACONS DONT UNE REPONSE NE RESSEMBLE PAS AU HTML.
+ok( 'un saut de ligne vaut une espace',   $ml_go( "<p>a bomber\n  jacket</p>", 'bomber jacket' )['applied'], 1 );
+ok( 'une espace insecable aussi',         $ml_go( '<p>a bomber&nbsp;jacket</p>', 'bomber jacket' )['applied'], 1 );
+ok( 'une esperluette encodee aussi',      $ml_go( '<p>bags &amp; packs</p>', 'bags & packs' )['applied'], 1 );
+ok( 'une apostrophe courbe aussi',        $ml_go( '<p>the pilot’s coat</p>', "the pilot's coat" )['applied'], 1 );
+ok( 'et la casse ne compte pas',          $ml_go( '<p>The Bomber Jacket</p>', 'bomber jacket' )['applied'], 1 );
+
+// CE QUI DOIT TOUJOURS ETRE REFUSE. La tolerance sur la FORME ne doit rien
+// relacher sur le FOND : un lien dans un lien, un empan a cheval sur deux
+// paragraphes, des mots presents deux fois.
+ok( 'deux occurrences restent refusees',  $ml_go( '<p>bomber jacket et bomber jacket</p>', 'bomber jacket' )['applied'], 0 );
+ok( 'un lien dans un lien reste refuse',  $ml_go( '<p><a href="/x">bomber jacket</a></p>', 'bomber jacket' )['applied'], 0 );
+ok( 'a cheval sur deux paragraphes, refuse', $ml_go( '<p>a bomber</p><p>jacket</p>', 'bomber jacket' )['applied'], 0 );
+ok( 'a cheval sur deux puces, refuse',    $ml_go( '<ul><li>bomber</li><li>jacket</li></ul>', 'bomber jacket' )['applied'], 0 );
+ok( 'et des mots absents restent refuses',$ml_go( '<p>rien ici</p>', 'bomber jacket' )['applied'], 0 );
+
+// ET LE MOTIF LUI-MEME DOIT COMPILER. Ecrit avec « # » pour delimiteur, la
+// premiere entite numerique — &#160; — fermait le motif au milieu de lui-meme :
+// PCRE repondait « Internal error », find_anchor() repondait null, et TOUT
+// etait refuse. Une version pire du defaut qu on reparait.
+ok( 'le motif compile, entites numeriques comprises',
+	null !== DZE_Category_Content::find_anchor( '<p>a bomber&#160;jacket</p>', 'bomber jacket' ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

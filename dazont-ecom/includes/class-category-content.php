@@ -141,6 +141,9 @@ final class DZE_Category_Content {
 		if ( isset( $in['form'] ) ) {
 			$out['links_off'] = empty( $in['links_off'] ) ? 0 : 1;
 			$out['dead_off']  = empty( $in['dead_off'] ) ? 0 : 1;
+			// Coche a l endroit, celle-ci : la valeur par defaut est OUI,
+			// donc c est la case qui l ETEINT qui est posee.
+			$out['add_words'] = empty( $in['no_add_words'] ) ? 1 : 0;
 		}
 		if ( isset( $in['model'] ) ) {
 			$out['model'] = sanitize_text_field( (string) $in['model'] );
@@ -383,7 +386,13 @@ PROMPT;
 			. "- The sentence must still read perfectly well without the link. Never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\".\n"
 			. "- Nothing else changes: not a word, not a paragraph, not a heading. You are not writing the page, only pointing at words in it.\n"
 			. "- Never link twice to the same page, never link a whole sentence, never link inside a heading, and never link the page the text itself belongs to.\n"
-			. '- Use the supplied URLs verbatim, and no others.';
+			. "- Use the supplied URLs verbatim, and no others.\n"
+			// THE ONE DOOR OUT of "the text never names it, so no link ever".
+			// A category whose copy never mentions its neighbour used to be
+			// left orphaned for good. It may now be given ONE sentence — and
+			// adding is all it may do: the plugin refuses the answer outright
+			// if a single character of what was there has moved.
+			. "- IF, AND ONLY IF, the text holds no words at all for a target you judge genuinely close, you may write ONE short sentence for it instead. Answer that one as {\"sentence\": \"the whole new sentence\", \"anchor\": \"the words inside it to link\", \"url\": \"…\"}. It must read as part of this text, in its language, say something true about the destination, and be the kind of line the page would have had anyway. Never 'See X for more' or 'Read Y to find out'. One sentence, under 200 characters. Prefer naming words already in the text; this is the last resort, not the first.";
 		return class_exists( 'DZE_Prompt_Defaults' )
 			? DZE_Prompt_Defaults::pick( 'cat_links', $shipped )
 			: $shipped;
@@ -1823,6 +1832,14 @@ PROMPT;
 				$unmet[] = '“' . trim( (string) ( $l['label'] ?? '' ) ) . '”';
 			}
 		}
+		// A TEXT THAT NAMES NONE OF THEM IS NOT A DEAD END ANY MORE — when the
+		// shop allows the pass a sentence of its own, it is given the targets
+		// and asked for one. The refusal below stays for the shop that does
+		// not: without words to point at and without leave to write any, there
+		// is genuinely nothing to do.
+		if ( ! $known && self::may_add() ) {
+			$known = $links;
+		}
 		if ( ! $known ) {
 			throw new RuntimeException( sprintf(
 				/* translators: 1: the text being worked on, 2: the pages it was asked to link to */
@@ -2312,10 +2329,76 @@ PROMPT;
 		}
 		return null;
 	}
+	/**
+	 * IS THE PASS ALLOWED TO ADD WORDS OF ITS OWN?
+	 *
+	 * "Pourquoi ne pas autoriser l'ajout / légère modif de mots ? Vraiment, ça
+	 * mange pas de pain." It does not, as long as ADD means add: a category
+	 * whose text never names its neighbour got no link at all and no way to
+	 * ever get one — "Pochettes administratives tactiques" never mentions
+	 * "Utility pouches", so the pass refused and the page stayed orphaned.
+	 *
+	 * What is still forbidden is REWRITING. A sentence may be appended; not one
+	 * character of what was there may change. That line is the whole reason a
+	 * word count comes back identical, and it is checked rather than trusted.
+	 */
+	public static function may_add(): bool {
+		$s = self::get_settings();
+		return ! isset( $s['add_words'] ) || ! empty( $s['add_words'] );
+	}
+
+	/**
+	 * THE SENTENCE THE PASS IS ALLOWED TO ADD, and where it may go: the end.
+	 *
+	 * Appending is the one placement that cannot disturb what is there. Slipped
+	 * into the middle it would have to choose a paragraph, a position inside
+	 * it, and a join — three chances to break a text that was fine.
+	 *
+	 * @return string The html with the sentence added, or '' when it will not do.
+	 */
+	private static function add_sentence( string $html, string $sentence, string $anchor, string $url ): string {
+		$sentence = trim( wp_strip_all_tags( $sentence ) );
+		$anchor   = trim( wp_strip_all_tags( $anchor ) );
+		if ( '' === $sentence || '' === $anchor ) {
+			return '';
+		}
+		// THE WORDS TO LINK MUST BE IN THE SENTENCE THE MODEL WROTE. Otherwise
+		// it is asking for a link on words nobody can see.
+		$at = mb_stripos( $sentence, $anchor );
+		if ( false === $at ) {
+			return '';
+		}
+		// A SENTENCE, NOT A PARAGRAPH. A model handed this door will otherwise
+		// write three of them and the page grows a tail.
+		if ( mb_strlen( $sentence ) > 220 ) {
+			return '';
+		}
+		$as_is = mb_substr( $sentence, $at, mb_strlen( $anchor ) );
+		$linked = str_replace(
+			$as_is,
+			'<a href="' . esc_url( $url ) . '">' . esc_html( $as_is ) . '</a>',
+			esc_html( $sentence )
+		);
+		// esc_html() ran over the whole sentence first, so the anchor has to be
+		// found in its escaped form too; when it is not, nothing is added.
+		if ( false === strpos( $linked, '<a href=' ) ) {
+			$linked = str_replace(
+				esc_html( $as_is ),
+				'<a href="' . esc_url( $url ) . '">' . esc_html( $as_is ) . '</a>',
+				esc_html( $sentence )
+			);
+		}
+		if ( false === strpos( $linked, '<a href=' ) ) {
+			return '';
+		}
+		return $html . "\n<p>" . $linked . "</p>";
+	}
+
 	public static function apply_edits( string $html, array $edits, array $allowed ): array {
 		$refused = [];
 		$seen    = [];
 		$applied = 0;
+		$added   = 0;
 		foreach ( $edits as $e ) {
 			$anchor = isset( $e['anchor'] ) ? (string) $e['anchor'] : '';
 			$url    = isset( $e['url'] ) ? untrailingslashit( html_entity_decode( (string) $e['url'] ) ) : '';
@@ -2339,19 +2422,49 @@ PROMPT;
 				);
 				continue;
 			}
-			// THE WORDS MUST BE THERE, ONCE, AND IN THE PROSE.
-			$n = substr_count( $html, $anchor );
-			if ( 1 !== $n ) {
+			// A SENTENCE THE PASS WROTE ITSELF, when the text holds no words
+			// for this target and the shop allows it. It goes at the end, and
+			// what was there is not touched — checked below, not trusted.
+			$say = isset( $e['sentence'] ) ? (string) $e['sentence'] : '';
+			if ( '' !== trim( $say ) ) {
+				if ( ! self::may_add() ) {
+					$refused[] = __( 'the pass offered to add a sentence, which this shop does not allow', 'dazont-ecom' );
+					continue;
+				}
+				$grown = self::add_sentence( $html, $say, $anchor, $url );
+				if ( '' === $grown ) {
+					$refused[] = sprintf(
+						/* translators: %s: the sentence the model offered */
+						__( 'the sentence offered could not be used (%s)', 'dazont-ecom' ),
+						mb_substr( trim( $say ), 0, 60 )
+					);
+					continue;
+				}
+				// THE ONE RULE THAT MAKES THIS SAFE: what was there is still
+				// there, character for character, at the front of what comes out.
+				if ( 0 !== strpos( $grown, $html ) ) {
+					$refused[] = __( 'adding a sentence would have changed the text that was already there', 'dazont-ecom' );
+					continue;
+				}
+				$html         = $grown;
+				$seen[ $url ] = true;
+				$added++;
+				$applied++;
+				continue;
+			}
+			// THE WORDS MUST BE THERE, ONCE, AND IN THE PROSE — read the way a
+			// reader reads them, through whatever inline markup sits between.
+			$found = self::find_anchor( $html, $anchor );
+			if ( null === $found ) {
 				$refused[] = sprintf(
-					/* translators: 1: how many times the words were found, 2: the words */
-					__( 'the words were found %1$d times instead of once (%2$s)', 'dazont-ecom' ),
-					$n,
+					/* translators: %s: the words the model picked */
+					__( 'those words are not in the text exactly once (%s)', 'dazont-ecom' ),
 					mb_substr( $anchor, 0, 40 )
 				);
 				continue;
 			}
-			$at = strpos( $html, $anchor );
-			if ( ! self::in_prose( $html, $at, strlen( $anchor ) ) ) {
+			[ $at, $span_len ] = $found;
+			if ( ! self::in_prose( $html, $at, $span_len ) ) {
 				$refused[] = sprintf(
 					/* translators: %s: the words the model picked */
 					__( 'the words sit inside a tag, a link or a block comment (%s)', 'dazont-ecom' ),
@@ -2364,16 +2477,19 @@ PROMPT;
 			// character is asking for the one thing it cannot do reliably —
 			// "a sentence came back reworded rather than linked", every time,
 			// on the long articles. Nothing it returns is ever inserted.
+			// WHAT GOES BACK IN IS WHAT WAS THERE. The model's spelling of the
+			// words is only used to FIND them; the characters written are the
+			// ones the span already held — its tags, its entities, its case.
 			$html = substr_replace(
 				$html,
-				'<a href="' . esc_url( $url ) . '">' . $anchor . '</a>',
+				'<a href="' . esc_url( $url ) . '">' . substr( $html, $at, $span_len ) . '</a>',
 				$at,
-				strlen( $anchor )
+				$span_len
 			);
 			$seen[ $url ] = true;
 			$applied++;
 		}
-		return [ 'html' => $html, 'applied' => $applied, 'refused' => $refused ];
+		return [ 'html' => $html, 'applied' => $applied, 'refused' => $refused, 'added' => $added ];
 	}
 
 	/**
@@ -2381,6 +2497,155 @@ PROMPT;
 	 * link, not inside an HTML comment — a link opened in any of those breaks
 	 * the markup around it.
 	 */
+	/**
+	 * WHERE THE MODEL'S WORDS ARE IN THE HTML — read the way a READER reads.
+	 *
+	 * The model is shown the text and answers with the words it chose. It
+	 * reads THROUGH inline markup, because that is what the page looks like:
+	 * "giving rise to the <strong>bomber jacket</strong>" reads as "giving
+	 * rise to the bomber jacket", and that is what came back. Searching the
+	 * raw HTML for that string found nothing, so the pass refused the edit
+	 * and wrote no link at all — "rend impossible le maillage sur certaines
+	 * pages du fait du manque des mots dans le texte". On a shop whose copy
+	 * is full of <strong>, most candidates die that way.
+	 *
+	 * So the words are matched with the markup allowed BETWEEN them, and what
+	 * gets wrapped is the ORIGINAL span of HTML — tags and all. The text is
+	 * still never rewritten: `<a …>giving rise to the <strong>bomber
+	 * jacket</strong></a>` holds exactly the characters that were there.
+	 *
+	 * Three other things a model returns that a literal search cannot find,
+	 * and all three are the same bug wearing a different hat:
+	 *   - `&amp;` in the HTML against `&` in the answer;
+	 *   - a curly apostrophe against a straight one;
+	 *   - one space in the answer against a line break in the HTML.
+	 *
+	 * @return array{0:int,1:int}|null Offset and length in the HTML, or null
+	 *                                 when the words are not there exactly once.
+	 */
+	/**
+	 * THE SMALLEST SPAN AROUND THOSE WORDS THAT A LINK CAN LEGALLY WRAP.
+	 *
+	 * The words a reader sees rarely start and end where the markup does.
+	 * "giving rise to the <strong>bomber jacket</strong>" read as prose is
+	 * "giving rise to the bomber jacket", and the match for it stops in the
+	 * middle of the bold — wrap THAT and you get `<a>…<strong>…</a></strong>`,
+	 * which is not HTML.
+	 *
+	 * So the span grows outward over MARKUP ONLY, never over a letter: a tag
+	 * left open takes in the closing tag that follows it, a closing tag with
+	 * no opener takes in the opening tag right before it. The link text does
+	 * not change by one character — only the tags it carries do.
+	 *
+	 * It refuses rather than reaching: if what sits immediately outside is not
+	 * the tag needed, there is no legal span and the edit is dropped.
+	 *
+	 * @return array{0:int,1:int}|null
+	 */
+	private static function balance( string $html, int $at, int $len ): ?array {
+		// Eight steps is far more nesting than prose ever has, and it is a
+		// loop over a model's answer: it ends even when the answer is absurd.
+		for ( $guard = 0; $guard < 8; $guard++ ) {
+			$span  = substr( $html, $at, $len );
+			$open  = [];
+			$loose = [];
+			if ( preg_match_all( '~</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(/?)>~', $span, $m, PREG_SET_ORDER ) ) {
+				foreach ( $m as $t ) {
+					if ( '/' === $t[2] ) {
+						continue; // self-closing: balanced on its own.
+					}
+					$name = strtolower( $t[1] );
+					if ( '/' === $t[0][1] ) {
+						if ( $open && end( $open ) === $name ) {
+							array_pop( $open );
+						} else {
+							$loose[] = $name;
+						}
+						continue;
+					}
+					$open[] = $name;
+				}
+			}
+			if ( ! $open && ! $loose ) {
+				return [ $at, $len ];
+			}
+			if ( $open ) {
+				// Left open at the end: the very next thing must close it.
+				$name = (string) end( $open );
+				if ( preg_match( '~^</' . preg_quote( $name, '~' ) . '\s*>~i', substr( $html, $at + $len, 40 ), $mm ) ) {
+					$len += strlen( (string) $mm[0] );
+					continue;
+				}
+				return null;
+			}
+			// Closed without being opened: the opener must sit right before.
+			$name = (string) $loose[0];
+			$back = substr( $html, max( 0, $at - 200 ), min( 200, $at ) );
+			if ( preg_match( '~<' . preg_quote( $name, '~' ) . '\b[^>]*>$~i', $back, $mm ) ) {
+				$at  -= strlen( (string) $mm[0] );
+				$len += strlen( (string) $mm[0] );
+				continue;
+			}
+			return null;
+		}
+		return null;
+	}
+
+	public static function find_anchor( string $html, string $anchor ): ?array {
+		$words = preg_split( '/\s+/u', trim( $anchor ) );
+		$words = array_values( array_filter( (array) $words, static fn( $w ): bool => '' !== $w ) );
+		if ( ! $words ) {
+			return null;
+		}
+		// THE DELIMITER IS `~`, NOT `#`. Several of the tolerances below are
+		// numeric entities — `&#160;`, `&#39;` — and with `#` as the delimiter
+		// the first of them closed the pattern in the middle of itself. PCRE
+		// answered "Internal error", find_anchor() answered null, and every
+		// single edit was refused: a worse version of the bug being fixed.
+		$one = static function ( string $w ): string {
+			$out = '';
+			// Character by character, because the tolerances are per character
+			// and preg_quote() would fight them.
+			foreach ( preg_split( '//u', $w, -1, PREG_SPLIT_NO_EMPTY ) as $ch ) {
+				if ( '&' === $ch ) {
+					$out .= '(?:&amp;|&)';
+				} elseif ( in_array( $ch, [ "'", '’', '‘', '`', '´' ], true ) ) {
+					$out .= '(?:[\'’‘`´]|&#0?39;|&apos;|&rsquo;|&lsquo;)';
+				} elseif ( in_array( $ch, [ '"', '“', '”' ], true ) ) {
+					$out .= '(?:["“”]|&quot;|&#0?34;|&ldquo;|&rdquo;)';
+				} elseif ( in_array( $ch, [ '-', '–', '—' ], true ) ) {
+					$out .= '(?:[-–—]|&ndash;|&mdash;)';
+				} else {
+					$out .= preg_quote( $ch, '~' );
+				}
+			}
+			return $out;
+		};
+		// BETWEEN two words: whitespace, a non-breaking space, or any inline
+		// tag — and at least one of them, so two words never run together.
+		$gap = '(?:\s|&nbsp;|&#160;|</?[a-zA-Z][^>]*>)+';
+		$re  = '~' . implode( $gap, array_map( $one, $words ) ) . '~iu';
+		$n   = preg_match_all( $re, $html, $m, PREG_OFFSET_CAPTURE );
+		// A PATTERN THAT FAILED IS NOT A TEXT WITHOUT THE WORDS. preg_match_all
+		// answers false on a broken pattern and 0 on a text that simply does
+		// not hold them, and reading both as "not there" is how a whole module
+		// goes quiet. This says so in the log rather than refusing in silence.
+		if ( false === $n ) {
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log( 'mesh', 'find_anchor', 'PCRE: ' . preg_last_error_msg() . ' — ' . mb_substr( $anchor, 0, 60 ) );
+			}
+			return null;
+		}
+		// EXACTLY ONCE, still. Words that appear twice cannot be linked without
+		// choosing for the shop which of the two carries the link.
+		if ( 1 !== $n ) {
+			return null;
+		}
+		// AND THE SPAN IS GROWN TO SOMETHING A LINK CAN WRAP — over markup
+		// only, never over a letter.
+		return self::balance( $html, (int) $m[0][0][1], strlen( (string) $m[0][0][0] ) );
+	}
+
 	public static function in_prose( string $html, int $at, int $len ): bool {
 		$before = substr( $html, 0, $at );
 		// Inside a tag: the last '<' comes after the last '>'.
@@ -2397,8 +2662,38 @@ PROMPT;
 		if ( false !== $oa && strripos( $before, '</a>' ) < $oa ) {
 			return false;
 		}
-		// And the words themselves hold no markup.
-		return false === strpos( substr( $html, $at, $len ), '<' );
+		// AND THE SPAN ITSELF MAY HOLD INLINE MARKUP — but nothing that makes
+		// the link illegal or absurd. "<a>giving rise to the <strong>bomber
+		// jacket</strong></a>" is valid and reads right; a span crossing a
+		// paragraph, a list item or another link is neither.
+		$span = substr( $html, $at, $len );
+		if ( preg_match( '#</?a\b#i', $span ) ) {
+			return false; // a link inside a link is not a link.
+		}
+		if ( preg_match( '#</?(?:p|div|li|ul|ol|h[1-6]|table|tr|td|th|section|article|blockquote|br|hr)\b#i', $span ) ) {
+			return false; // it would cross a block boundary.
+		}
+		// Every tag it does hold must open AND close inside the span, or the
+		// wrapper would interleave with it: `<a><strong></a></strong>`.
+		if ( preg_match_all( '#</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(/?)>#', $span, $tags, PREG_SET_ORDER ) ) {
+			$open = [];
+			foreach ( $tags as $t ) {
+				if ( '/' === $t[2] ) {
+					continue; // self-closing, balanced on its own.
+				}
+				if ( '/' === $t[0][1] ) {
+					if ( ! $open || array_pop( $open ) !== strtolower( $t[1] ) ) {
+						return false;
+					}
+					continue;
+				}
+				$open[] = strtolower( $t[1] );
+			}
+			if ( $open ) {
+				return false;
+			}
+		}
+		return true;
 	}
 	public static function only_linked( string $before, string $after, array $done, int $room ): void {
 		// 1. EVERY LINK ALREADY THERE IS STILL THERE. No tolerance: a link the
@@ -3528,6 +3823,9 @@ PROMPT;
 					<th scope="row"><?php esc_html_e( 'Dead links', 'dazont-ecom' ); ?></th>
 					<td>
 						<label><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[dead_off]" value="1" <?php checked( ! empty( $s['dead_off'] ) ); ?> /> <?php esc_html_e( 'Leave dead links alone', 'dazont-ecom' ); ?></label>
+						<br />
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[no_add_words]" value="1" <?php checked( ! DZE_Category_Content::may_add() ); ?> /> <?php esc_html_e( 'Never add a sentence — only link words the text already holds', 'dazont-ecom' ); ?></label>
+						<span class="description" style="display:block;margin:2px 0 0 24px;"><?php esc_html_e( 'Left as it is, a text that names none of its neighbours may be given ONE short sentence carrying the link, rather than staying orphaned for good. Nothing already written is ever changed: the pass refuses its own answer if a single character has moved.', 'dazont-ecom' ); ?></span>
 						<p class="description"><?php esc_html_e( 'By default, every text this module rewrites is checked on the way in: a link pointing at a page of this shop that no longer answers is taken out and its words are kept, so the sentence still reads. Only links to this shop are judged — an outside site that is slow or blocks us is never touched. Each address is checked once a day at most. Tick this to write over a text without looking at the links already in it.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>

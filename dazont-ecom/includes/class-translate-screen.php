@@ -92,11 +92,20 @@ trait DZE_Translate_Screen {
 		$tabs = self::tabs();
 		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'translations' ) ) . '</h1>';
-		// THE SWITCH FIRST. "Pourquoi il n'est pas placé en haut ce bloc ?
-		// C'est l'équivalent de la cerise sur le gâteau, pas l'assiette en bas
-		// de page." So it is a thin bar under the title, on every screen that
-		// has one, before the work it decides about.
-		if ( class_exists( 'DZE_Automation' ) ) {
+		// THE SWITCH FIRST, ON THE SCREEN IT IS ABOUT — AND ONLY THERE.
+		//
+		// "Pourquoi il n'est pas placé en haut ce bloc ? C'est l'équivalent de
+		// la cerise sur le gâteau, pas l'assiette en bas de page." So it is a
+		// thin bar under the title. But printed BEFORE the tab strip it stood
+		// on every tab, including the editor of ONE product — "attention ces
+		// blocs sont aussi visibles sur des pages hors sujet comme le batch
+		// onglet". A switch for a nightly pass, over a product somebody is
+		// translating by hand, is furniture in the way. The Discounts screen
+		// already scoped its own the same way, to the events side only.
+		//
+		// The dashboard is where the module is looked at as a whole; that is
+		// where the decision about the whole belongs.
+		if ( 'dashboard' === $tab && class_exists( 'DZE_Automation' ) ) {
 			DZE_Automation::panel_form( [ 'translate' ], __( 'Runs by itself', 'dazont-ecom' ) );
 		}
 		$strip = [];
@@ -605,6 +614,19 @@ trait DZE_Translate_Screen {
 									<?php elseif ( isset( $moved[ $dze_fid ] ) ) : ?>
 										<span class="dze-tr-tag dze-tr-moved"><?php esc_html_e( 'the original has changed since', 'dazont-ecom' ); ?></span>
 									<?php endif; ?>
+									<?php
+									// ONE BLOCK, ON ITS OWN. "Pour un calibrage plus
+									// facile il faut un bouton traduire par bloc."
+									// Judging a change to the prompt or the glossary
+									// meant re-sending the whole object and paying for
+									// every field of it, so it was done once and never
+									// again. This sends this block and nothing else,
+									// and it always sends it — a field is re-run
+									// precisely when it has NOT moved.
+									?>
+									<button type="button" class="button button-small dze-tr-block"
+										title="<?php esc_attr_e( 'Translates this block on its own, and fills the box on the right. Useful for judging a change to the instructions or the glossary without paying for the whole page. Nothing is written until you save.', 'dazont-ecom' ); ?>"><span class="dashicons dashicons-translation" aria-hidden="true"></span><?php esc_html_e( 'Translate this block', 'dazont-ecom' ); ?></button>
+									<span class="dze-tr-blockstate description"></span>
 								</p>
 								<div class="dze-tr-pair">
 									<div class="dze-tr-side">
@@ -612,7 +634,13 @@ trait DZE_Translate_Screen {
 										<div class="dze-cb-nowbody"><?php echo wp_kses_post( $dze_src ); ?></div>
 									</div>
 									<div class="dze-tr-mid">
-										<button type="button" class="button dze-tr-copy" title="<?php esc_attr_e( 'Put the original in the box on the right, to work from it', 'dazont-ecom' ); ?>" aria-label="<?php esc_attr_e( 'Copy from the original', 'dazont-ecom' ); ?>">&rarr;</button>
+										<?php
+										// L ICONE PLUTOT QUE LA FLECHE. « A la place de tes
+										// flèches il faut un symbole de fichiers copier
+										// coller. Sur WPML c est quelque chose comme ça. »
+										// Une fleche dit « va a droite » ; ce bouton COPIE,
+										// et deux pages superposees le disent partout.
+										?><button type="button" class="button dze-tr-copy" title="<?php esc_attr_e( 'Put the original in the box on the right, to work from it', 'dazont-ecom' ); ?>" aria-label="<?php esc_attr_e( 'Copy from the original', 'dazont-ecom' ); ?>"><span class="dashicons dashicons-admin-page" aria-hidden="true"></span></button>
 									</div>
 									<div class="dze-tr-side">
 										<span class="dze-tr-sidelab"><?php echo esc_html( sprintf( /* translators: %s: the language */ __( 'In %s', 'dazont-ecom' ), (string) ( $targets[ $lang ] ?? strtoupper( $lang ) ) ) ); ?></span>
@@ -620,6 +648,40 @@ trait DZE_Translate_Screen {
 										<textarea class="dze-tr-new<?php echo DZE_Translate::looks_html( $dze_src ) ? ' dze-tr-html' : ''; ?>" data-was="<?php echo esc_attr( (string) ( $current[ $dze_fid ] ?? '' ) ); ?>" data-src="<?php echo esc_attr( $dze_src ); ?>" rows="<?php echo esc_attr( (string) $dze_rows ); ?>"><?php echo esc_textarea( $dze_val ); ?></textarea>
 									</div>
 								</div>
+								<?php
+								// CE QUI A ETE ENVOYE POUR CE BLOC. « J'aimerais voir les
+								// appels à l'IA par bloc. » Tout est deja ecrit — chaque
+								// appel passe par complete(), qui garde l'echange tel que
+								// le modele l'a lu — mais c'etait range dans les journaux,
+								// loin des mots que l'appel a produits. Replie, parce
+								// qu'on l'ouvre pour comprendre une reponse etrange, pas
+								// a chaque lecture.
+								$dze_calls = DZE_Translate::calls_for( $o, (string) $dze_fid );
+								?>
+								<?php if ( $dze_calls ) : ?>
+									<details class="dze-set dze-tr-calls">
+										<summary><?php
+											echo esc_html( sprintf(
+												/* translators: %s: how many calls */
+												_n( '%s call to the model for this block', '%s calls to the model for this block', count( $dze_calls ), 'dazont-ecom' ),
+												number_format_i18n( count( $dze_calls ) )
+											) );
+										?></summary>
+										<?php foreach ( $dze_calls as $dze_call ) : ?>
+											<p class="dze-tr-callhead">
+												<strong><?php echo esc_html( date_i18n( (string) get_option( 'date_format' ) . ' H:i:s', (int) $dze_call['t'] ) ); ?></strong>
+												· <?php echo esc_html( (string) $dze_call['model'] ); ?>
+												· <?php echo esc_html( sprintf( /* translators: %s: seconds */ __( '%ss', 'dazont-ecom' ), number_format_i18n( (float) $dze_call['secs'], 1 ) ) ); ?>
+											</p>
+											<p class="dze-tr-calllab"><?php esc_html_e( 'The instructions it was given', 'dazont-ecom' ); ?></p>
+											<pre class="dze-tr-callpre"><?php echo esc_html( (string) $dze_call['system'] ); ?></pre>
+											<p class="dze-tr-calllab"><?php esc_html_e( 'The text it was given', 'dazont-ecom' ); ?></p>
+											<pre class="dze-tr-callpre"><?php echo esc_html( mb_substr( (string) $dze_call['user'], 0, 4000 ) ); ?></pre>
+											<p class="dze-tr-calllab"><?php esc_html_e( 'What came back', 'dazont-ecom' ); ?></p>
+											<pre class="dze-tr-callpre"><?php echo esc_html( mb_substr( (string) $dze_call['got'], 0, 2000 ) ); ?></pre>
+										<?php endforeach; ?>
+									</details>
+								<?php endif; ?>
 							</div>
 						<?php endforeach; ?>
 					</div>
