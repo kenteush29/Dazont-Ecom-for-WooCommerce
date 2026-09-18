@@ -49,7 +49,12 @@ final class DZE_Screens {
 				// faut donner de l'attention": a screen called Dashboard does not
 				// say it is the one that knows.
 				'label'  => __( 'Waiting for you', 'dazont-ecom' ),
-				'slug'   => 'dazont-ecom-dashboard',
+				// THE ADDRESS OF THE MENU ITSELF. Pressing "Dazont Ecom" opened
+				// the out-of-stock list — the module that happens to own the
+				// menu — so the first thing the plugin ever showed was a table
+				// about stock, on a shop asking "where do I give my attention".
+				// The old address stays registered and redirects here.
+				'slug'   => self::PARENT,
 				'module' => 'dashboard',
 			],
 			'content'      => [
@@ -111,7 +116,8 @@ final class DZE_Screens {
 			],
 			'restock'      => [
 				'label'  => __( 'Restock', 'dazont-ecom' ),
-				'slug'   => self::PARENT,
+				// Its own address now that the home screen has the menu's.
+				'slug'   => 'dazont-ecom-restock', // = DZE_Restock::PAGE_SLUG
 				'module' => 'restock',
 			],
 			'sourcing'     => [
@@ -156,6 +162,12 @@ final class DZE_Screens {
 					'calls'  => [ 'label' => __( 'AI calls', 'dazont-ecom' ) ],
 					'spend'  => [ 'label' => __( 'Spend', 'dazont-ecom' ) ],
 					'health' => [ 'label' => __( 'Connections', 'dazont-ecom' ), 'module' => 'health' ],
+					// WHAT THE PLUGIN DID ON ITS OWN, and the undo for it. It was the
+					// second tab of an Automation page that left the menu, so the one
+					// place a shop could take back what a nightly pass published was
+					// reachable from nothing at all. A record of what happened is a
+					// log, and this is where the logs are.
+					'past'   => [ 'label' => __( 'Automatic passes', 'dazont-ecom' ), 'module' => 'automation' ],
 				],
 			],
 			'settings'     => [

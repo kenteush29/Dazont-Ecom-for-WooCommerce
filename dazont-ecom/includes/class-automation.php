@@ -2003,6 +2003,14 @@ final class DZE_Automation {
 	 * @param array<int,string> $ids
 	 */
 	public static function panel_form( array $ids, string $title = '' ): void {
+		// A DISABLED MODULE LEAVES ZERO TRACE. `class_exists()` is not a module
+		// check — the class file is always there — so this panel was printed on
+		// four screens whatever the state of the module, with a Save and a Run
+		// that do nothing once its hooks are gone. CLAUDE.md: "every CROSS-module
+		// surface must be gated with DZE_Modules::enabled( $id )".
+		if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'automation' ) ) {
+			return;
+		}
 		$tasks = self::tasks();
 		$ids   = array_values( array_filter( $ids, static fn( $one ): bool => isset( $tasks[ (string) $one ] ) ) );
 		if ( ! $ids || ! current_user_can( 'manage_woocommerce' ) ) {

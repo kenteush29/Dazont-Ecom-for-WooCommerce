@@ -50,14 +50,16 @@ echo "EVERY SLUG IN THE CATALOGUE IS THE ONE ITS PAGE CLASS USES\n";
 // constant — every link in that module is built from it — and the catalogue
 // must say the same word.
 $dze_where = [
-	'dashboard'    => [ 'class-dashboard.php', 'MENU_SLUG' ],
+	// Laccueil repond a ladresse du MENU : cest la quon atterrit en pressant
+	// « Dazont Ecom ». Son ancienne adresse reste enregistree, hors menu.
+	'dashboard'    => [ 'class-restock.php', 'MENU_SLUG' ],
 	'content'      => [ 'class-diagnostic.php', 'MENU_SLUG' ],
 	// Le maillage a son propre ecran depuis quil ne depend plus de Content.
 	'linking'      => [ 'class-mesh.php', 'MENU_SLUG' ],
 	'marketing'    => [ 'class-discounts.php', 'MENU_SLUG_EVENTS' ],
 	'translations' => [ 'class-translate-screen.php', 'MENU_SLUG' ],
 	'automation'   => [ 'class-automation.php', 'MENU_SLUG' ],
-	'restock'      => [ 'class-restock.php', 'MENU_SLUG' ],
+	'restock'      => [ 'class-restock.php', 'PAGE_SLUG' ],
 	'sourcing'     => [ 'class-explorer.php', 'MENU_SLUG' ],
 	'review'       => [ 'class-queue.php', 'MENU_SLUG' ],
 	'bulk'         => [ 'class-content.php', 'BULK_SLUG' ],
@@ -166,7 +168,16 @@ ok( 'and is not among the links',
 $GLOBALS['off'] = [ 'health' ];
 ok( 'the Logs stay when the health module is off',  DZE_Screens::offered( 'logs' ), true );
 ok( 'without their connections tab',
-	array_keys( DZE_Screens::tabs_of( 'logs' ) ), [ 'calls', 'spend' ] );
+	array_keys( DZE_Screens::tabs_of( 'logs' ) ), [ 'calls', 'spend', 'past' ] );
+// ET CE QUE LE PLUGIN A FAIT TOUT SEUL EST ICI, avec son annulation : cetait le
+// second onglet dune page Automation sortie du menu, donc le seul endroit ou
+// reprendre ce quune passe nocturne a publie netait atteignable de nulle part.
+$GLOBALS['off'] = [ 'automation' ];
+ok( 'et longlet des passes part avec son module',
+	array_keys( DZE_Screens::tabs_of( 'logs' ) ), [ 'calls', 'spend', 'health' ] );
+$GLOBALS['off'] = [];
+ok( 'et il est la quand le module tourne',
+	isset( DZE_Screens::tabs_of( 'logs' )['past'] ), true );
 $GLOBALS['off'] = [];
 
 echo "\nTHE LINKS ARE EVERY PHRASE, AND NOTHING ELSE\n";
@@ -188,11 +199,12 @@ echo "\nTHE MENU: THE WORK FIRST, THE PLUMBING LAST\n";
 $dze_rows = [
 	[ 'Settings', 'c', 'dazont-ecom-ai' ],
 	[ 'Logs', 'c', 'dazont-ecom-logs' ],
-	[ 'Restock', 'c', 'dazont-ecom' ],
+	[ 'Restock', 'c', 'dazont-ecom-restock' ],
 	[ 'Something new', 'c', 'dazont-ecom-new-thing' ],
 	[ 'Content', 'c', 'dazont-ecom-diagnostic' ],
 	[ 'Setup', 'c', 'dze-setup' ],
-	[ 'Dashboard', 'c', 'dazont-ecom-dashboard' ],
+	// Laccueil porte ladresse du menu lui-meme.
+	[ 'Dashboard', 'c', 'dazont-ecom' ],
 	[ 'Marketing', 'c', 'dazont-ecom-marketing-events' ],
 ];
 $dze_order = array_map( static fn( array $r ): string => $r[0], DZE_Screens::ordered( $dze_rows ) );
@@ -404,6 +416,12 @@ ok( 'et son formulaire se pose n\'importe ou',
 	false !== strpos( $au_src, 'public static function panel_form( array $ids, string $title' ), true );
 // LE PIEGE : un formulaire ne portant qu'une tache effacerait les autres.
 ok( 'les taches absentes de l\'ecran voyagent quand meme',
+// ET IL DISPARAIT AVEC SON MODULE. class_exists() nest pas un controle de
+// module — le fichier de classe est toujours la — donc ce panneau setait
+// imprime sur quatre ecrans quel que soit letat du module, avec un Save et un
+// Run morts une fois ses accroches parties.
+ok( 'le panneau se ferme avec son module',
+	false !== strpos( $au_src, "if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'automation' ) ) {" ), true );
 	false !== strpos( $au_src, 'EVERY TASK TRAVELS, NOT ONLY THE ONES ON SCREEN' ), true );
 ok( 'l\'entree quitte le menu',
 	false !== strpos( $au_src, 'remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );' ), true );

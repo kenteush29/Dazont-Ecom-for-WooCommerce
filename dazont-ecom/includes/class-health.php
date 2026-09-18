@@ -189,7 +189,12 @@ final class DZE_Health {
 			);
 		}
 		echo '</h2>';
-		if ( 'health' === $now ) {
+		if ( 'past' === $now && class_exists( 'DZE_Automation' ) ) {
+			// One body, printed by whoever shows it — the rule every other tab
+			// in this plugin is held to. Its undo buttons bring their own script.
+			DZE_Automation::render_past();
+			DZE_Automation::render_assets();
+		} elseif ( 'health' === $now ) {
 			self::render();
 		} elseif ( 'spend' === $now ) {
 			DZE_Ai_Usage::render_graph();

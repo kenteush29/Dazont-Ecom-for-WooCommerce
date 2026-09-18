@@ -42,6 +42,12 @@ final class DZE_Dashboard {
 	}
 
 	public function register_menu(): void {
+		// THE MENU'S OWN ADDRESS IS THIS SCREEN'S, registered by whoever owns
+		// the top-level entry (DZE_Restock::register_menu). What is registered
+		// here is only the address this page used to answer at, kept so every
+		// bookmark and every sentence ever printed at it still lands — and
+		// taken straight back out of the menu, so there is one entry and not
+		// two for one screen.
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
 			DZE_Screens::label( 'dashboard' ),
@@ -50,6 +56,9 @@ final class DZE_Dashboard {
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
 		);
+		if ( function_exists( 'remove_submenu_page' ) ) {
+			remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );
+		}
 	}
 
 	// =========================================================================
