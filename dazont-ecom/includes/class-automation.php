@@ -355,6 +355,13 @@ final class DZE_Automation {
 				// say how many are there rather than sending somebody to go
 				// and count on another screen.
 				'jobs'    => [ 'cat_links', 'post_links' ],
+				// TOUT, EN ARRIERE-PLAN. « Ce serait bien de ne pas avoir non plus
+				// x par jour mais bien un module qui prenne tout en charge en
+				// background. Le x par jour c est bien pour de la publication de
+				// contenu. » Le maillage n est pas de la publication : c est de
+				// l entretien, et un entretien qui s arrete a trois pages par
+				// jour laisse le site en retard pour toujours.
+				'pace'    => 'all',
 				'per_day' => 3,
 				'apply'   => 0,
 			],
@@ -385,6 +392,14 @@ final class DZE_Automation {
 				// is why this task's own block names the screen that holds it
 				// rather than listing rows it could never settle here.
 				'jobs'    => [],
+				// TOUT CE QUI EST CRITIQUE, SANS QUOTA ; le reste au goutte-a-
+				// goutte. « Pour tout ce qui est critique comme les attributs,
+				// categories etc oui, et la possibilite de traduire un peu chaque
+				// jour pour les posts comme produits et articles de blog, c est
+				// bien pour le SEO. » Les TERMES — attributs, categories — passent
+				// sans compteur : une valeur d attribut non traduite casse une
+				// page entiere. Les POSTS gardent leur per_day.
+				'pace'    => 'all',
 				'per_day' => 1,
 				'apply'   => 0,
 			],
@@ -543,6 +558,10 @@ final class DZE_Automation {
 			'per_day' => $m ? 1 : max( 1, min( 20, (int) ( $c['per_day'] ?? $t['per_day'] ?? 1 ) ) ),
 			'apply'   => array_key_exists( 'apply', $c ) ? ! empty( $c['apply'] ) : ! empty( $t['apply'] ),
 			'kw_only' => array_key_exists( 'kw_only', $c ) ? ! empty( $c['kw_only'] ) : ! empty( $t['kw'] ),
+			// LA CADENCE : ce que la tache fait par defaut, et ce que la boutique
+			// en dit. Seules deux valeurs ont un sens — tout prendre en charge,
+			// ou une ration quotidienne — et une tache mensuelle n en a aucune.
+			'pace'    => $m ? 'month' : ( in_array( (string) ( $c['pace'] ?? '' ), [ 'all', 'daily' ], true ) ? (string) $c['pace'] : (string) ( $t['pace'] ?? 'daily' ) ),
 			'scope'   => (string) ( $t['scope'] ?? 'category' ),
 		];
 	}
@@ -603,11 +622,34 @@ final class DZE_Automation {
 		update_option( self::STATE, $s, false );
 	}
 
+	/**
+	 * DOES THIS TASK TAKE EVERYTHING, OR A FEW A DAY?
+	 *
+	 * "Ne pas avoir non plus x par jour mais bien un module qui prenne tout en
+	 * charge en background. Le x par jour c'est bien pour de la publication de
+	 * contenu." Two paces, and the difference is what the work IS: writing a
+	 * category description is publishing, and a shop wants that spread out.
+	 * Linking pages and translating an attribute are maintenance, and
+	 * maintenance held to three a day is a site permanently behind.
+	 *
+	 * A shop can still hold a task to a daily ration: the setting is per task.
+	 */
+	public static function takes_all( string $id ): bool {
+		$conf = self::conf( $id );
+		return 'all' === (string) ( $conf['pace'] ?? 'daily' );
+	}
+
 	/** The quiet time between two passes of one task. */
 	public static function gap( string $id ): int {
 		$conf = self::conf( $id );
 		if ( 'month' === $conf['cadence'] ) {
 			return 30 * DAY_IN_SECONDS;
+		}
+		// TAKING EVERYTHING MEANS COMING BACK SOON, not all at once: one pass
+		// is one object and one model call, and the queue does the rest. Ten
+		// minutes keeps it moving without ever being a burst.
+		if ( self::takes_all( $id ) ) {
+			return 10 * MINUTE_IN_SECONDS;
 		}
 		return (int) max( HOUR_IN_SECONDS, floor( DAY_IN_SECONDS / max( 1, $conf['per_day'] ) ) );
 	}
@@ -651,7 +693,9 @@ final class DZE_Automation {
 		if ( $forced ) {
 			return '';
 		}
-		if ( 'day' === $conf['cadence'] && self::done_today( $id ) >= $conf['per_day'] ) {
+		// LE PLAFOND DU JOUR NE TIENT PAS UNE TACHE QUI PREND TOUT EN CHARGE.
+		// Ce qui l arrete alors : plus rien a faire, ou le plafond de depense.
+		if ( 'day' === $conf['cadence'] && ! self::takes_all( $id ) && self::done_today( $id ) >= $conf['per_day'] ) {
 			return 'cap';
 		}
 		// Spread over the period rather than run off at the start of it: three
@@ -907,7 +951,35 @@ final class DZE_Automation {
 		self::held_reset();
 		$src = (string) DZE_Wpml::default_language();
 		$out = [];
-		foreach ( DZE_Translate::picked_scope() as $scope ) {
+		// LES TERMES D ABORD, ET SANS COMPTEUR.
+		//
+		// « Pour tout ce qui est critique comme les attributs, categories etc
+		// oui, et la possibilite de traduire un peu chaque jour pour les posts
+		// comme produits et articles de blog, c'est bien pour le SEO. »
+		//
+		// Un attribut non traduit casse une page entiere : le client voit
+		// « Black » au milieu d un texte francais, ou pire, la variation ne se
+		// choisit pas. Un produit non traduit est une page de moins, ce qui
+		// est un manque, pas une casse. Les deux ne meritent donc pas la meme
+		// hate — et c est exactement ce que la boutique a demande.
+		$scopes = DZE_Translate::picked_scope();
+		if ( self::takes_all( $id ) ) {
+			$terms = [];
+			$posts = [];
+			foreach ( $scopes as $key => $one ) {
+				if ( 'term' === (string) ( $one['kind'] ?? '' ) ) {
+					$terms[ $key ] = $one;
+				} else {
+					$posts[ $key ] = $one;
+				}
+			}
+			// Le goutte-a-goutte ne vaut que pour les posts : s il est epuise
+			// pour aujourd hui, seuls les termes restent en lice.
+			$conf = self::conf( $id );
+			$out_today = self::done_today( $id . ':post' );
+			$scopes = $out_today >= (int) $conf['per_day'] ? $terms : $terms + $posts;
+		}
+		foreach ( $scopes as $scope ) {
 			if ( count( $out ) >= $n ) {
 				break;
 			}
@@ -1809,6 +1881,12 @@ final class DZE_Automation {
 		}
 		$count = $fresh ? (array) ( $s['count'] ?? [] ) : [];
 		$count[ $id ] = (int) ( $count[ $id ] ?? 0 ) + 1;
+		// ET LA RATION DES POSTS, COMPTEE A PART. Une tache qui prend tout en
+		// charge n a pas de plafond ; sa moitie « posts » en garde un, et il
+		// lui faut donc son propre compteur. Un terme n en consomme pas.
+		if ( self::takes_all( $id ) && 'term' !== $type ) {
+			$count[ $id . ':post' ] = (int) ( $count[ $id . ':post' ] ?? 0 ) + 1;
+		}
 		$lastm = (array) ( $s['last'] ?? [] );
 		$lastm[ $id ] = time();
 		self::save_state( [ 'day' => $today, 'count' => $count, 'last' => $lastm, 'log' => $kept ] );
@@ -2081,7 +2159,7 @@ final class DZE_Automation {
 			}
 			$other = self::conf( (string) $tid );
 			$base  = self::OPT . '[tasks][' . $tid . ']';
-			foreach ( [ 'on', 'per_day', 'apply', 'kw_only' ] as $key ) {
+			foreach ( [ 'on', 'per_day', 'apply', 'kw_only', 'pace' ] as $key ) {
 				if ( ! isset( $other[ $key ] ) || ! $other[ $key ] ) {
 					continue; // an unticked box sends nothing, here as anywhere.
 				}
@@ -2143,9 +2221,25 @@ final class DZE_Automation {
 							<?php esc_html_e( 'Run it', 'dazont-ecom' ); ?>
 						</label>
 						<?php if ( 'month' !== $conf['cadence'] ) : ?>
-							<label>
+							<?php
+							// DEUX ALLURES, ET LA DIFFERENCE EST CE QUE LE TRAVAIL EST.
+							// « Le x par jour c'est bien pour de la publication de
+							// contenu » — mais pas pour l'entretien, qui tenu a trois
+							// pages par jour laisse le site en retard pour toujours.
+							?>
+							<label title="<?php esc_attr_e( 'Everything it can: it comes back every ten minutes and keeps going until there is nothing left to do. What stops it is an empty list, or the monthly AI budget. A few a day: a ration, spread over the day, for work that is publishing rather than maintenance.', 'dazont-ecom' ); ?>">
+								<select name="<?php echo esc_attr( $name ); ?>[pace]">
+									<option value="all" <?php selected( 'all', (string) $conf['pace'] ); ?>><?php esc_html_e( 'Everything it can', 'dazont-ecom' ); ?></option>
+									<option value="daily" <?php selected( 'daily', (string) $conf['pace'] ); ?>><?php esc_html_e( 'A few a day', 'dazont-ecom' ); ?></option>
+								</select>
+							</label>
+							<label<?php echo 'all' === (string) $conf['pace'] ? ' title="' . esc_attr__( 'Taking everything, this is the ration kept for products and articles only — attributes and categories are never held back, because an untranslated attribute breaks a page.', 'dazont-ecom' ) . '"' : ''; ?>>
 								<input type="number" name="<?php echo esc_attr( $name ); ?>[per_day]" class="small-text" min="1" max="20" value="<?php echo (int) $conf['per_day']; ?>" />
-								<?php esc_html_e( 'a day', 'dazont-ecom' ); ?>
+								<?php
+								echo 'all' === (string) $conf['pace'] && 'translate' === (string) $conf['scope']
+									? esc_html__( 'posts a day', 'dazont-ecom' )
+									: esc_html__( 'a day', 'dazont-ecom' );
+								?>
 							</label>
 						<?php endif; ?>
 						<?php if ( 'shop' !== $conf['scope'] ) : ?>
