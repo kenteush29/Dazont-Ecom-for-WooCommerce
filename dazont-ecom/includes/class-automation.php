@@ -3481,9 +3481,17 @@ final class DZE_Automation {
 		return (string) get_permalink( $oid );
 	}
 
-	public static function render_past(): void {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- narrowing a read-only list.
-		$only = isset( $_GET['task'] ) ? sanitize_key( wp_unslash( $_GET['task'] ) ) : '';
+	/**
+	 * @param string $only Une tâche à montrer seule. Vide : celle que l'adresse
+	 *                     demande, ou toutes. L'argument existe pour que l'écran
+	 *                     d'un module puisse rappeler CETTE liste réduite à lui
+	 *                     au lieu d'en dessiner une deuxième.
+	 */
+	public static function render_past( string $only = '' ): void {
+		if ( '' === $only ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- narrowing a read-only list.
+			$only = isset( $_GET['task'] ) ? sanitize_key( wp_unslash( $_GET['task'] ) ) : '';
+		}
 		$only = isset( self::tasks()[ $only ] ) ? $only : '';
 		$rows = self::past( 200, $only );
 		if ( '' !== $only ) {

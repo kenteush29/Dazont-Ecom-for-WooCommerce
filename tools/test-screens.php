@@ -394,13 +394,40 @@ ok( 'et en vidant',
 $sc_mesh = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-mesh.php' );
 ok( 'le maillage possede ses deux genres',
 	false !== strpos( $sc_mesh, "public const KINDS = [ 'cat_links', 'post_links' ];" ), true );
-// IL NE DESSINE PLUS DE SECONDE LISTE. Un onglet ici tirant la table de la
-// file avec sa propre portee, cetait la troisieme copie dune seule table,
-// avec un troisieme compte pouvant contredire les deux autres.
-ok( 'le maillage ne dessine plus la liste',
-	false !== strpos( $sc_mesh, 'DZE_Queue::instance()->body( self::KINDS )' ), false );
-ok( 'il renvoie vers lunique liste, pre-filtree',
-	false !== strpos( $sc_mesh, "add_query_arg( [ 'kind' => implode( ',', self::KINDS ) ], DZE_Screens::url( 'review' ) )" ), true );
+// IL REUTILISE LA LISTE, IL N EN DESSINE PAS UNE AUTRE.
+//
+// « Je ne comprends pas pourquoi sur la page internal linking il n'y a pas
+// d'onglet pour me montrer ce qui a été fait et un onglet review pour ce qui
+// est en attente de vérif ? Je suis encore perdu face à l'UI. »
+//
+// La regle d avant — « pas de seconde liste ici » — visait une seconde
+// IMPLEMENTATION : une table de plus, avec un compte de plus, pouvant
+// contredire les autres. Elle avait ete appliquee en retirant la liste tout
+// court, ce qui laissait l ecran sans porte d entree : une phrase de notice
+// quand il y avait quelque chose, rien du tout sinon, et le travail fait
+// nulle part. Rappeler LA MEME fonction avec son perimetre ne fabrique ni
+// table ni compte supplementaire.
+ok( 'le maillage rappelle la liste centrale, reduite a lui',
+	false !== strpos( $sc_mesh, 'DZE_Queue::instance()->body( self::KINDS )' ), true );
+ok( 'et le journal central pour ce qui est fait',
+	false !== strpos( $sc_mesh, "DZE_Automation::render_past( 'mesh_links' )" ), true );
+// ET IL NE FABRIQUE PAS SA PROPRE FILE : l onglet du travail garde ses
+// tables a lui — la liste des pages et celle des candidates — mais la file
+// d attente et le journal ne sont jamais redessines ici.
+ok( 'sans redessiner la file',
+	false !== strpos( $sc_mesh, 'dze-q-table' ), false );
+// LES TROIS ONGLETS SONT DECLARES AU CATALOGUE, comme ceux des autres ecrans :
+// une seule source pour le nom, l adresse et l ordre. Demande au catalogue,
+// pas au texte du fichier : c est ce que l ecran lira.
+$sc_onglets = array_keys( (array) DZE_Screens::tabs_of( 'linking' ) );
+ok( 'les trois onglets sont au catalogue', $sc_onglets, [ 'work', 'review', 'done' ] );
+ok( 'et chacun a son adresse',
+	false !== strpos( DZE_Screens::url( 'linking', 'done' ), 'tab=done' ), true );
+// ET LE JOURNAL SAIT SE REDUIRE SANS PASSER PAR L ADRESSE : un ecran de module
+// ne peut pas compter sur un ?task= qu il n a pas mis lui-meme.
+$sc_auto = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
+ok( 'le journal accepte une tache en argument',
+	false !== strpos( $sc_auto, 'public static function render_past( string $only = \'\' ): void' ), true );
 $sc_diag = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-diagnostic.php' );
 // PRODUITS NE DESSINE PLUS LA LISTE DU TOUT, et son compteur ne compte plus que
 // ce qui attend sur son propre ecran : compter la file ici mettait sur ce menu un

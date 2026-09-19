@@ -124,10 +124,29 @@ final class DZE_Screens {
 				'slug'   => 'dazont-ecom-lab',
 				'module' => 'image_lab',
 			],
+			// TROIS ONGLETS, PARCE QU'IL Y A TROIS MOMENTS.
+			//
+			// « Je ne comprends pas pourquoi sur la page internal linking il
+			// n'y a pas d'onglet pour me montrer ce qui a été fait et un onglet
+			// review pour ce qui est en attente de vérif ? Je suis encore perdu
+			// face à l'UI. »
+			//
+			// La liste avait été retirée d'ici pour ne pas dessiner un
+			// deuxième tableau avec un deuxième compte — ce qui reste juste. Ce
+			// qui ne l'était pas, c'est de laisser l'écran SANS porte d'entrée :
+			// une phrase de notice quand il y a quelque chose, rien du tout
+			// sinon, et le travail fait nulle part. Les onglets ci-dessous
+			// n'ajoutent aucun tableau : ils rappellent les deux mêmes
+			// fonctions que les écrans centraux, réduites à ce module.
 			'linking'      => [
 				'label'  => __( 'Internal linking', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-linking',
 				'module' => 'mesh',
+				'tabs'   => [
+					'work'   => [ 'label' => __( 'The work', 'dazont-ecom' ) ],
+					'review' => [ 'label' => __( 'To review', 'dazont-ecom' ) ],
+					'done'   => [ 'label' => __( 'Done', 'dazont-ecom' ) ],
+				],
 			],
 			'restock'      => [
 				'label'  => __( 'Restock', 'dazont-ecom' ),
