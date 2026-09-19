@@ -44,6 +44,40 @@ final class DZE_Site {
 		add_action( 'admin_init', [ __CLASS__, 'learn' ] );
 		add_action( 'admin_notices', [ __CLASS__, 'notice' ] );
 		add_action( 'admin_post_dze_site_state', [ __CLASS__, 'handle' ] );
+		add_filter( 'woocommerce_currency_symbol', [ __CLASS__, 'name_the_currency' ], 20, 2 );
+	}
+
+	/**
+	 * LE CODE DE LA DEVISE, SUR LES ÉCRANS DE COMMANDE DE L'ADMIN.
+	 *
+	 * « C'est un bug ou quoi ces montants ? Ou bug de devise ? Je comprends
+	 * pas. » Une commande affichait `$ 19.709,90` pour un patch à 12,90 — et
+	 * ce n'était ni un bug ni une erreur de devise : c'étaient des **pesos
+	 * argentins**, dont le symbole est `$`, exactement comme le dollar.
+	 * 19 709,90 ARS font 13,36 USD.
+	 *
+	 * Sur une boutique à dix-sept devises, un symbole partagé par quatre
+	 * d'entre elles (ARS, CLP, COP, MXN, USD) ne dit pas assez. Le code est
+	 * donc collé au symbole — `$ ARS` — et SEULEMENT là où on lit des chiffres
+	 * déjà passés en caisse : l'écran d'une commande et la liste des commandes.
+	 * Jamais sur la boutique, jamais dans un e-mail, jamais dans un rapport :
+	 * un prix affiché à un client n'a pas besoin qu'on lui épelle sa monnaie,
+	 * et WooCommerce rend ce filtre partout.
+	 */
+	public static function name_the_currency( $symbol, $currency = '' ) {
+		if ( ! is_admin() || ! is_string( $symbol ) || '' === (string) $currency ) {
+			return $symbol;
+		}
+		// AJAX est admin au sens de WordPress, et c'est par là que passent les
+		// totaux recalculés d'une commande : les inclure, mais rien d'autre.
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		$id     = $screen ? (string) $screen->id : '';
+		$ici    = in_array( $id, [ 'shop_order', 'edit-shop_order', 'woocommerce_page_wc-orders' ], true )
+			|| ( wp_doing_ajax() && isset( $_REQUEST['order_id'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading which screen we are on, nothing is written.
+		if ( ! $ici ) {
+			return $symbol;
+		}
+		return $symbol . '&nbsp;' . esc_html( (string) $currency );
 	}
 
 	/**

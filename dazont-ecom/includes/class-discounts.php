@@ -888,6 +888,23 @@ final class DZE_Discounts {
 			// Feed our discounted products into WooCommerce's on-sale product list so
 			// [products on_sale="true"], the On-Sale page and widgets include them.
 			add_filter( 'transient_wc_products_onsale',             [ $this, 'filter_onsale_ids' ] );
+			// ET LA REQUÊTE QUI RECONSTRUIT LE CACHE, qui ne passe pas par le
+			// filtre du dessus.
+			//
+			// `wc_get_product_ids_on_sale()` lit le transient ; s'il est
+			// absent, elle interroge la base, l'écrit et le rend — sans que
+			// `transient_wc_products_onsale` ait jamais été appelé. Or
+			// WooCommerce vide ce cache à CHAQUE enregistrement de produit.
+			// La toute première requête qui suit ignorait donc les soldes
+			// dynamiques : sur cette boutique, 9 201 produits remisés vus
+			// comme zéro, le temps d'une requête. C'est celle qui rend la page
+			// d'accueil aussi souvent qu'une autre.
+			//
+			// `pre_set_transient_*` est le seul point où l'on tient la valeur
+			// calculée avant qu'elle ne soit rangée : on y fusionne, donc ce
+			// qui est mis en cache est déjà juste, et le filtre de lecture
+			// n'a plus qu'à confirmer.
+			add_filter( 'pre_set_transient_wc_products_onsale',     [ $this, 'filter_onsale_ids' ] );
 
 			// Coupons: make our dynamic sale honour the coupon "Exclude sale
 			// items" setting (WooCommerce otherwise only knows native sales).
