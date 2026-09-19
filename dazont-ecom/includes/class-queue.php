@@ -1044,7 +1044,14 @@ final class DZE_Queue {
 		$only  = $kinds ? " AND kind IN ( '" . implode( "','", $kinds ) . "' )" : '';
 		$rows  = (array) $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds stripped to [a-z_] above.
-			"SELECT kind, object_id, updated, decided_by, made_by FROM " . self::table() . "
+			// L'IDENTIFIANT DU TRAVAIL VIENT AVEC, et sa demande.
+			//
+			// « Je ne sais pas ce qui devait être fait et ce qui n'a pas été
+			// fait au final. » Une ligne disant qu'une passe a eu lieu, sans
+			// dire ce qu'elle a posé ni ce qu'il en reste, ne se vérifie pas.
+			// Avec le numéro du travail, l'écran peut aller relire ce qu'elle
+			// a produit et le confronter au texte d'aujourd'hui.
+			"SELECT id, kind, object_id, updated, decided_by, made_by, payload FROM " . self::table() . "
 			  WHERE status = 'applied'{$only} ORDER BY id DESC LIMIT %d",
 			$limit
 		), ARRAY_A );
@@ -1058,7 +1065,9 @@ final class DZE_Queue {
 				continue;
 			}
 			$seen[ $key ] = true;
+			$ask = json_decode( (string) ( $r['payload'] ?? '' ), true );
 			$out[] = [
+				'id'        => (int) $r['id'],
 				'kind'      => (string) $r['kind'],
 				'object_id' => (int) $r['object_id'],
 				'when'      => (int) strtotime( (string) $r['updated'] . ' UTC' ),
@@ -1066,6 +1075,10 @@ final class DZE_Queue {
 				// WHO ASKED FOR THE WORK, beside who accepted it: on a record
 				// of what a pass published, 0 is the pass itself.
 				'from'      => (int) ( $r['made_by'] ?? 0 ),
+				// POURQUOI CET OBJET A ÉTÉ CHOISI, quand la passe l'a écrit en
+				// posant le travail. Absent sur les travaux d'avant : l'écran
+				// le dit plutôt que d'inventer une raison.
+				'why'       => is_array( $ask ) ? (string) ( $ask['why'] ?? '' ) : '',
 			];
 		}
 		return $out;
