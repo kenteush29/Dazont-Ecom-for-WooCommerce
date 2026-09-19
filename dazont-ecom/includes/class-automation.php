@@ -1814,7 +1814,15 @@ final class DZE_Automation {
 		// The job is the pass that already writes this kind of page. There is
 		// no third linking engine, and there must never be one.
 		$job = 'product_cat' === $kind ? 'cat_links' : 'post_links';
-		if ( ! DZE_Queue::add( $job, [ $oid ], (bool) $conf['apply'], $urls ? [ 'urls' => $urls ] : [] ) ) {
+		// LA RAISON VOYAGE AVEC LE TRAVAIL. La liste de départ sait pourquoi
+		// elle a choisi cette page — « liera vers 2 pages que rien ne pointe »
+		// — et cette phrase se perdait au moment de poser le travail. Elle est
+		// la seule réponse à « je ne sais pas ce qui devait être fait ».
+		$sac = $urls ? [ 'urls' => $urls ] : [];
+		if ( '' !== (string) ( $row['why'] ?? '' ) ) {
+			$sac['why'] = (string) $row['why'];
+		}
+		if ( ! DZE_Queue::add( $job, [ $oid ], (bool) $conf['apply'], $sac ) ) {
 			return $no( 'busy' );
 		}
 		// Marked only once the work is really under way: see run().
@@ -3482,6 +3490,71 @@ final class DZE_Automation {
 	}
 
 	/**
+	 * CE QU'UNE PASSE A POSÉ, ET CE QU'IL EN RESTE AUJOURD'HUI.
+	 *
+	 * « Pour cette page de desert tan combat boots, par exemple, je ne sais
+	 * pas ce qui devait être fait et ce qui n'a pas été fait au final. »
+	 *
+	 * Le journal disait qu'une passe avait eu lieu, et rien d'autre. Sur
+	 * /desert-tan-combat-boots il disait vrai — un lien avait bien été posé,
+	 * « desert camouflage patterns » vers /military-camouflage-patterns/desert-camo
+	 * — mais la description avait été retouchée à la main depuis, la phrase qui
+	 * le portait était partie, et la page n'avait plus aucun lien. Les deux
+	 * affirmations étaient justes et la ligne les faisait se contredire.
+	 *
+	 * Alors on relit ce que la passe a produit, on en extrait les liens, et on
+	 * regarde lesquels sont encore dans le texte tel qu'il est maintenant. Rien
+	 * n'est stocké : la comparaison se fait à la lecture, donc elle ne peut pas
+	 * vieillir.
+	 *
+	 * @return array{posed:array<int,array{anchor:string,url:string,live:bool}>,live:int,lost:int}
+	 */
+	public static function what_it_did( int $job_id, string $kind, int $object_id ): array {
+		$vide = [ 'posed' => [], 'live' => 0, 'lost' => 0 ];
+		global $wpdb;
+		if ( $job_id < 1 || ! $wpdb || ! class_exists( 'DZE_Queue' ) ) {
+			return $vide;
+		}
+		$res = (string) $wpdb->get_var( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			'SELECT result FROM ' . DZE_Queue::table() . ' WHERE id = %d',
+			$job_id
+		) );
+		if ( '' === $res || ! preg_match_all( '#<a [^>]*href="([^"]+)"[^>]*>(.*?)</a>#is', $res, $m, PREG_SET_ORDER ) ) {
+			return $vide;
+		}
+		$now = self::text_now( $kind, $object_id );
+		$out = $vide;
+		foreach ( $m as $one ) {
+			$url  = html_entity_decode( (string) $one[1] );
+			// LE LIEN EST-IL ENCORE LÀ ? On cherche l'ADRESSE, pas le fragment
+			// de balisage : le thème, un autre module ou une retouche à la main
+			// peuvent avoir changé ce qu'il y a autour sans toucher au lien.
+			$live = '' !== $now && false !== strpos( $now, $url );
+			$out['posed'][] = [
+				'anchor' => trim( wp_strip_all_tags( (string) $one[2] ) ),
+				'url'    => $url,
+				'live'   => $live,
+			];
+			$live ? $out['live']++ : $out['lost']++;
+		}
+		return $out;
+	}
+
+	/** Le texte d'un objet tel qu'il est maintenant, lu dans les tables. */
+	private static function text_now( string $kind, int $object_id ): string {
+		$what = self::what_is( $kind );
+		if ( 'term' === $what ) {
+			$row = class_exists( 'DZE_Category_Content' )
+				? DZE_Category_Content::term_row( $object_id )
+				: null;
+			return (string) ( $row['description'] ?? '' );
+		}
+		$p = get_post( $object_id );
+		return $p ? (string) $p->post_content : '';
+	}
+
+	/**
 	 * @param string $only Une tâche à montrer seule. Vide : celle que l'adresse
 	 *                     demande, ou toutes. L'argument existe pour que l'écran
 	 *                     d'un module puisse rappeler CETTE liste réduite à lui
@@ -3517,6 +3590,9 @@ final class DZE_Automation {
 		echo '<th>' . esc_html__( 'Page', 'dazont-ecom' ) . '</th>';
 		echo wp_kses_post( DZE_Hub::id_th() );
 		echo '<th>' . esc_html__( 'Job', 'dazont-ecom' ) . '</th>';
+		// CE QU'ELLE A FAIT, ET CE QU'IL EN RESTE. « Je ne sais pas ce qui
+		// devait être fait et ce qui n'a pas été fait au final. »
+		echo '<th style="width:30%;">' . esc_html__( 'What it did', 'dazont-ecom' ) . '</th>';
 		echo '<th>' . esc_html__( 'Started by', 'dazont-ecom' ) . '</th>';
 		echo '<th>' . esc_html__( 'Accepted by', 'dazont-ecom' ) . '</th>';
 		echo '<th class="dze-auto-whenth">' . esc_html__( 'When', 'dazont-ecom' ) . '</th>';
@@ -3541,6 +3617,50 @@ final class DZE_Automation {
 			echo '<td><strong>' . wp_kses_post( DZE_Hub::named( $name, $url, self::view_url( $what, $oid ) ) ) . '</strong></td>';
 			echo wp_kses_post( DZE_Hub::id_td( $oid ) );
 			echo '<td>' . esc_html( (string) ( $kinds[ $kind ]['label'] ?? $kind ) ) . '</td>';
+			// CE QU'ELLE A POSÉ, ET CE QUI TIENT ENCORE.
+			//
+			// La ligne disait qu'une passe avait eu lieu, et rien d'autre. Sur
+			// /desert-tan-combat-boots elle disait vrai — un lien avait bien
+			// été posé — mais la description avait été retouchée à la main
+			// depuis, et la page n'en portait plus aucun. Les deux
+			// affirmations étaient justes et la ligne les faisait se
+			// contredire. On relit donc ce que la passe a produit et on le
+			// confronte au texte d'aujourd'hui, à la lecture : rien n'est
+			// stocké, donc rien ne peut vieillir.
+			echo '<td>';
+			$fait = self::what_it_did( (int) ( $row['id'] ?? 0 ), $kind, $oid );
+			if ( '' !== (string) ( $row['why'] ?? '' ) ) {
+				echo '<div class="description" style="margin:0 0 4px;">' . esc_html( (string) $row['why'] ) . '</div>';
+			}
+			if ( ! $fait['posed'] ) {
+				// RIEN À MONTRER N'EST PAS RIEN À DIRE : un travail d'avant que
+				// ce journal ne gardait pas, ou une passe qui a nettoyé sans
+				// rien ajouter. Inventer « 0 lien » serait pire.
+				echo '<span class="description">' . esc_html__( 'not recorded', 'dazont-ecom' ) . '</span>';
+			} else {
+				printf(
+					'<strong>%s</strong>',
+					esc_html( sprintf(
+						/* translators: 1: links placed, 2: links still there */
+						_n( '%1$s link placed, %2$s still there', '%1$s links placed, %2$s still there', count( $fait['posed'] ), 'dazont-ecom' ),
+						number_format_i18n( count( $fait['posed'] ) ),
+						number_format_i18n( $fait['live'] )
+					) )
+				);
+				echo '<ul style="margin:4px 0 0;font-size:12px;">';
+				foreach ( $fait['posed'] as $un ) {
+					printf(
+						'<li style="margin:0;color:%1$s;">%2$s <a href="%3$s" target="_blank" rel="noopener">%4$s</a> → %5$s</li>',
+						$un['live'] ? '#0a7040' : '#b32d2e',
+						$un['live'] ? '&#10003;' : '&#10007;',
+						esc_url( $un['url'] ),
+						esc_html( $un['anchor'] ),
+						esc_html( (string) wp_parse_url( $un['url'], PHP_URL_PATH ) )
+					);
+				}
+				echo '</ul>';
+			}
+			echo '</td>';
 			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::started_by( (int) $row['from'] ) : '' ) . '</td>';
 			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::decided_by( (int) $row['by'] ) : '' ) . '</td>';
 			echo '<td class="dze-auto-when">' . esc_html( date_i18n( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), (int) $row['when'] ) ) . '</td>';
