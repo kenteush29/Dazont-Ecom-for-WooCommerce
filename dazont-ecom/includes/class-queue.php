@@ -96,7 +96,14 @@ final class DZE_Queue {
 		add_action( 'wp_ajax_dze_q_clear', [ $this, 'ajax_clear' ] );
 		add_action( 'wp_ajax_dze_q_add', [ $this, 'ajax_add' ] );
 		add_action( 'wp_ajax_dze_q_job', [ $this, 'ajax_job' ] );
-		add_action( 'wp_ajax_dze_q_preview', [ $this, 'ajax_preview' ] );
+		// UN VRAI LIEN, PAS UN ONGLET VIDE QU'ON REMPLIT APRÈS.
+		//
+		// « about:blank ». Le bouton ouvrait un onglet vierge puis lui donnait
+		// son adresse une fois la réponse revenue — donc une page blanche
+		// pendant le travail, et une page blanche pour toujours si quoi que ce
+		// soit échouait. Un lien ordinaire n'a pas ce défaut : le navigateur
+		// charge une adresse dès le clic et montre son propre chargement.
+		add_action( 'admin_post_dze_q_preview', [ $this, 'preview_page' ] );
 		add_action( 'wp_ajax_dze_q_action', [ $this, 'ajax_job_action' ] );
 		add_action( 'wp_ajax_dze_q_bulk', [ $this, 'ajax_bulk' ] );
 	}
@@ -1762,7 +1769,6 @@ final class DZE_Queue {
 				// « Difficile à relire à cause du format. »
 				'preview'  => __( 'Preview', 'dazont-ecom' ),
 				'prevTip'  => __( 'Opens the page as a reader would see it, with these links in place. Nothing is saved.', 'dazont-ecom' ),
-				'prevWait' => __( 'Building the preview…', 'dazont-ecom' ),
 				'retry'    => __( 'Retry', 'dazont-ecom' ),
 				'remove'   => __( 'Remove', 'dazont-ecom' ),
 				// The states in words, and translatable: they were written
@@ -1886,10 +1892,13 @@ final class DZE_Queue {
 				'edit'     => self::edit_link( (string) $r['kind'], (int) $r['object_id'] ),
 				'view'     => self::view_link( (string) $r['kind'], (int) $r['object_id'] ),
 				'kind'     => (string) ( self::kinds()[ $r['kind'] ]['label'] ?? $r['kind'] ),
-				// PREVISUALISABLE OU NON, dit par le serveur : lui seul sait si
-				// l'objet est un document ou une description de terme, et le
-				// script ne recoit que le LIBELLE du genre, pas son identifiant.
-				'preview'  => (bool) get_post( (int) $r['object_id'] ),
+				// L'ADRESSE DE L'APERÇU, ou rien. Le serveur seul sait si
+				// l'objet est un document ou une description de terme — le
+				// script ne reçoit que le LIBELLÉ du genre — et lui seul peut
+				// signer le nonce. Une adresse vide veut dire « pas de bouton ».
+				'preview'  => ( 'review' === (string) $r['status'] && get_post( (int) $r['object_id'] ) )
+					? self::preview_link( (int) $r['id'] )
+					: '',
 				'status'   => (string) $r['status'],
 				'error'    => (string) ( $r['error'] ?? '' ),
 				'progress' => $total ? sprintf(
@@ -2035,28 +2044,66 @@ final class DZE_Queue {
 	 * La sauvegarde est retirée dès que le travail est décidé, pour qu'un
 	 * « une sauvegarde plus récente existe » ne vienne pas hanter l'éditeur.
 	 */
-	public function ajax_preview(): void {
-		$this->guard();
+	/**
+	 * L'adresse du bouton d'aperçu d'un travail, nonce compris — BRUTE.
+	 *
+	 * Pas `wp_nonce_url()` : celui-là rend une adresse déjà échappée pour le
+	 * HTML, avec des `&amp;`. Elle part d'ici en JSON, le script l'échappe une
+	 * seconde fois avant de l'écrire dans un href, et le navigateur reçoit
+	 * `&amp;amp;` — les paramètres sont perdus, le nonce avec eux, et le clic
+	 * tombe sur « lien expiré ». Ce qui traverse du JSON doit être brut ; c'est
+	 * celui qui écrit le HTML qui échappe, une fois.
+	 */
+	public static function preview_link( int $job_id ): string {
+		return add_query_arg(
+			[
+				'action'   => 'dze_q_preview',
+				'job'      => $job_id,
+				'_wpnonce' => wp_create_nonce( 'dze_q_preview_' . $job_id ),
+			],
+			admin_url( 'admin-post.php' )
+		);
+	}
+
+	public function preview_page(): void {
+		$id = isset( $_GET['job'] ) ? absint( $_GET['job'] ) : 0;
+		check_admin_referer( 'dze_q_preview_' . $id );
 		global $wpdb;
-		$id  = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
 		$job = $id ? $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE id = %d', $id ), ARRAY_A ) : null; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 		if ( ! $job ) {
-			wp_send_json_error( [ 'message' => __( 'Job not found.', 'dazont-ecom' ) ] );
+			wp_die( esc_html__( 'Job not found.', 'dazont-ecom' ) );
 		}
 		$pid  = (int) $job['object_id'];
 		$post = get_post( $pid );
 		if ( ! $post ) {
 			// UNE CATEGORIE N'A PAS D'APERÇU : elle n'est pas un document, et
 			// dire pourquoi vaut mieux qu'un bouton qui ne fait rien.
-			wp_send_json_error( [ 'message' => __( 'Only a post or a page can be previewed. A category description is read here.', 'dazont-ecom' ) ] );
+			wp_die( esc_html__( 'Only a post or a page can be previewed. A category description is read here.', 'dazont-ecom' ) );
 		}
 		if ( ! current_user_can( 'edit_post', $pid ) ) {
-			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ), 403 );
 		}
 		$html = (string) $job['result'];
 		if ( '' === trim( $html ) ) {
-			wp_send_json_error( [ 'message' => __( 'This job holds no text to preview.', 'dazont-ecom' ) ] );
+			wp_die( esc_html__( 'This job holds no text to preview.', 'dazont-ecom' ) );
 		}
+
+		// LA PAGE D'ATTENTE D'ABORD, ET ENVOYÉE TOUT DE SUITE.
+		//
+		// « Sur WordPress, c'est le logo WordPress qui charge à l'écran pour
+		// montrer qu'il se passe quelque chose. » C'est ce que fait l'éditeur
+		// de blocs : il ouvre l'onglet sur un message d'attente, écrit la
+		// sauvegarde, puis remplace l'adresse. On fait pareil — avec le logo et
+		// l'image d'attente de WordPress, pas les nôtres.
+		//
+		// Envoyée AVANT le travail, et les tampons vidés : autrement elle
+		// arriverait en même temps que la redirection, c'est-à-dire jamais.
+		self::preview_waiting_page();
+		while ( ob_get_level() > 0 ) {
+			ob_end_flush();
+		}
+		flush();
+
 		require_once ABSPATH . 'wp-admin/includes/post.php';
 		$saved = wp_create_post_autosave( [
 			'post_ID'      => $pid,
@@ -2066,16 +2113,9 @@ final class DZE_Queue {
 			'post_excerpt' => (string) $post->post_excerpt,
 		] );
 		if ( is_wp_error( $saved ) ) {
-			wp_send_json_error( [ 'message' => $saved->get_error_message() ] );
+			printf( '<p class="dze-pv-err">%s</p></div></body></html>', esc_html( $saved->get_error_message() ) );
+			exit;
 		}
-		// L'ADRESSE COMPLETE, celle que l'editeur construit.
-		//
-		// `?preview=true` seul ne suffit pas sur un article PUBLIE : le noyau
-		// ne va chercher la sauvegarde que si `preview_id` ET `preview_nonce`
-		// sont là — `_show_post_preview()` les exige tous les deux avant de
-		// poser son filtre. Sans eux l'aperçu affiche le texte en ligne, ce
-		// qui est le pire des résultats : une page qui a l'air juste et ne
-		// montre pas ce qu'on venait voir.
 		$url = (string) get_preview_post_link( $pid, [
 			'preview_id'    => $pid,
 			'preview_nonce' => wp_create_nonce( 'post_preview_' . $pid ),
@@ -2089,7 +2129,54 @@ final class DZE_Queue {
 		if ( '' !== $scheme ) {
 			$url = (string) set_url_scheme( $url, $scheme );
 		}
-		wp_send_json_success( [ 'url' => $url ] );
+		// `replace` et non `href` : cette page d'attente ne reste pas dans
+		// l'historique, donc « précédent » ramène à l'écran de relecture.
+		printf(
+			'<script>window.location.replace(%1$s);</script>'
+				. '<noscript><meta http-equiv="refresh" content="0;url=%2$s" />'
+				. '<p><a href="%2$s">%3$s</a></p></noscript></div></body></html>',
+			wp_json_encode( $url ),
+			esc_url( $url ),
+			esc_html__( 'Open the preview', 'dazont-ecom' )
+		);
+		exit;
+	}
+
+	/**
+	 * Le message d'attente, avec les images de WordPress et rien d'autre.
+	 *
+	 * `wordpress-logo.svg` et `spinner-2x.gif` sont dans wp-admin depuis
+	 * toujours : c'est le logo que la boutique voit pendant une mise à jour, et
+	 * l'image d'attente de tous ses écrans. Les styles sont en ligne parce que
+	 * cette page vit une demi-seconde, et qu'une feuille de style de plus est
+	 * une requête de plus avant de montrer quoi que ce soit.
+	 */
+	private static function preview_waiting_page(): void {
+		nocache_headers();
+		header( 'Content-Type: text/html; charset=' . get_bloginfo( 'charset' ) );
+		?><!DOCTYPE html>
+<html <?php language_attributes(); ?>>
+<head>
+<meta charset="<?php bloginfo( 'charset' ); ?>" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title><?php esc_html_e( 'Generating preview…', 'dazont-ecom' ); ?></title>
+<style>
+html,body{height:100%;margin:0;background:#f0f0f1;color:#3c434a;
+font:400 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+.dze-pv{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center}
+.dze-pv .logo{width:84px;height:84px;opacity:.85}
+.dze-pv p{margin:0}
+.dze-pv .wait{display:inline-block;vertical-align:middle;width:20px;height:20px;margin-right:6px}
+.dze-pv-err{color:#b32d2e;max-width:34em}
+@media (prefers-color-scheme:dark){html,body{background:#1d2327;color:#f0f0f1}}
+</style>
+</head>
+<body>
+<div class="dze-pv">
+<img class="logo" src="<?php echo esc_url( admin_url( 'images/wordpress-logo.svg' ) ); ?>" alt="" />
+<p><img class="wait" src="<?php echo esc_url( admin_url( 'images/spinner-2x.gif' ) ); ?>" alt="" />
+<?php esc_html_e( 'Generating preview…', 'dazont-ecom' ); ?></p>
+		<?php
 	}
 
 	/**

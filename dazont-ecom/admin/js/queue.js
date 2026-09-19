@@ -63,12 +63,17 @@
 				// relire à cause du format. » Une boîte de HTML suffit pour dix
 				// lignes de description ; sur trente mille caractères avec ses
 				// titres, ses listes et ses images, personne ne peut juger un
-				// lien au milieu de tout ça. Le bouton n'apparaît que là où il
-				// y a quelque chose à prévisualiser : un terme n'est pas un
-				// document, et un bouton qui ne fait rien est pire qu'absent.
+				// lien au milieu de tout ça.
+				//
+				// UN VRAI LIEN, et pas un onglet vide qu'on remplit après : le
+				// navigateur charge une adresse dès le clic, puis la page
+				// d'attente de WordPress prend le relais. « about:blank » n'est
+				// plus possible. Le serveur ne donne cette adresse que là où il
+				// y a un document à voir — un terme n'en est pas un, et un
+				// bouton qui ne fait rien est pire qu'absent.
 				if (r.preview) {
-					act.push('<button type="button" class="button button-small dze-q-preview" data-id="' + r.id +
-						'" title="' + esc(i18n.prevTip) + '">' + esc(i18n.preview) + '</button>');
+					act.push('<a class="button button-small dze-q-preview" target="_blank" rel="noopener" href="' +
+						esc(r.preview) + '" title="' + esc(i18n.prevTip) + '">' + esc(i18n.preview) + '</a>');
 				}
 				// Accept and refuse on the line, the same two symbols as the
 				// products screen: reading the text before deciding is a choice,
@@ -343,32 +348,6 @@
 				}
 			})
 			.fail(function () { $('#dze-q-body').text(i18n.error); });
-	});
-
-	// L'APERÇU DE WORDPRESS, PAS UN APERÇU A NOUS.
-	//
-	// Le serveur écrit le texte proposé dans une sauvegarde automatique de
-	// l'article — ce que fait l'éditeur quand on clique « Prévisualiser les
-	// modifications » — et rend l'adresse d'aperçu standard. Le thème, les
-	// blocs, les polices : tout est celui du site, parce que c'est le site qui
-	// l'affiche. L'onglet s'ouvre tout de suite et reçoit l'adresse ensuite :
-	// ouvert après la réponse, le navigateur le bloquerait comme une fenêtre
-	// surgissante que personne n'a demandée.
-	$(document).on('click', '.dze-q-preview', function () {
-		var $b = $(this).prop('disabled', true), mot = $b.text();
-		$b.text(i18n.prevWait);
-		var onglet = window.open('', '_blank');
-		$.post(cfg.ajaxUrl, { action: 'dze_q_preview', nonce: cfg.nonce, id: $b.data('id') })
-			.done(function (r) {
-				if (r && r.success && r.data && r.data.url) {
-					if (onglet) { onglet.location = r.data.url; } else { window.location = r.data.url; }
-					return;
-				}
-				if (onglet) { onglet.close(); }
-				window.alert((r && r.data && r.data.message) || i18n.error);
-			})
-			.fail(function () { if (onglet) { onglet.close(); } window.alert(i18n.error); })
-			.always(function () { $b.prop('disabled', false).text(mot); });
 	});
 
 	// Accepting writes to the shop, so it always asks; refusing throws away
