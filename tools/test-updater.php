@@ -182,5 +182,32 @@ $dze_out = DZE_Updater::instance()->inject_update( $dze_tr );
 ok( 'unreachable, nothing is offered',  $dze_out->response, [] );
 ok( 'and nothing is called up to date', $dze_out->no_update, [] );
 
+
+echo "\nL UPDATER EXISTE AUSSI DANS LE CRON\n";
+// jute-land et kilim-provenance, mise a jour automatique ACTIVEE, bloques en
+// 4.419.0 pendant que la 4.444.1 etait publiee. Le cron tournait bien — il se
+// replanifiait — il ne voyait simplement rien.
+//
+// `wp-cron.php` n est pas une page d admin. L updater ne s enregistrait donc
+// pas pendant `wp_version_check`, la tache qui reconstruit la liste des
+// extensions a mettre a jour puis installe ce que `auto_update_plugins`
+// designe. La liste etait rebatie sans notre filtre, ce plugin n y figurait
+// jamais, et il n y avait rien a installer. Meme forme que le planning du tic
+// d automatisation, corrige en 4.434.0 : un hook pose derriere is_admin()
+// alors que le cron en a besoin.
+$dze_boot = (string) file_get_contents( __DIR__ . '/../' . $dir . '/dazont-ecom.php' );
+ok( 'l updater n est plus reserve a l admin',
+	false !== strpos( $dze_boot, 'if ( is_admin() ) {' . "\n" . "\t\t\tDZE_Updater::instance();" ), false );
+ok( 'le cron le charge aussi',
+	false !== strpos( $dze_boot, "wp_doing_cron() ) ) {\n\t\t\tDZE_Updater::instance();" ), true );
+// ET LA FONCTION EST TESTEE AVANT D ETRE APPELEE : ce fichier tourne avant
+// que WordPress soit entierement charge sur de vieilles installations.
+ok( 'et sans supposer que la fonction existe',
+	false !== strpos( $dze_boot, "function_exists( 'wp_doing_cron' ) && wp_doing_cron()" ), true );
+// LE FILTRE QUI COMPTE reste celui-ci : sans lui, rien ne propose la mise a
+// jour, ni a l ecran ni au cron.
+$dze_upd = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-updater.php' );
+ok( 'et il pose bien le filtre des mises a jour',
+	false !== strpos( $dze_upd, "add_filter( 'pre_set_site_transient_update_plugins'" ), true );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

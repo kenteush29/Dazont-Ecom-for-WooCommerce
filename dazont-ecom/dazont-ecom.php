@@ -3,7 +3,7 @@
  * Plugin Name:       Dazont Ecom
  * Plugin URI:        https://github.com/kenteush29/Dazont-Ecom-for-WooCommerce
  * Description:       Dazont Ecom toolkit for WooCommerce. Modules (each switchable under Settings → Modules): Restock, Trending Products, Discounts & Marketing events, Google Merchant Center promotions, Marketing Assistant, Sourcing Assistant, Product Content, POD image, Variation Split, Dashboard.
- * Version:     4.444.1
+ * Version:     4.445.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Dazont
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DZE_VERSION', '4.444.1' );
+define( 'DZE_VERSION', '4.445.0' );
 define( 'DZE_FILE',    __FILE__ );
 define( 'DZE_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'DZE_URL',     plugin_dir_url( __FILE__ ) );
@@ -52,7 +52,20 @@ final class DZE_Plugin {
 		load_plugin_textdomain( 'dazont-ecom', false, dirname( plugin_basename( DZE_FILE ) ) . '/languages' );
 
 		// Update checker runs in admin regardless of WooCommerce so updates always work.
-		if ( is_admin() ) {
+		//
+		// ET DANS LE CRON, OU SE DECIDENT LES MISES A JOUR AUTOMATIQUES.
+		//
+		// `wp-cron.php` n'est pas une page d'admin, donc l'updater ne
+		// s'enregistrait pas pendant la tache `wp_version_check` — celle qui
+		// reconstruit la liste des extensions a mettre a jour, puis installe
+		// ce que `auto_update_plugins` designe. La liste etait donc rebatie
+		// sans notre filtre, ce plugin n'y figurait jamais, et il n'y avait
+		// rien a installer.
+		//
+		// Mesure : jute-land et kilim-provenance, mise a jour automatique
+		// activee, bloques en 4.419.0 pendant que la 4.444.1 etait publiee.
+		// Le cron tournait bien — il se replanifiait — il ne voyait rien.
+		if ( is_admin() || ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) ) {
 			DZE_Updater::instance();
 		}
 
