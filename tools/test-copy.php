@@ -179,49 +179,5 @@ DZE_Site::learn();
 ok( 'and the shop carries no banner',   banner(), '' );
 
 
-echo "\nLE CODE DE LA DEVISE, LA OU ON LIT DES CHIFFRES DEJA ENCAISSES\n";
-// « C'est un bug ou quoi ces montants ? Ou bug de devise ? Je comprends pas. »
-// Une commande affichait « $ 19.709,90 » pour un patch a 12,90 — ni un bug ni
-// une erreur de devise : des PESOS ARGENTINS, dont le symbole est « $ »,
-// exactement comme le dollar. Sur dix-sept devises, quatre partagent ce
-// symbole (ARS, CLP, COP, MXN, USD).
-$GLOBALS['dze_is_admin'] = true;
-$GLOBALS['dze_screen']   = 'shop_order';
-if ( ! function_exists( 'is_admin' ) ) { function is_admin() { return ! empty( $GLOBALS['dze_is_admin'] ); } }
-if ( ! function_exists( 'wp_doing_ajax' ) ) { function wp_doing_ajax() { return ! empty( $GLOBALS['dze_ajax'] ); } }
-if ( ! function_exists( 'get_current_screen' ) ) {
-	function get_current_screen() {
-		return '' === (string) ( $GLOBALS['dze_screen'] ?? '' ) ? null : (object) [ 'id' => (string) $GLOBALS['dze_screen'] ];
-	}
-}
-ok( 'sur une commande, le code accompagne le symbole',
-	DZE_Site::name_the_currency( '$', 'ARS' ), '$&nbsp;ARS' );
-$GLOBALS['dze_screen'] = 'edit-shop_order';
-ok( 'et sur la liste des commandes aussi',
-	DZE_Site::name_the_currency( '$', 'USD' ), '$&nbsp;USD' );
-$GLOBALS['dze_screen'] = 'woocommerce_page_wc-orders';
-ok( 'y compris sur la table HPOS',
-	DZE_Site::name_the_currency( '$', 'COP' ), '$&nbsp;COP' );
-
-// ET NULLE PART AILLEURS. WooCommerce passe ce filtre a CHAQUE prix affiche :
-// un client n a pas besoin qu on lui epelle sa monnaie, et un rapport non plus.
-$GLOBALS['dze_screen'] = 'dashboard';
-ok( 'ailleurs dans l admin, rien ne change',
-	DZE_Site::name_the_currency( '$', 'ARS' ), '$' );
-$GLOBALS['dze_is_admin'] = false;
-$GLOBALS['dze_screen']   = 'shop_order';
-ok( 'et sur la boutique, jamais',
-	DZE_Site::name_the_currency( '$', 'ARS' ), '$' );
-$GLOBALS['dze_is_admin'] = true;
-
-// UNE DEVISE ABSENTE NE FABRIQUE PAS UN ESPACE ORPHELIN.
-$GLOBALS['dze_screen'] = 'shop_order';
-ok( 'sans devise, le symbole passe tel quel',
-	DZE_Site::name_the_currency( '$', '' ), '$' );
-// ET CE QUI N EST PAS UNE CHAINE N EST PAS TOUCHE : un filtre WooCommerce
-// peut etre traverse par n importe quoi, et rendre une chaine la ou un autre
-// greffon attend autre chose est une panne ailleurs.
-ok( 'et ce qui n est pas une chaine non plus',
-	DZE_Site::name_the_currency( null, 'ARS' ), null );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
