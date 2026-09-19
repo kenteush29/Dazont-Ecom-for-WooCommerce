@@ -407,8 +407,12 @@ $sc_diag = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-diagnost
 // chiffre que son ecran ne pouvait pas montrer — le defaut que la boutique a vu.
 ok( 'Produits ne dessine plus la liste',
 	false !== strpos( $sc_diag, 'array_diff( array_keys( DZE_Queue::kinds() ), DZE_Mesh::KINDS )' ), false );
-ok( 'et son compteur ne compte que le sien',
-	false !== strpos( $sc_diag, '$waiting = DZE_Queue::bulk_waiting();' ), true );
+ok( 'et il ne porte plus aucun compteur',
+	false !== strpos( $sc_diag, '$waiting = DZE_Queue::bulk_waiting();' ), false );
+// LE BANC PORTE LE SIEN, la ou ces produits sont vraiment.
+$sc_cont = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-content.php' );
+ok( 'le banc porte la pastille',
+	false !== strpos( $sc_cont, 'DZE_Queue::bulk_waiting()' ) && false !== strpos( $sc_cont, '$menu = $waiting > 0' ), true );
 
 echo "\nL'AUTOMATISME EST UNE PROPRIETE DU TRAVAIL, PAS UNE DESTINATION\n";
 // « Dans automations en fait il n'y aura rien, c'etait peut-etre maladroit de

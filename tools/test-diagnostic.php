@@ -1321,13 +1321,18 @@ $GLOBALS['review_n'] = 2;
 $GLOBALS['bulk_n']   = 3;
 DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
-// ET LA PASTILLE NE COMPTE QUE CE QUI ATTEND SUR CET ECRAN. Elle additionnait la
-// file entiere (2) et les produits en attente (3) : un chiffre que lecran ne
-// pouvait pas montrer. La file est la boite de reception, qui porte le sien.
-ok( 'la pastille ne compte que ce qui attend ici',
-	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>3<' ), true );
-ok( 'et jamais la file, qui a son propre menu',
+// ET CE MENU NE PORTE PLUS AUCUNE PASTILLE.
+//
+// « Je vois aussi 5 sur diagnostic aucune idee a quoi ca correspond. »
+// C etaient les produits du banc d ecriture — un ecran plus loin, sous son
+// propre nom. Un menu ne compte que ce que son ecran sait montrer ; ici il
+// ne reste rien a compter, et un zero ne s affiche pas.
+ok( 'le banc n est plus compte ici',
+	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>3<' ), false );
+ok( 'ni la file, qui a son propre menu',
 	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>5<' ), false );
+ok( 'aucune pastille du tout',
+	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), 'update-plugins' ), false );
 $GLOBALS['review_n'] = 0;
 $GLOBALS['bulk_n']   = 0;
 $GLOBALS['dze_opts'] = [];

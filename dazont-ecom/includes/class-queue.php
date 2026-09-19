@@ -1248,7 +1248,15 @@ final class DZE_Queue {
 		$parent  = class_exists( 'DZE_Restock' ) ? DZE_Restock::MENU_SLUG : 'dazont-ecom';
 		// The count rides on the menu label: what is waiting for a decision
 		// should be visible without opening the screen it waits on.
-		$waiting = self::review_count() + self::bulk_waiting();
+		// CE QUE CET ÉCRAN PEUT MONTRER, ET RIEN D'AUTRE.
+		//
+		// « Ça fausse le comptage des pastilles. En fait ces 5 devraient être
+		// affichés sur bulk writing et pas sur review. » La pastille ajoutait
+		// les produits du banc, qui ne sont pas dans cette liste — d'où une
+		// notice sous le titre expliquant l'écart au lieu de le supprimer.
+		// Le banc porte son propre compte maintenant ; celui-ci ne compte plus
+		// que ses propres lignes.
+		$waiting = self::review_count();
 		// ONE NAME FOR THE ONE SCREEN. "Writing queue » / bulk produit >
 		// Pourquoi pas dans un onglet réuni (catégorie + produits + blog) sous
 		// le nom Content to review ?" — so this is that screen: categories,
