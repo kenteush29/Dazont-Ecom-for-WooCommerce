@@ -96,6 +96,7 @@ final class DZE_Queue {
 		add_action( 'wp_ajax_dze_q_clear', [ $this, 'ajax_clear' ] );
 		add_action( 'wp_ajax_dze_q_add', [ $this, 'ajax_add' ] );
 		add_action( 'wp_ajax_dze_q_job', [ $this, 'ajax_job' ] );
+		add_action( 'wp_ajax_dze_q_preview', [ $this, 'ajax_preview' ] );
 		add_action( 'wp_ajax_dze_q_action', [ $this, 'ajax_job_action' ] );
 		add_action( 'wp_ajax_dze_q_bulk', [ $this, 'ajax_bulk' ] );
 	}
@@ -1757,6 +1758,11 @@ final class DZE_Queue {
 			'i18n'    => [
 				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
 				'review'   => __( 'Review', 'dazont-ecom' ),
+				// L'ARTICLE TEL QU'IL SERAIT, par l'aperçu de WordPress.
+				// « Difficile à relire à cause du format. »
+				'preview'  => __( 'Preview', 'dazont-ecom' ),
+				'prevTip'  => __( 'Opens the page as a reader would see it, with these links in place. Nothing is saved.', 'dazont-ecom' ),
+				'prevWait' => __( 'Building the preview…', 'dazont-ecom' ),
 				'retry'    => __( 'Retry', 'dazont-ecom' ),
 				'remove'   => __( 'Remove', 'dazont-ecom' ),
 				// The states in words, and translatable: they were written
@@ -1880,6 +1886,10 @@ final class DZE_Queue {
 				'edit'     => self::edit_link( (string) $r['kind'], (int) $r['object_id'] ),
 				'view'     => self::view_link( (string) $r['kind'], (int) $r['object_id'] ),
 				'kind'     => (string) ( self::kinds()[ $r['kind'] ]['label'] ?? $r['kind'] ),
+				// PREVISUALISABLE OU NON, dit par le serveur : lui seul sait si
+				// l'objet est un document ou une description de terme, et le
+				// script ne recoit que le LIBELLE du genre, pas son identifiant.
+				'preview'  => (bool) get_post( (int) $r['object_id'] ),
 				'status'   => (string) $r['status'],
 				'error'    => (string) ( $r['error'] ?? '' ),
 				'progress' => $total ? sprintf(
@@ -2002,6 +2012,103 @@ final class DZE_Queue {
 	}
 
 	/** Accept (optionally edited), or discard. */
+	/**
+	 * L'ARTICLE TEL QU'IL SERAIT, PAR LE MÉCANISME DE WORDPRESS LUI-MÊME.
+	 *
+	 * « Articles de blog : difficile à relire à cause du format. Possible
+	 * peut-être d'activer un bouton qui redirige vers une preview générée
+	 * instantanément ? Comme dans le rédacteur WordPress… pour imiter le reste
+	 * des posts, qui sont tous visibles avant publication des changements. »
+	 *
+	 * Relire du HTML dans une boîte marche pour une description de catégorie
+	 * de dix lignes. Sur un article de trente mille caractères, avec ses
+	 * titres, ses listes et ses images, personne ne peut juger un lien au
+	 * milieu de tout ça.
+	 *
+	 * Alors on ne fabrique pas un aperçu : on utilise CELUI de WordPress. Le
+	 * texte proposé est écrit dans une sauvegarde automatique de l'article —
+	 * exactement ce que fait l'éditeur quand on clique « Prévisualiser les
+	 * modifications » — et l'adresse rendue est l'adresse d'aperçu standard.
+	 * Le thème, les blocs, les polices : tout est celui du site, parce que
+	 * c'est le site qui l'affiche.
+	 *
+	 * La sauvegarde est retirée dès que le travail est décidé, pour qu'un
+	 * « une sauvegarde plus récente existe » ne vienne pas hanter l'éditeur.
+	 */
+	public function ajax_preview(): void {
+		$this->guard();
+		global $wpdb;
+		$id  = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		$job = $id ? $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE id = %d', $id ), ARRAY_A ) : null; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+		if ( ! $job ) {
+			wp_send_json_error( [ 'message' => __( 'Job not found.', 'dazont-ecom' ) ] );
+		}
+		$pid  = (int) $job['object_id'];
+		$post = get_post( $pid );
+		if ( ! $post ) {
+			// UNE CATEGORIE N'A PAS D'APERÇU : elle n'est pas un document, et
+			// dire pourquoi vaut mieux qu'un bouton qui ne fait rien.
+			wp_send_json_error( [ 'message' => __( 'Only a post or a page can be previewed. A category description is read here.', 'dazont-ecom' ) ] );
+		}
+		if ( ! current_user_can( 'edit_post', $pid ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$html = (string) $job['result'];
+		if ( '' === trim( $html ) ) {
+			wp_send_json_error( [ 'message' => __( 'This job holds no text to preview.', 'dazont-ecom' ) ] );
+		}
+		require_once ABSPATH . 'wp-admin/includes/post.php';
+		$saved = wp_create_post_autosave( [
+			'post_ID'      => $pid,
+			'post_type'    => (string) $post->post_type,
+			'post_title'   => (string) $post->post_title,
+			'post_content' => $html,
+			'post_excerpt' => (string) $post->post_excerpt,
+		] );
+		if ( is_wp_error( $saved ) ) {
+			wp_send_json_error( [ 'message' => $saved->get_error_message() ] );
+		}
+		// L'ADRESSE COMPLETE, celle que l'editeur construit.
+		//
+		// `?preview=true` seul ne suffit pas sur un article PUBLIE : le noyau
+		// ne va chercher la sauvegarde que si `preview_id` ET `preview_nonce`
+		// sont là — `_show_post_preview()` les exige tous les deux avant de
+		// poser son filtre. Sans eux l'aperçu affiche le texte en ligne, ce
+		// qui est le pire des résultats : une page qui a l'air juste et ne
+		// montre pas ce qu'on venait voir.
+		$url = (string) get_preview_post_link( $pid, [
+			'preview_id'    => $pid,
+			'preview_nonce' => wp_create_nonce( 'post_preview_' . $pid ),
+		] );
+		// LE SCHEMA DU SITE, PAS CELUI QUE LE PERMALIEN A SOUS LA MAIN. Sur
+		// cette boutique `home` est en https et `siteurl` en http, et le lien
+		// d'aperçu sortait en http : le cookie de session est marqué « secure »,
+		// il ne serait pas envoyé, et l'aperçu répondrait « vous n'avez pas
+		// l'autorisation » sur un nonce parfaitement valide.
+		$scheme = (string) wp_parse_url( (string) home_url(), PHP_URL_SCHEME );
+		if ( '' !== $scheme ) {
+			$url = (string) set_url_scheme( $url, $scheme );
+		}
+		wp_send_json_success( [ 'url' => $url ] );
+	}
+
+	/**
+	 * Retire la sauvegarde automatique posée pour l'aperçu.
+	 *
+	 * Sans cela l'éditeur accueillerait la boutique avec « il existe une
+	 * sauvegarde automatique plus récente que cet article » — un avertissement
+	 * juste, pour une raison que personne ne pourrait deviner.
+	 */
+	private static function drop_preview( int $post_id ): void {
+		if ( $post_id < 1 || ! function_exists( 'wp_get_post_autosave' ) ) {
+			return;
+		}
+		$auto = wp_get_post_autosave( $post_id, get_current_user_id() );
+		if ( $auto ) {
+			wp_delete_post_revision( (int) $auto->ID );
+		}
+	}
+
 	public function ajax_decide(): void {
 		self::forget_count();
 		$this->guard();
@@ -2013,6 +2120,8 @@ final class DZE_Queue {
 		if ( ! $job ) {
 			wp_send_json_error( [ 'message' => __( 'Job not found.', 'dazont-ecom' ) ] );
 		}
+		// DECIDE, DONC PLUS D'APERÇU A TRAINER. Voir drop_preview().
+		self::drop_preview( (int) $job['object_id'] );
 		if ( ! $accept ) {
 			$wpdb->update( self::table(), [
 				'status'     => 'skipped',
