@@ -2321,7 +2321,15 @@ final class DZE_Diagnostic {
 			// menu that its own screen could not show, which is the fault the
 			// shop spotted: "le bloc review dans le menu products ne recense que
 			// des actions de internal linking".
-			$waiting = DZE_Queue::bulk_waiting();
+			//
+			// ET LE BANC NON PLUS N'EST PAS ICI. « Je vois aussi 5 sur
+			// diagnostic aucune idée à quoi ça correspond. » C'étaient les
+			// produits du banc d'écriture — un écran plus loin, sous son propre
+			// nom, et qui porte son compte lui-même depuis. La même correction
+			// que sur « To review » : un menu ne compte que ce que son écran
+			// sait montrer. Ce qui reste ici est zéro, et un zéro ne s'affiche
+			// pas.
+			$waiting = 0;
 		}
 		// ONE NAME PER SCREEN. "Content diagnostic" was worn by TWO screens at
 		// once — this page and the settings tab holding the criteria — and a

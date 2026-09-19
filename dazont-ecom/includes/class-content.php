@@ -3745,6 +3745,20 @@ Answer with STRICT JSON and nothing else: "
 
 	public function register_bulk_page(): void {
 		$label = DZE_Screens::label( 'bulk' );
+		// ET LA PASTILLE EST ICI, parce que c'est ici que ces produits sont.
+		//
+		// « Ces 5 devraient être affichés sur bulk writing et pas sur review. »
+		// Le compte était porté par DEUX menus — « To review » et le
+		// Diagnostic — et par aucun des deux écrans : l'un s'en excusait dans
+		// une notice, l'autre ne disait rien du tout. Un chiffre sur un menu
+		// dont l'écran ne peut rien montrer est un chiffre qui fait chercher.
+		$waiting = ( class_exists( 'DZE_Queue' ) && is_callable( [ 'DZE_Queue', 'bulk_waiting' ] ) )
+			? (int) DZE_Queue::bulk_waiting()
+			: 0;
+		$menu = $waiting > 0
+			? $label . ' <span class="update-plugins count-' . $waiting . '"><span class="plugin-count">'
+				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
+			: $label;
 		// THE BENCH HAS ITS OWN ENTRY, under Dazont Ecom, named for what it
 		// works on. It was a tab of the Diagnostic — a screen that reads the
 		// WHOLE site — so the plugin printed "Diagnostic → Bulk writing" over a
@@ -3754,7 +3768,7 @@ Answer with STRICT JSON and nothing else: "
 		add_submenu_page(
 			class_exists( 'DZE_Screens' ) ? DZE_Screens::PARENT : 'dazont-ecom',
 			$label,
-			$label,
+			$menu,
 			'edit_products',
 			self::BULK_SLUG,
 			[ $this, 'render_bulk_page' ]

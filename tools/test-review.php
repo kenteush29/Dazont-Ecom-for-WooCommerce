@@ -547,15 +547,18 @@ DZE_Queue::instance()->moved();
 ok( 'and another screen is left alone',      $GLOBALS['went'], '' );
 $GLOBALS['pagenow'] = '';
 $_GET = [];
-// THE COUNT COUNTS BOTH STORES. A menu saying one while the screen says four
-// is the disagreement this merge exists to end — on its own page, and on the
-// Content entry that hosts it alike, since both read this figure.
+// LA PASTILLE NE COMPTE QUE CE QUE CET ECRAN MONTRE.
+//
+// « Ca fausse le comptage des pastilles. En fait ces 5 devraient etre
+// affiches sur bulk writing et pas sur review. » Elle ajoutait les produits
+// du banc, qui ne sont PAS dans cette liste — d ou une notice sous le titre
+// qui expliquait l ecart au lieu de le supprimer. Le banc porte son compte.
 $GLOBALS['off'] = [ 'diagnostic' ];
 $GLOBALS['menu_added'] = [];
 $GLOBALS['bulk_pending'] = 3;
 DZE_Queue::instance()->menu();
-ok( 'products waiting are counted on the menu',
-	false !== strpos( (string) ( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ]['menu'] ?? '' ), '>3<' ), true );
+ok( 'the bench is no longer counted here',
+	false !== strpos( (string) ( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ]['menu'] ?? '' ), '>3<' ), false );
 $GLOBALS['off'] = [];
 ok( 'and read from the store that owns them', DZE_Queue::bulk_waiting(), 3 );
 $GLOBALS['bulk_pending'] = 0;
