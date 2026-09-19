@@ -905,6 +905,21 @@ final class DZE_Discounts {
 			// qui est mis en cache est déjà juste, et le filtre de lecture
 			// n'a plus qu'à confirmer.
 			add_filter( 'pre_set_transient_wc_products_onsale',     [ $this, 'filter_onsale_ids' ] );
+			// ET LE CACHE EST REMPLI AVANT QU'ON LE DEMANDE.
+			//
+			// Les deux filtres ci-dessus rendent JUSTE ce qui est rangé et ce
+			// qui est relu — mais pas ce que rend l'appel qui a reconstruit le
+			// cache : `wc_get_product_ids_on_sale()` renvoie sa propre variable
+			// locale, et WooCommerce n'offre aucun point d'accroche dessus.
+			// Cette requête-là voyait donc encore les 9 201 produits remisés
+			// comme cinq.
+			//
+			// Alors on le remplit nous-mêmes, une fois, avant que le rendu de
+			// la page n'ait à le demander : l'appel ci-dessous écrit le cache
+			// (déjà fusionné, par le filtre du dessus) et tout ce qui suit dans
+			// la requête le relit correctement. Ça coûte une requête, et
+			// seulement quand le cache vient d'être vidé.
+			add_action( 'wp_loaded', [ $this, 'warm_onsale_cache' ], 5 );
 
 			// Coupons: make our dynamic sale honour the coupon "Exclude sale
 			// items" setting (WooCommerce otherwise only knows native sales).
@@ -1493,6 +1508,24 @@ final class DZE_Discounts {
 	 * the On-Sale page, widgets — include them. Only touches the cached array; on a
 	 * cache miss ($ids === false) we let WooCommerce rebuild its native list first.
 	 */
+	/**
+	 * Remplit le cache des produits en promo s'il vient d'être vidé.
+	 *
+	 * WooCommerce le vide à chaque enregistrement de produit. La requête
+	 * suivante le reconstruit — et ne voit pas les soldes dynamiques, parce
+	 * qu'elle rend sa variable locale. Ici elle est provoquée AVANT le rendu,
+	 * de sorte que ce qui est écrit est déjà fusionné et que tout ce qui lit
+	 * ensuite lit juste. Un `get_transient` quand il est là, rien de plus.
+	 */
+	public function warm_onsale_cache(): void {
+		if ( ! function_exists( 'wc_get_product_ids_on_sale' ) ) {
+			return;
+		}
+		if ( false === get_transient( 'wc_products_onsale' ) ) {
+			wc_get_product_ids_on_sale();
+		}
+	}
+
 	public function filter_onsale_ids( $ids ) {
 		if ( ! is_array( $ids ) ) {
 			return $ids;
