@@ -1657,25 +1657,50 @@ final class DZE_Mesh {
 		$waiting = class_exists( 'DZE_Queue' )
 			? (int) ( DZE_Queue::counts_for( self::KINDS )['review'] ?? 0 )
 			: 0;
+		// CE QUI A ETE FAIT, comme ce qui attend : compté ici, affiché sur
+		// l'onglet, et lu au même endroit que partout ailleurs.
+		$done = ( class_exists( 'DZE_Automation' ) && is_callable( [ 'DZE_Automation', 'past' ] ) )
+			? count( (array) DZE_Automation::past( 500, 'mesh_links' ) )
+			: 0;
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading which tab to draw.
+		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'work';
+		if ( ! in_array( $tab, [ 'work', 'review', 'done' ], true ) ) {
+			$tab = 'work';
+		}
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html( class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'linking' ) : __( 'Internal linking', 'dazont-ecom' ) ) . '</h1>';
-		// AND ITS RESULTS ARE NOT A SECOND LIST. A tab here drawing the queue's
-		// table with its own scope is the third copy of one table, with a third
-		// count that can disagree with the other two. What waits is said in one
-		// line, with the way into the ONE list, pre-filtered to this work.
-		if ( $waiting && class_exists( 'DZE_Queue' ) && class_exists( 'DZE_Screens' ) ) {
-			printf(
-				'<div class="notice notice-info inline" style="margin:0 0 16px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
-				esc_html( sprintf(
-					/* translators: %s: how many pages */
-					_n( '%s page has links waiting for your yes or no.', '%s pages have links waiting for your yes or no.', $waiting, 'dazont-ecom' ),
-					number_format_i18n( $waiting )
-				) ),
-				esc_url( add_query_arg( [ 'kind' => implode( ',', self::KINDS ) ], DZE_Screens::url( 'review' ) ) ),
-				esc_html__( 'Read them →', 'dazont-ecom' )
-			);
+		// TROIS ONGLETS, ET AUCUN TABLEAU DE PLUS.
+		//
+		// « Il n'y a pas d'onglet pour me montrer ce qui a été fait et un
+		// onglet review pour ce qui est en attente de vérif ? Je suis encore
+		// perdu face à l'UI. »
+		//
+		// La liste avait été retirée d'ici pour ne pas dessiner un deuxième
+		// tableau avec un deuxième compte. C'était juste — mais l'écran est
+		// resté sans porte d'entrée : une phrase de notice quand il y avait
+		// quelque chose, rien du tout sinon, et le travail fait nulle part.
+		// Les deux onglets ci-dessous rappellent LES MÊMES fonctions que les
+		// écrans centraux, réduites à ce module : un seul tableau, un seul
+		// compte, et on le trouve là où on le cherche.
+		if ( class_exists( 'DZE_Screens' ) ) {
+			echo wp_kses_post( DZE_Screens::strip( [
+				'work'   => [ 'label' => __( 'The work', 'dazont-ecom' ),  'url' => DZE_Screens::url( 'linking', 'work' ) ],
+				'review' => [ 'label' => __( 'To review', 'dazont-ecom' ), 'url' => DZE_Screens::url( 'linking', 'review' ), 'n' => $waiting ],
+				'done'   => [ 'label' => __( 'Done', 'dazont-ecom' ),      'url' => DZE_Screens::url( 'linking', 'done' ),   'n' => $done ],
+			], $tab, 'margin:12px 0 16px;' ) );
 		}
-		{
+		if ( 'review' === $tab ) {
+			// LA LISTE CENTRALE, REDUITE A CE MODULE. Pas une copie : la même
+			// fonction, avec son périmètre — donc le même compte, les mêmes
+			// boutons, et rien à tenir en phase.
+			if ( class_exists( 'DZE_Queue' ) ) {
+				DZE_Queue::instance()->body( self::KINDS );
+			}
+		} elseif ( 'done' === $tab ) {
+			if ( class_exists( 'DZE_Automation' ) ) {
+				DZE_Automation::render_past( 'mesh_links' );
+			}
+		} else {
 			// THE SWITCH FIRST, THEN THE WORK.
 			//
 			// "Run it by itself devrait être en haut de page, tu m'assènes avec
