@@ -304,5 +304,14 @@ ok( 'et son ecriture aussi',
 	false !== strpos( $dze_src_disc, "add_filter( 'pre_set_transient_wc_products_onsale'" ), true );
 ok( 'par la meme fonction, pour qu elles ne divergent pas',
 	substr_count( $dze_src_disc, "[ \$this, 'filter_onsale_ids' ] );" ), 2 );
+// ET LE CACHE EST REMPLI AVANT QU ON LE DEMANDE. Les deux filtres rendent
+// juste ce qui est range et ce qui est relu — mais pas ce que rend l appel
+// qui a reconstruit le cache : wc_get_product_ids_on_sale() renvoie sa propre
+// variable locale, et WooCommerce n offre aucun point d accroche dessus.
+// Cette requete voyait encore 9 201 produits remises comme cinq.
+ok( 'le cache est rempli avant le rendu',
+	false !== strpos( $dze_src_disc, "add_action( 'wp_loaded', [ \$this, 'warm_onsale_cache' ]" ), true );
+ok( 'et seulement quand il est vide',
+	false !== strpos( $dze_src_disc, "if ( false === get_transient( 'wc_products_onsale' ) ) {" ), true );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
