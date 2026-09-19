@@ -288,5 +288,21 @@ $GLOBALS['wpdb']->requetes = 0;
 $dze_al->invoke( DZE_Discounts::instance(), range( 1000, 3499 ) ); // 2 500 identifiants
 ok( 'deux mille cinq cents identifiants partent en trois paquets',
 	$GLOBALS['wpdb']->requetes, 3 );
+
+// ET LA REQUETE QUI RECONSTRUIT LE CACHE PASSE PAR LA AUSSI.
+//
+// wc_get_product_ids_on_sale() lit le transient ; absent, elle interroge la
+// base, l ecrit et le rend — sans que transient_wc_products_onsale ait ete
+// appele. Or WooCommerce vide ce cache a CHAQUE enregistrement de produit :
+// la premiere requete qui suit voyait zero produit remise. pre_set_transient
+// est le seul point ou l on tient la valeur calculee avant qu elle ne soit
+// rangee, donc ce qui est mis en cache est deja juste.
+$dze_src_disc = file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-discounts.php' );
+ok( 'la lecture du cache est filtree',
+	false !== strpos( $dze_src_disc, "add_filter( 'transient_wc_products_onsale'" ), true );
+ok( 'et son ecriture aussi',
+	false !== strpos( $dze_src_disc, "add_filter( 'pre_set_transient_wc_products_onsale'" ), true );
+ok( 'par la meme fonction, pour qu elles ne divergent pas',
+	substr_count( $dze_src_disc, "[ \$this, 'filter_onsale_ids' ] );" ), 2 );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
