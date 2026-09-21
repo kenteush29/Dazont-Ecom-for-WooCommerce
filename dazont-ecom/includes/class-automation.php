@@ -2317,41 +2317,51 @@ final class DZE_Automation {
 							// maintenant ce qu elles font, et la phrase sous la ligne
 							// dit ce qui va se passer avec le reglage choisi.
 							?>
+							<?php
+							// « "SANS LIMITE" MAIS DEMANDE QUELLE LIMITE DE POSTS. STUPIDE. »
+							//
+							// Les deux controles se contredisaient sur la meme ligne. Le
+							// nombre n est pas mort en allure « tout ce qu il peut » : il
+							// rationne les produits et les articles de la TRADUCTION, et
+							// eux seuls — jamais les attributs ni les categories, parce
+							// qu un attribut non traduit casse une page. Partout ailleurs,
+							// dans cette allure, il ne fait rien du tout.
+							//
+							// Donc l option ne promet plus « sans limite » la ou une limite
+							// existe, et le nombre n est montre que la ou il mord.
+							$dze_all = 'all' === (string) $conf['pace'];
+							$dze_tr  = 'translate' === (string) $conf['scope'];
+							$dze_hid = ' style="display:none;"';
+							?>
 							<label>
-								<select name="<?php echo esc_attr( $name ); ?>[pace]">
-									<option value="all" <?php selected( 'all', (string) $conf['pace'] ); ?>><?php esc_html_e( 'Everything it can, no daily limit', 'dazont-ecom' ); ?></option>
+								<select name="<?php echo esc_attr( $name ); ?>[pace]" class="dze-auto-pace" data-ration="<?php echo $dze_tr ? '1' : '0'; ?>">
+									<option value="all" <?php selected( 'all', (string) $conf['pace'] ); ?>><?php
+										echo $dze_tr
+											? esc_html__( 'Everything it can', 'dazont-ecom' )
+											: esc_html__( 'Everything it can, no daily limit', 'dazont-ecom' );
+									?></option>
 									<option value="daily" <?php selected( 'daily', (string) $conf['pace'] ); ?>><?php esc_html_e( 'A set number per day, then stop', 'dazont-ecom' ); ?></option>
 								</select>
 							</label>
-							<label>
+							<?php // LES DEUX ETATS SONT ECRITS, UN SEUL EST MONTRE : le reglage
+								// se lit au moment ou on le choisit, pas apres l avoir enregistre. ?>
+							<label class="dze-auto-ration"<?php echo ( $dze_all && ! $dze_tr ) ? $dze_hid : ''; ?>>
 								<input type="number" name="<?php echo esc_attr( $name ); ?>[per_day]" class="small-text" min="1" max="20" value="<?php echo (int) $conf['per_day']; ?>" />
-								<?php
-								echo 'all' === (string) $conf['pace'] && 'translate' === (string) $conf['scope']
-									? esc_html__( 'posts a day', 'dazont-ecom' )
-									: esc_html__( 'a day', 'dazont-ecom' );
-								?>
+								<span class="dze-auto-rat-all"<?php echo $dze_all ? '' : $dze_hid; ?>><?php esc_html_e( 'products or articles a day', 'dazont-ecom' ); ?></span>
+								<span class="dze-auto-rat-day"<?php echo $dze_all ? $dze_hid : ''; ?>><?php esc_html_e( 'a day', 'dazont-ecom' ); ?></span>
 							</label>
 							<p class="description" style="margin:4px 0 0;">
-								<?php
-								if ( 'all' === (string) $conf['pace'] ) {
+								<span class="dze-auto-said-all"<?php echo $dze_all ? '' : $dze_hid; ?>><?php
 									esc_html_e( 'It comes back every ten minutes and keeps going until there is nothing left to do. Only an empty list or the monthly AI budget stops it.', 'dazont-ecom' );
-									if ( 'translate' === (string) $conf['scope'] ) {
+									if ( $dze_tr ) {
 										echo ' ';
-										esc_html_e( 'The number beside it is the ration for products and articles only — attributes and categories are never held back, because an untranslated attribute breaks a page.', 'dazont-ecom' );
+										esc_html_e( 'The number beside it caps the products and articles only — attributes and categories are never held back, because an untranslated attribute breaks a page.', 'dazont-ecom' );
 									}
-								} else {
-									printf(
-										/* translators: %s: how many objects a day */
-										esc_html( _n(
-											'It does %s a day, spread across the day, then stops until tomorrow. Use this for work that is publishing rather than maintenance.',
-											'It does %s a day, spread across the day, then stops until tomorrow. Use this for work that is publishing rather than maintenance.',
-											(int) $conf['per_day'],
-											'dazont-ecom'
-										) ),
-										esc_html( number_format_i18n( (int) $conf['per_day'] ) )
-									);
-								}
-								?>
+								?></span>
+								<?php // LE NOMBRE N EST PLUS RECOPIE DANS LA PHRASE : il est dans
+									// la case a cote, et une phrase qui le repete ment des qu on
+									// le change sans recharger. ?>
+								<span class="dze-auto-said-day"<?php echo $dze_all ? $dze_hid : ''; ?>><?php esc_html_e( 'It does the number beside it each day, spread across the day, then stops until tomorrow. Use this for work that is publishing rather than maintenance.', 'dazont-ecom' ); ?></span>
 							</p>
 						<?php endif; ?>
 						<?php if ( 'shop' !== $conf['scope'] ) : ?>
@@ -2671,6 +2681,25 @@ final class DZE_Automation {
 				if ( ! window.confirm( '<?php echo esc_js( __( 'Put every page that is short of links into the writing queue? Each one is a pass of its own, and nothing is saved to the shop until you accept it.', 'dazont-ecom' ) ); ?>' ) ) { return; }
 				var $b = $( this );
 				post( 'dze_auto_catchup', { task: $b.data( 'task' ) }, $b, $b.siblings( '.dze-auto-msg' ) );
+			} );
+			// LE REGLAGE SE LIT AU MOMENT OU ON LE CHOISIT.
+			//
+			// « "Sans limite" mais demande quelle limite de posts. Stupide. » La
+			// ligne portait les deux etats a la fois parce que seul un enregistrement
+			// la redessinait. Les deux sont ecrits, un seul est montre, et le choix
+			// bascule l affichage tout de suite.
+			$( document ).on( 'change', '.dze-auto-pace', function () {
+				var $s = $( this ),
+					all = 'all' === $s.val(),
+					// Le nombre ne sert, en allure « tout ce qu il peut », qu a la
+					// traduction : ailleurs il ne rationne rien, donc il s efface.
+					rations = '1' === String( $s.data( 'ration' ) ),
+					$box = $s.closest( '.dze-auto-task' );
+				$box.find( '.dze-auto-ration' ).toggle( ! all || rations );
+				$box.find( '.dze-auto-rat-all' ).toggle( all );
+				$box.find( '.dze-auto-rat-day' ).toggle( ! all );
+				$box.find( '.dze-auto-said-all' ).toggle( all );
+				$box.find( '.dze-auto-said-day' ).toggle( ! all );
 			} );
 			$( document ).on( 'click', '.dze-auto-run', function () {
 				var $b = $( this );
