@@ -1078,6 +1078,15 @@ final class DZE_Automation {
 				if ( 'term' === $type && DZE_Translate::is_default_term( $oid, (string) ( $o['type'] ?? '' ) ) ) {
 					continue;
 				}
+				// UNE CATEGORIE VIDE N EST PAS UNE PAGE A TRADUIRE. « Le plugin
+				// a encore traduit une categorie avec 0 produits. » Son archive
+				// est vide, aucun menu n y mene, et la traduire coute un appel
+				// par langue pour une page que personne ne verra. La
+				// descendance compte : une categorie de tete ne porte souvent
+				// rien elle-meme et tout son rayon dessous.
+				if ( 'term' === $type && DZE_Translate::is_empty_term( $oid, (string) ( $o['type'] ?? '' ) ) ) {
+					continue;
+				}
 				if ( self::cooling( $oid, $id, $type, 0, 0, time() - self::COOLDOWN * DAY_IN_SECONDS ) ) {
 					self::$held['recent']++;
 					continue;

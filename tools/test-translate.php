@@ -2343,5 +2343,57 @@ $GLOBALS['terms'][6100] = [
 ];
 $dze_cat = (int) $dze_ct->invoke( null, [ 'kind' => 'term', 'id' => 6100, 'type' => 'product_cat' ], 'fr' );
 ok( 'une categorie se cree toujours', $dze_cat > 0, true );
+
+echo "\nUNE CATEGORIE VIDE N EST PAS UNE PAGE A TRADUIRE\n";
+// « Army rank patches > le plugin a encore traduit une categorie avec 0
+// produits. » Son archive est vide, aucun menu n y mene, et la traduire coute
+// un appel par langue pour une page que personne ne verra jamais.
+$dze_src_tr = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
+ok( 'la regle existe',
+	false !== strpos( $dze_src_tr, 'public static function is_empty_term(' ), true );
+// ET ELLE COMPTE LES RATTACHEMENTS, PAS LE COMPTEUR.
+//
+// `tt.count` est un cache que WooCommerce recalcule quand il y pense. Mesure
+// sur la boutique : il annoncait 114 categories vides sur 859 ; en comptant
+// les rattachements reels, 41. Il mentait donc sur 73 categories — qui
+// seraient restees sans traduction, sans que personne sache pourquoi.
+ok( 'elle lit les rattachements',
+	false !== strpos( $dze_src_tr, 'FROM {$wpdb->term_relationships} tr' ), true );
+ok( 'et jamais le compteur de WooCommerce',
+	(bool) preg_match( '/is_empty_term.*?\btt\.count\b/s', substr( $dze_src_tr,
+		(int) strpos( $dze_src_tr, 'function is_empty_term' ),
+		(int) strpos( $dze_src_tr, 'function is_default_term' ) - (int) strpos( $dze_src_tr, 'function is_empty_term' ) ) ), false );
+// LA DESCENDANCE COMPTE : une categorie de tete ne porte souvent rien
+// elle-meme et tout son rayon dessous. « Patches » est vide, ses six enfants
+// ne le sont pas — elle a donc bien une page, et un nom dans le fil d Ariane.
+ok( 'elle descend dans les enfants',
+	false !== strpos( $dze_src_tr, 'WHERE taxonomy = %s AND parent IN' ), true );
+ok( 'sur plusieurs niveaux',
+	false !== strpos( $dze_src_tr, 'for ( $deep = 0; $deep < 6; $deep++ )' ), true );
+// ET LA PASSE AUTOMATIQUE S EN SERT, sinon la regle ne sert a rien.
+$dze_src_au = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-automation.php' );
+ok( 'la passe automatique ecarte les vides',
+	false !== strpos( $dze_src_au, 'DZE_Translate::is_empty_term( $oid' ), true );
+// ET LE FOURRE-TOUT RESTE ECARTE LUI AUSSI : deux regles, deux raisons.
+ok( 'et garde l autre regle',
+	false !== strpos( $dze_src_au, 'DZE_Translate::is_default_term( $oid' ), true );
+
+echo "\nL ECRAN A RELIRE NOMME LES TROIS SOURCES\n";
+// « La page to review est cassee et ne reprend pas la liste wpml. Que maillage
+// interne. » Elle n etait pas cassee, elle etait incomplete : une traduction
+// n a jamais transite par cette file — elle attend sur l objet source — donc
+// cet ecran n en savait rien. Trois choses attendent une decision dans ce
+// plugin et une seule se voyait.
+$dze_src_q = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-queue.php' );
+ok( 'il compte les traductions en attente',
+	false !== strpos( $dze_src_q, 'DZE_Translate::review_count()' ), true );
+ok( 'et montre le chemin vers elles',
+	false !== strpos( $dze_src_q, "DZE_Screens::url( 'translations', 'review' )" ), true );
+ok( 'sans dessiner leur liste ici',
+	false !== strpos( $dze_src_q, 'DZE_Translate::review_body()' ), false );
+// LE BANC D ECRITURE GARDE LA SIENNE : les trois sont nommees, aucune cachee.
+ok( 'et le banc garde son chemin',
+	false !== strpos( $dze_src_q, 'DZE_Content::bulk_url()' ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

@@ -3232,6 +3232,69 @@ final class DZE_Translate {
 	 * whatever the install's language made it, and matching on one would skip
 	 * a real category on a shop that happens to sell filing cabinets.
 	 */
+	/**
+	 * UNE CATÉGORIE VIDE N'EST PAS UNE PAGE À TRADUIRE.
+	 *
+	 * « Army rank patches → le plugin a encore traduit une catégorie avec 0
+	 * produits. »
+	 *
+	 * Un terme qui ne porte rien n'a pas de page qu'un client atteindra : son
+	 * archive est vide, elle ne se range dans aucun menu, et Google n'a aucune
+	 * raison de l'indexer. La traduire coûte un appel par langue pour une page
+	 * que personne ne verra jamais — sur cette boutique, 114 catégories
+	 * produit sur 859 sont dans ce cas, soit 456 appels à ne pas passer.
+	 *
+	 * LA DESCENDANCE COMPTE. Une catégorie de tête ne porte souvent aucun
+	 * produit elle-même et tout son rayon dessous : « Patches » est vide et
+	 * ses six enfants ne le sont pas. Elle a donc bien une page, et un nom que
+	 * le client lit dans le fil d'Ariane. On descend jusqu'à six niveaux, ce
+	 * qui est déjà deux fois plus qu'aucune boutique n'en utilise.
+	 *
+	 * ET ON COMPTE LES RATTACHEMENTS, PAS LE COMPTEUR. `tt.count` est un cache
+	 * que WooCommerce recalcule quand il y pense ; il reste à zéro sur une
+	 * catégorie qu'on vient de remplir, et non nul sur une qu'on vient de
+	 * vider. Un terme effacé de la liste sur la foi d'un compteur périmé est un
+	 * terme qui ne sera jamais traduit et dont personne ne saura pourquoi.
+	 */
+	public static function is_empty_term( int $term_id, string $taxonomy ): bool {
+		global $wpdb;
+		if ( $term_id < 1 || ! $wpdb ) {
+			return false;
+		}
+		$carries = static function ( array $ids ) use ( $wpdb ): int {
+			if ( ! $ids ) {
+				return 0;
+			}
+			$in = implode( ',', array_map( 'intval', $ids ) );
+			return (int) $wpdb->get_var(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ids cast to int just above.
+				"SELECT COUNT(*) FROM {$wpdb->term_relationships} tr
+				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				  WHERE tt.term_id IN ({$in})"
+			);
+		};
+		if ( $carries( [ $term_id ] ) > 0 ) {
+			return false;
+		}
+		$level = [ $term_id ];
+		for ( $deep = 0; $deep < 6; $deep++ ) {
+			$in   = implode( ',', array_map( 'intval', $level ) );
+			$kids = (array) $wpdb->get_col( $wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ids cast to int just above.
+				"SELECT term_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = %s AND parent IN ({$in})",
+				$taxonomy
+			) );
+			if ( ! $kids ) {
+				return true;
+			}
+			if ( $carries( $kids ) > 0 ) {
+				return false;
+			}
+			$level = $kids;
+		}
+		return true;
+	}
+
 	public static function is_default_term( int $term_id, string $taxonomy ): bool {
 		if ( $term_id < 1 ) {
 			return false;
