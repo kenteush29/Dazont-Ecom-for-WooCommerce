@@ -4403,7 +4403,8 @@ final class DZE_Translate {
 				'filled'     => __( '%s field(s) filled in below — nothing is written until you save.', 'dazont-ecom' ),
 				'nothingToSave' => __( 'Every field is empty. There is nothing to write.', 'dazont-ecom' ),
 				// TOUT ACCEPTER, en une fois, depuis la liste.
-				'allAsk'     => __( 'Write every translation waiting here, in every language, exactly as it came back?', 'dazont-ecom' ),
+				/* translators: %s: how many rows are ticked */
+				'acceptAsk'  => __( 'Write the %s ticked translation(s), in every language, exactly as they came back?', 'dazont-ecom' ),
 				'allSending' => __( 'Writing…', 'dazont-ecom' ),
 				/* translators: 1: how many objects, 2: how many fields */
 				'allDone'    => __( '%1$s written, %2$s field(s) in all.', 'dazont-ecom' ),
@@ -4414,6 +4415,13 @@ final class DZE_Translate {
 				/* translators: %s: how many rows are ticked */
 				'dropAsk'    => __( 'Throw away what came back for the %s ticked row(s)? It cannot be recovered; the objects stay exactly as they are.', 'dazont-ecom' ),
 				'dropSending'=> __( 'Throwing away…', 'dazont-ecom' ),
+				// LES DEUX BOUTONS PORTENT LEUR COMPTE, et c est le JS qui le tient
+				// a jour : il change a chaque case cochee, donc il ne peut pas etre
+				// rendu une fois par le serveur.
+				/* translators: %s: how many rows are ticked */
+				'acceptN'    => __( 'Accept (%s)', 'dazont-ecom' ),
+				/* translators: %s: how many rows are ticked */
+				'discardN'   => __( 'Discard (%s)', 'dazont-ecom' ),
 				/* translators: %s: how many were thrown away */
 				'dropDone'   => __( '%s thrown away.', 'dazont-ecom' ),
 				'peek'       => __( 'Read it here', 'dazont-ecom' ),
