@@ -3,7 +3,7 @@
  * Plugin Name:       Dazont Ecom
  * Plugin URI:        https://github.com/kenteush29/Dazont-Ecom-for-WooCommerce
  * Description:       Dazont Ecom toolkit for WooCommerce. Modules (each switchable under Settings → Modules): Restock, Trending Products, Discounts & Marketing events, Google Merchant Center promotions, Marketing Assistant, Sourcing Assistant, Product Content, POD image, Variation Split, Dashboard.
- * Version:     4.455.1
+ * Version:     4.456.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Dazont
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DZE_VERSION', '4.455.1' );
+define( 'DZE_VERSION', '4.456.0' );
 define( 'DZE_FILE',    __FILE__ );
 define( 'DZE_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'DZE_URL',     plugin_dir_url( __FILE__ ) );
@@ -90,6 +90,11 @@ final class DZE_Plugin {
 		DZE_Site::init();
 		DZE_Price::init(); // charm rounding, shared by Discounts and Product Content.
 		if ( is_admin() ) {
+			// RELIER LES TRADUCTIONS DE TERMES QU UNE VERSION ANTERIEURE A LAISSEES
+			// ORPHELINES. Une fois par site, derriere son propre drapeau, et
+			// jamais sur une page publique : c est une reparation de donnees, pas
+			// une fonction. Elle ne coute qu une lecture d option quand c est fait.
+			add_action( 'admin_init', [ 'DZE_Translate_Repair', 'maybe_run' ] );
 			DZE_Prompts::init();    // "see the prompt" buttons; admin-only by nature.
 			DZE_Prompt_Defaults::init(); // "make this the default", beside every prompt.
 			DZE_Shortcodes::init(); // one screen documenting every shortcode published.
