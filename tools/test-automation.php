@@ -1095,7 +1095,23 @@ $GLOBALS['review_by_kind']  = [ 'cat_links' => 2, 'post_links' => 1 ];
 $GLOBALS['applied_by_kind'] = [ 'cat_links' => 9, 'post_links' => 5 ];
 $chips = DZE_Automation::chips_html( 'mesh_links' );
 ok( 'it says it is running',             false !== strpos( $chips, 'is-on' ), true );
-ok( 'and at what rhythm',                false !== strpos( $chips, '3 a day' ), true );
+// ET L ALLURE REELLE, PAS UN NOMBRE QUI NE S APPLIQUE PAS.
+//
+// « Incoherence. Affiche 10 a day dans la pastille » au-dessus d un reglage
+// sans limite : elle lisait per_day sans regarder si ce nombre mord. Cette
+// tache tourne en allure « tout ce qu elle peut » par defaut, donc c est cela
+// que la pastille doit dire.
+ok( 'and at what rhythm',                false !== strpos( $chips, 'Always on' ), true );
+ok( 'and never a cap that does not apply', false !== strpos( $chips, '3 a day' ), false );
+// Sous un plafond, en revanche, c est le plafond qui se lit.
+fresh( [ 'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0, 'pace' => 'daily' ] ] );
+$dze_cap = DZE_Automation::chips_html( 'mesh_links' );
+ok( 'a capped task names its cap',       false !== strpos( $dze_cap, '3 a day' ), true );
+ok( 'and does not call itself always on', false !== strpos( $dze_cap, 'Always on' ), false );
+fresh( $ON );
+$GLOBALS['review_by_kind']  = [ 'cat_links' => 2, 'post_links' => 1 ];
+$GLOBALS['applied_by_kind'] = [ 'cat_links' => 9, 'post_links' => 5 ];
+$chips = DZE_Automation::chips_html( 'mesh_links' );
 ok( 'what waits for a person',
 	false !== strpos( $chips, 'is-wait' ) && false !== strpos( $chips, '>3 to review<' ), true );
 ok( 'and what went through',
