@@ -2418,14 +2418,14 @@ echo "\nNOUVEAUX, MISES A JOUR, OU LES DEUX\n";
 $GLOBALS['opts']['dze_translate_settings'] = [];
 ok( 'sans reglage, les deux',            DZE_Translate::when(), 'both' );
 ok( 'et la clause les prend toutes deux',
-	DZE_Translate_Screen::owed_clause( 4, 'NEED' ), 'COUNT( DISTINCT t.language_code ) < 4 OR NEED' );
+	DZE_Translate::owed_clause( 4, 'NEED' ), 'COUNT( DISTINCT t.language_code ) < 4 OR NEED' );
 $GLOBALS['opts']['dze_translate_settings'] = [ 'when' => 'new' ];
 ok( 'les nouveaux seuls',                DZE_Translate::when(), 'new' );
 ok( 'et la clause oublie les perimes',
-	DZE_Translate_Screen::owed_clause( 4, 'NEED' ), 'COUNT( DISTINCT t.language_code ) < 4' );
+	DZE_Translate::owed_clause( 4, 'NEED' ), 'COUNT( DISTINCT t.language_code ) < 4' );
 $GLOBALS['opts']['dze_translate_settings'] = [ 'when' => 'update' ];
 ok( 'les mises a jour seules',           DZE_Translate::when(), 'update' );
-ok( 'et la clause oublie les trous',     DZE_Translate_Screen::owed_clause( 4, 'NEED' ), 'NEED' );
+ok( 'et la clause oublie les trous',     DZE_Translate::owed_clause( 4, 'NEED' ), 'NEED' );
 // UN REGLAGE ABIME NE VAUT PAS UN FILTRE : il vaut le comportement complet.
 $GLOBALS['opts']['dze_translate_settings'] = [ 'when' => 'n importe quoi' ];
 ok( 'une valeur inconnue retombe sur les deux', DZE_Translate::when(), 'both' );
