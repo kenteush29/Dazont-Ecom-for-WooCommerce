@@ -203,7 +203,7 @@ final class DZE_Netlinking {
 		// un module qui doit etre passif ne commence pas par une question dont
 		// il connait la reponse.
 		try {
-			self::pick_property();
+			self::pick_properties();
 		} catch ( Throwable $e ) {
 			$this->back( $back, $e->getMessage() );
 		}
@@ -316,6 +316,38 @@ final class DZE_Netlinking {
 	 * les langues de la boutique ; une propriete d URL n en couvre qu une. On
 	 * prefere donc le domaine, et on ne demande que si rien ne correspond.
 	 */
+	/**
+	 * TOUTES LES PROPRIETES DE CETTE BOUTIQUE, pas une seule.
+	 *
+	 * Les cinq langues vivent sur cinq domaines, donc Search Console en tient
+	 * CINQ proprietes. N en lire qu une — celle du domaine principal — ne
+	 * montrait que l anglais et laissait quatre catalogues invisibles, sans
+	 * rien dire. On lit celles qui correspondent a un domaine connu de WPML.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function pick_properties(): array {
+		$set = self::settings();
+		if ( ! empty( $set['properties'] ) && is_array( $set['properties'] ) ) {
+			return array_map( 'strval', $set['properties'] );
+		}
+		$hosts = array_values( self::domains() );
+		$found = [];
+		foreach ( self::properties() as $one ) {
+			foreach ( $hosts as $h ) {
+				if ( 'sc-domain:' . $h === $one || false !== strpos( $one, '://' . $h ) || false !== strpos( $one, '://www.' . $h ) ) {
+					$found[ $one ] = true;
+				}
+			}
+		}
+		$found = array_keys( $found );
+		if ( $found ) {
+			$set['properties'] = $found;
+			update_option( self::OPT_SET, $set, false );
+		}
+		return $found;
+	}
+
 	public static function pick_property(): string {
 		$set = self::settings();
 		if ( ! empty( $set['property'] ) ) {
@@ -383,6 +415,206 @@ final class DZE_Netlinking {
 	 * la page y est deja. Plus bas, un lien seul ne suffira pas, et promettre
 	 * le contraire serait le genre de conseil qui fait perdre un mois.
 	 */
+	// =========================================================================
+	// Les ventes, croisees avec ce que Google mesure
+	// =========================================================================
+
+	/**
+	 * CE QUE CHAQUE CATEGORIE A VENDU, toutes langues confondues.
+	 *
+	 * « La data GSC doit être recroisée avec les ventes au niveau des
+	 * catégories produits. » Sans cela le module classe une categorie a 4 000
+	 * impressions qui ne vend rien au-dessus d une a 800 qui vend : du trafic
+	 * pour du trafic, ce qui n est pas le metier de cette boutique.
+	 *
+	 * TOUTES LANGUES CONFONDUES, et c est un choix. Les cinq langues vivent sur
+	 * cinq domaines et les ventes se font a 95 % sur l anglais : compter chaque
+	 * page sur ses seules ventes enterrerait toutes les pages traduites sous un
+	 * zero. Ce que la vente prouve, c est que le SUJET rapporte — et c est le
+	 * sujet que le lien va pousser, dans la langue ou on le pose. L ecran le
+	 * dit, plutot que de laisser croire que la page francaise a vendu ca.
+	 *
+	 * La table de WooCommerce Analytics est la source, comme pour le bloc des
+	 * meilleures ventes ; absente ou vide, on rend un tableau vide et le module
+	 * continue sans les ventes plutot que de tomber.
+	 *
+	 * @return array<int,array{units:int}> par term_id
+	 */
+	public static function sales_by_term( int $days ): array {
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return [];
+		}
+		$lookup = $wpdb->prefix . 'wc_order_product_lookup';
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WooCommerce's own table.
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $lookup ) ) !== $lookup ) {
+			return [];
+		}
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT tt.term_id AS tid,
+			        SUM( l.product_qty ) AS units
+			   FROM {$lookup} l
+			   INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = l.product_id
+			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			  WHERE tt.taxonomy = 'product_cat'
+			    AND l.date_created > DATE_SUB( NOW(), INTERVAL %d DAY )
+			  GROUP BY tt.term_id",
+			max( 1, $days )
+		), ARRAY_A );
+		// phpcs:enable
+		$per = [];
+		foreach ( $rows as $r ) {
+			$per[ (int) $r['tid'] ] = [ 'units' => (int) $r['units'] ];
+		}
+		return self::spread_across_languages( $per );
+	}
+
+	/**
+	 * CE QU UN GROUPE DE TRADUCTION A VENDU, rendu a chacun de ses membres.
+	 *
+	 * Sans WPML, chaque terme garde ses propres chiffres et rien ne bouge.
+	 *
+	 * @param array<int,array{units:int}> $per
+	 * @return array<int,array{units:int}>
+	 */
+	public static function spread_across_languages( array $per ): array {
+		global $wpdb;
+		if ( ! $per || ! $wpdb || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return $per;
+		}
+		$table = $wpdb->prefix . 'icl_translations';
+		if ( ! DZE_Wpml::has_table( $table ) ) {
+			return $per;
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table.
+		$rows = (array) $wpdb->get_results(
+			"SELECT tt.term_id AS tid, ic.trid
+			   FROM {$table} ic
+			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = ic.element_id
+			  WHERE ic.element_type = 'tax_product_cat'",
+			ARRAY_A
+		);
+		// phpcs:enable
+		$trid_of = [];
+		$members = [];
+		foreach ( $rows as $r ) {
+			$tid  = (int) $r['tid'];
+			$trid = (int) $r['trid'];
+			$trid_of[ $tid ]   = $trid;
+			$members[ $trid ][] = $tid;
+		}
+		$total = [];
+		foreach ( $per as $tid => $n ) {
+			$trid = $trid_of[ $tid ] ?? 0;
+			if ( ! $trid ) {
+				continue;
+			}
+			$total[ $trid ]['units'] = ( $total[ $trid ]['units'] ?? 0 ) + (int) $n['units'];
+		}
+		$out = $per;
+		foreach ( $total as $trid => $n ) {
+			foreach ( (array) ( $members[ $trid ] ?? [] ) as $tid ) {
+				$out[ $tid ] = [ 'units' => (int) $n['units'] ];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * QUELLE CATEGORIE EST DERRIERE CETTE ADRESSE.
+	 *
+	 * Le domaine donne la langue — cinq langues, cinq domaines sur cette
+	 * boutique — et le dernier morceau du chemin donne le slug. On cherche donc
+	 * un terme de ce slug, et on prefere celui de la bonne langue quand
+	 * plusieurs le portent : sur un catalogue traduit, le meme slug existe
+	 * souvent dans deux langues.
+	 *
+	 * Rend 0 quand l adresse n est pas une categorie — un article, une page, un
+	 * produit — et c est une reponse, pas un echec.
+	 */
+	public static function term_of_url( string $url, array $slug_map ): int {
+		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$path = trim( $path, '/' );
+		if ( '' === $path ) {
+			return 0;
+		}
+		$bits = explode( '/', $path );
+		$slug = (string) end( $bits );
+		if ( '' === $slug ) {
+			return 0;
+		}
+		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
+		$lang = (string) ( self::lang_of_host( $host ) );
+		if ( '' !== $lang && isset( $slug_map[ $lang . '|' . $slug ] ) ) {
+			return (int) $slug_map[ $lang . '|' . $slug ];
+		}
+		return (int) ( $slug_map[ '|' . $slug ] ?? 0 );
+	}
+
+	/** La langue d un domaine, d apres les reglages de WPML. */
+	public static function lang_of_host( string $host ): string {
+		$host = preg_replace( '/^www\./', '', strtolower( $host ) );
+		foreach ( self::domains() as $code => $one ) {
+			if ( $one === $host ) {
+				return (string) $code;
+			}
+		}
+		return '';
+	}
+
+	/** Un domaine par langue, ou rien quand WPML travaille autrement. */
+	public static function domains(): array {
+		$s   = get_option( 'icl_sitepress_settings', [] );
+		$out = [];
+		foreach ( (array) ( is_array( $s ) ? ( $s['language_domains'] ?? [] ) : [] ) as $code => $d ) {
+			$d = preg_replace( '~^https?://~', '', (string) $d );
+			$d = preg_replace( '/^www\./', '', rtrim( (string) $d, '/' ) );
+			if ( '' !== $d ) {
+				$out[ (string) $code ] = $d;
+			}
+		}
+		$home = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+		$home = preg_replace( '/^www\./', '', (string) $home );
+		$def  = class_exists( 'DZE_Category_Content' ) ? (string) DZE_Category_Content::default_lang() : 'en';
+		if ( '' !== $home && ! in_array( $home, $out, true ) ) {
+			$out[ $def ] = $home;
+		}
+		return $out;
+	}
+
+	/**
+	 * « langue|slug » et « |slug » vers le term_id, en une requete.
+	 *
+	 * La seconde clef est le filet : un slug sans langue connue vaut mieux que
+	 * pas de categorie du tout, et la premiere lui passe devant.
+	 */
+	public static function slug_map(): array {
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return [];
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own read.
+		$rows = (array) $wpdb->get_results(
+			"SELECT t.term_id AS tid, t.slug FROM {$wpdb->terms} t
+			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+			  WHERE tt.taxonomy = 'product_cat'",
+			ARRAY_A
+		);
+		// phpcs:enable
+		$out = [];
+		foreach ( $rows as $r ) {
+			$tid  = (int) $r['tid'];
+			$slug = (string) $r['slug'];
+			$lang = class_exists( 'DZE_Category_Content' ) ? (string) DZE_Category_Content::lang_code( $tid ) : '';
+			if ( '' !== $lang ) {
+				$out[ $lang . '|' . $slug ] = $tid;
+			}
+			if ( ! isset( $out[ '|' . $slug ] ) ) {
+				$out[ '|' . $slug ] = $tid;
+			}
+		}
+		return $out;
+	}
 	/**
 	 * QUI MERITE UN LIEN, ET DANS QUEL ORDRE — sans reseau, donc eprouvable.
 	 *
@@ -397,7 +629,7 @@ final class DZE_Netlinking {
 	 * @param array<string,array<string,mixed>> $pages
 	 * @return array<int,array<string,mixed>>
 	 */
-	public static function rank( array $pages ): array {
+	public static function rank( array $pages, array $sales = [], array $slug_map = [] ): array {
 		$out = [];
 		foreach ( $pages as $p ) {
 			$pos = (float) ( $p['pos'] ?? 0 );
@@ -412,76 +644,104 @@ final class DZE_Netlinking {
 			usort( $terms, static fn( $a, $b ) => (float) $b['impr'] <=> (float) $a['impr'] );
 			$p['terms'] = array_slice( $terms, 0, self::KEEP_ANCHOR );
 			$p['gain']  = $gain;
-			$out[]      = $p;
+
+			// CE QUE CETTE PAGE VEND, quand c est une categorie produit.
+			//
+			// « La data GSC doit être recroisée avec les ventes au niveau des
+			// catégories produits. » Le trafic seul classait une categorie qui
+			// ne vend rien au-dessus d une qui vend : du trafic pour du trafic.
+			$tid = $slug_map ? self::term_of_url( (string) ( $p['url'] ?? '' ), $slug_map ) : 0;
+			$p['tid']     = $tid;
+			$p['units'] = $tid && isset( $sales[ $tid ] ) ? (int) $sales[ $tid ]['units'] : 0;
+			// EN UNITES, ET JAMAIS EN ARGENT.
+			//
+			// La table de WooCommerce Analytics garde chaque commande dans SA
+			// devise : sur cette boutique, huit monnaies au moins — dollars,
+			// euros, livres, zlotys, livres turques. Les additionner rend un
+			// nombre qui ne veut rien dire, et la premiere mesure l a montre :
+			// 677 120 pour trente unites. Une unite vendue, elle, est une unite
+			// vendue partout.
+			$clicks         = max( 1.0, (float) ( $p['clicks'] ?? 0 ) );
+			$p['per_click'] = $p['units'] > 0 ? $p['units'] / $clicks : 0.0;
+			$p['worth']     = $gain * $p['per_click'];
+			$out[]          = $p;
 		}
-		usort( $out, static fn( $a, $b ) => (float) $b['gain'] <=> (float) $a['gain'] );
+		// L ARGENT D ABORD, LE TRAFIC ENSUITE. Une page qui ne vend pas — un
+		// article, une page d information — n est pas jetee : elle se classe
+		// derriere celles qui vendent, entre elles sur les clics a gagner.
+		usort( $out, static function ( $a, $b ) {
+			$wa = (float) ( $a['worth'] ?? 0 );
+			$wb = (float) ( $b['worth'] ?? 0 );
+			if ( $wa !== $wb ) {
+				return $wb <=> $wa;
+			}
+			return (float) $b['gain'] <=> (float) $a['gain'];
+		} );
 		return array_slice( $out, 0, self::KEEP );
 	}
 
 	public static function refresh(): array {
-		$set = self::settings();
-		$prop = (string) ( $set['property'] ?? '' );
-		if ( '' === $prop ) {
-			$prop = self::pick_property();
-		}
-		if ( '' === $prop ) {
+		$props = self::pick_properties();
+		if ( ! $props ) {
 			throw new RuntimeException( __( 'No Search Console property matches this site.', 'dazont-ecom' ) );
 		}
 		$days  = self::window();
 		$end   = gmdate( 'Y-m-d', time() - 2 * DAY_IN_SECONDS ); // Google a deux jours de retard.
 		$start = gmdate( 'Y-m-d', time() - ( $days + 2 ) * DAY_IN_SECONDS );
-		$base  = '/sites/' . rawurlencode( $prop ) . '/searchAnalytics/query';
 
-		// 1. Chaque page, ce qu elle fait.
+		// UNE PROPRIETE PAR LANGUE, et toutes dans le meme panier : le classement
+		// se fait ensuite entre elles, parce que l effort de netlinking se decide
+		// sur toute la boutique et pas langue par langue.
 		$pages = [];
-		foreach ( (array) ( self::call( $base, [
-			'startDate'  => $start,
-			'endDate'    => $end,
-			'dimensions' => [ 'page' ],
-			'rowLimit'   => self::MAX_PAGES,
-			'type'       => 'web',
-		] )['rows'] ?? [] ) as $r ) {
-			$url = (string) ( $r['keys'][0] ?? '' );
-			if ( '' === $url ) {
-				continue;
+		foreach ( $props as $prop ) {
+			$base = '/sites/' . rawurlencode( $prop ) . '/searchAnalytics/query';
+			foreach ( (array) ( self::call( $base, [
+				'startDate'  => $start,
+				'endDate'    => $end,
+				'dimensions' => [ 'page' ],
+				'rowLimit'   => self::MAX_PAGES,
+				'type'       => 'web',
+			] )['rows'] ?? [] ) as $r ) {
+				$url = (string) ( $r['keys'][0] ?? '' );
+				if ( '' === $url ) {
+					continue;
+				}
+				$pages[ $url ] = [
+					'url'    => $url,
+					'clicks' => (float) ( $r['clicks'] ?? 0 ),
+					'impr'   => (float) ( $r['impressions'] ?? 0 ),
+					'ctr'    => (float) ( $r['ctr'] ?? 0 ),
+					'pos'    => (float) ( $r['position'] ?? 0 ),
+					'terms'  => [],
+				];
 			}
-			$pages[ $url ] = [
-				'url'   => $url,
-				'clicks' => (float) ( $r['clicks'] ?? 0 ),
-				'impr'  => (float) ( $r['impressions'] ?? 0 ),
-				'ctr'   => (float) ( $r['ctr'] ?? 0 ),
-				'pos'   => (float) ( $r['position'] ?? 0 ),
-				'terms' => [],
-			];
-		}
-
-		// 2. Les requetes, pour savoir avec quels mots lier.
-		foreach ( (array) ( self::call( $base, [
-			'startDate'  => $start,
-			'endDate'    => $end,
-			'dimensions' => [ 'page', 'query' ],
-			'rowLimit'   => self::MAX_ROWS,
-			'type'       => 'web',
-		] )['rows'] ?? [] ) as $r ) {
-			$url = (string) ( $r['keys'][0] ?? '' );
-			$q   = (string) ( $r['keys'][1] ?? '' );
-			if ( '' === $url || '' === $q || ! isset( $pages[ $url ] ) ) {
-				continue;
+			foreach ( (array) ( self::call( $base, [
+				'startDate'  => $start,
+				'endDate'    => $end,
+				'dimensions' => [ 'page', 'query' ],
+				'rowLimit'   => self::MAX_ROWS,
+				'type'       => 'web',
+			] )['rows'] ?? [] ) as $r ) {
+				$url = (string) ( $r['keys'][0] ?? '' );
+				$q   = (string) ( $r['keys'][1] ?? '' );
+				if ( '' === $url || '' === $q || ! isset( $pages[ $url ] ) ) {
+					continue;
+				}
+				$pages[ $url ]['terms'][] = [
+					'q'    => $q,
+					'impr' => (float) ( $r['impressions'] ?? 0 ),
+					'pos'  => (float) ( $r['position'] ?? 0 ),
+				];
 			}
-			$pages[ $url ]['terms'][] = [
-				'q'    => $q,
-				'impr' => (float) ( $r['impressions'] ?? 0 ),
-				'pos'  => (float) ( $r['position'] ?? 0 ),
-			];
 		}
 
 		// 3. Le classement — separe de la lecture, parce qu une regle enfouie
 		// dans un appel reseau ne s eprouve pas.
-		$out = self::rank( $pages );
+		$out = self::rank( $pages, self::sales_by_term( $days ), self::slug_map() );
 
 		update_option( self::OPT_DATA, [
 			'at'       => time(),
-			'property' => $prop,
+			'property' => implode( ', ', $props ),
 			'days'     => $days,
 			'from'     => $start,
 			'to'       => $end,
@@ -633,7 +893,9 @@ final class DZE_Netlinking {
 		echo '<th style="width:110px;">' . esc_html__( 'Position', 'dazont-ecom' ) . '</th>';
 		echo '<th style="width:110px;">' . esc_html__( 'Impressions', 'dazont-ecom' ) . '</th>';
 		echo '<th style="width:110px;">' . esc_html__( 'Clicks', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:110px;">' . esc_html__( 'Units sold', 'dazont-ecom' ) . '</th>';
 		echo '<th style="width:150px;">' . esc_html__( 'Clicks to gain', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:150px;">' . esc_html__( 'Units to gain', 'dazont-ecom' ) . '</th>';
 		echo '<th>' . esc_html__( 'Words to link it with', 'dazont-ecom' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $rows as $r ) {
@@ -643,7 +905,17 @@ final class DZE_Netlinking {
 			echo '<td>' . esc_html( number_format_i18n( (float) ( $r['pos'] ?? 0 ), 1 ) ) . '</td>';
 			echo '<td>' . esc_html( number_format_i18n( (int) ( $r['impr'] ?? 0 ) ) ) . '</td>';
 			echo '<td>' . esc_html( number_format_i18n( (int) ( $r['clicks'] ?? 0 ) ) ) . '</td>';
+			// CE QUE LA CATEGORIE A VENDU. Un tiret, et non un zero, quand la page
+			// n est pas une categorie : un article n a pas vendu zero, il ne vend
+			// pas, et les deux ne se lisent pas pareil.
+			$units = (int) ( $r['units'] ?? 0 );
+			$tid   = (int) ( $r['tid'] ?? 0 );
+			echo '<td>' . ( $tid ? esc_html( number_format_i18n( $units ) ) : '<span class="description">—</span>' ) . '</td>';
 			echo '<td><strong>+' . esc_html( number_format_i18n( (int) round( (float) ( $r['gain'] ?? 0 ) ) ) ) . '</strong> <span class="description">' . esc_html__( 'est.', 'dazont-ecom' ) . '</span></td>';
+			$worth = (float) ( $r['worth'] ?? 0 );
+			echo '<td>' . ( $worth > 0
+				? '<strong>+' . esc_html( number_format_i18n( $worth, $worth < 10 ? 1 : 0 ) ) . '</strong> <span class="description">' . esc_html__( 'est.', 'dazont-ecom' ) . '</span>'
+				: '<span class="description">—</span>' ) . '</td>';
 			echo '<td>';
 			foreach ( (array) ( $r['terms'] ?? [] ) as $t ) {
 				echo '<span class="dze-mesh-chip" style="display:inline-block;margin:0 4px 4px 0;padding:1px 7px;border:1px solid #dcdcde;border-radius:10px;font-size:12px;">' . esc_html( (string) ( $t['q'] ?? '' ) ) . '</span>';
@@ -652,7 +924,13 @@ final class DZE_Netlinking {
 		}
 		echo '</tbody></table>';
 		echo '<p class="description" style="max-width:980px;margin-top:10px;">';
-		esc_html_e( 'The impressions and the clicks are what Google measured. "Clicks to gain" is an estimate — what the page would do at about fifth place, against what it does now — and it is here to RANK the pages against one another, not to promise a figure.', 'dazont-ecom' );
+		esc_html_e( 'The impressions and the clicks are what Google measured, and the units are what the category actually sold.', 'dazont-ecom' );
+		echo ' ';
+		esc_html_e( 'Units and worth are counted across ALL languages of the same category: the shop sells almost entirely in English, so counting each page on its own sales would bury every translated page under a nought. What the sales prove is that the SUBJECT earns — and it is the subject a link pushes, in whichever language you place it.', 'dazont-ecom' );
+		echo ' ';
+		esc_html_e( '"Clicks to gain" and "Units to gain" are ESTIMATES — the first is what the page would do at about fifth place against what it does now, the second turns that into units at this category\'s own units-per-click, which overstates because sales come from every source and not only from Google. Both are here to RANK the pages against one another, never to promise a figure.', 'dazont-ecom' );
+		echo ' ';
+		esc_html_e( 'It counts UNITS and never money: this shop takes orders in eight currencies or more, and the analytics table keeps each order in its own, so adding them would produce a number that means nothing. A unit sold is a unit sold anywhere.', 'dazont-ecom' );
 		echo '</p>';
 		?>
 		<script>

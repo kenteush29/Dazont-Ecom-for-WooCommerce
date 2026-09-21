@@ -15,6 +15,7 @@ define( 'DAY_IN_SECONDS', 86400 );
 define( 'DZE_VERSION', 'test' );
 define( 'DZE_DIR', __DIR__ . '/../' . $dir . '/' );
 define( 'DZE_FILE', __FILE__ );
+define( 'ARRAY_A', 'ARRAY_A' );
 
 function __( $s, $d = '' ) { return $s; }
 function esc_attr( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
@@ -43,6 +44,38 @@ function wp_parse_url( $u, $c = -1 ) { return parse_url( $u, $c ); }
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (int) $d ); }
 $GLOBALS['opts'] = [];
 $GLOBALS['tr']   = [];
+
+/**
+ * WPML, reduit a ce que ce fichier interroge : quel groupe de traduction
+ * porte quel terme, et dans quelle langue chaque terme est ecrit.
+ */
+class DZE_Wpml {
+	public static function is_active() { return ! empty( $GLOBALS['wpml_terms'] ); }
+	public static function has_table( $t ) { return true; }
+}
+class DZE_Category_Content {
+	public static function default_lang() { return 'en'; }
+	public static function lang_code( $tid ) { return $GLOBALS['wpml_lang'][ (int) $tid ] ?? ''; }
+}
+class dze_fake_wpdb {
+	public $prefix = 'wp_';
+	public $terms = 'wp_terms';
+	public $term_taxonomy = 'wp_term_taxonomy';
+	public $term_relationships = 'wp_term_relationships';
+	public function get_results( $q, $mode = null ) {
+		// La seule requete que ces tests exercent : terme -> groupe de traduction.
+		$out = [];
+		foreach ( (array) ( $GLOBALS['wpml_terms'] ?? [] ) as $tid => $trid ) {
+			$out[] = [ 'tid' => (string) $tid, 'trid' => (string) $trid ];
+		}
+		return $out;
+	}
+	public function get_var( $q ) { return null; }
+	public function prepare( $q, ...$a ) { return $q; }
+}
+$GLOBALS['wpdb'] = new dze_fake_wpdb();
+$GLOBALS['wpml_terms'] = [];
+$GLOBALS['wpml_lang']  = [];
 
 require __DIR__ . '/../' . $dir . '/includes/class-netlinking.php';
 
@@ -126,6 +159,65 @@ echo "\nET IL NE PRETEND PAS CONNAITRE LES BACKLINKS\n";
 // dit lui-meme plutot que de laisser croire.
 ok( 'l ecran annonce ce que Google ne donne pas',
 	false !== strpos( $src, 'What Search Console does not give' ), true );
+
+echo "\nLES VENTES DECIDENT, PAS LE TRAFIC\n";
+// « La data GSC doit être recroisée avec les ventes au niveau des catégories
+// produits. » Sans cela, une categorie a 4 000 impressions qui ne vend rien
+// passait devant une a 800 qui vend : du trafic pour du trafic.
+// La carte que slug_map() fabrique vraiment : une clef par langue, PLUS une
+// clef nue qui sert de filet quand le domaine ne dit rien.
+$map = [ 'en|bottes' => 11, 'en|casques' => 22, 'fr|bottes' => 33, '|bottes' => 11, '|casques' => 22 ];
+// La page qui vend peu de clics mais beaucoup d argent doit passer devant.
+$vend = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
+$creux = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 10.0, 'impr' => 4000.0, 'ctr' => 0.0025, 'pos' => 12.0, 'terms' => [] ];
+$sales = [ 11 => [ 'units' => 400 ], 22 => [ 'units' => 0 ] ];
+$r = DZE_Netlinking::rank( [ $creux, $vend ], $sales, $map );
+ok( 'la categorie qui vend passe devant', $r[0]['url'], $vend['url'] );
+ok( 'et celle qui ne vend rien suit',     $r[1]['url'], $creux['url'] );
+// SANS VENTES DU TOUT, on retombe sur les clics : un article n est pas jete.
+$r2 = DZE_Netlinking::rank( [ $vend, $creux ], [], $map );
+ok( 'sans ventes, le trafic decide',      $r2[0]['url'], $creux['url'] );
+
+echo "\nUNE PAGE QUI N EST PAS UNE CATEGORIE LE DIT\n";
+// Un article n a pas vendu zero : il ne vend pas. Le tableau met un tiret, et
+// ca commence ici — le term_id vaut 0, et rien ne le confond avec une vente nulle.
+$blog = [ 'url' => 'https://kula-tactical.com/blog/comment-choisir', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
+$one  = DZE_Netlinking::rank( [ $blog ], $sales, $map )[0];
+ok( 'un article ne porte aucune categorie', (int) $one['tid'], 0 );
+ok( 'et aucune vente inventee',             (float) $one['worth'], 0.0 );
+
+echo "\nLE DOMAINE DONNE LA LANGUE\n";
+// Cinq langues, cinq domaines : c est l adresse qui dit dans quel catalogue
+// chercher le slug. Le meme slug existe souvent dans deux langues.
+$GLOBALS['opts']['icl_sitepress_settings'] = [ 'language_domains' => [ 'fr' => 'kula-tactical.fr' ] ];
+ok( 'le domaine francais donne le francais', DZE_Netlinking::lang_of_host( 'kula-tactical.fr' ), 'fr' );
+ok( 'et le principal la langue par defaut',  DZE_Netlinking::lang_of_host( 'kula-tactical.com' ), 'en' );
+ok( 'le slug francais rend le terme francais',
+	DZE_Netlinking::term_of_url( 'https://kula-tactical.fr/bottes', $map ), 33 );
+ok( 'et le slug anglais le terme anglais',
+	DZE_Netlinking::term_of_url( 'https://kula-tactical.com/bottes', $map ), 11 );
+// UN DOMAINE INCONNU N EST PAS UNE IMPASSE : le slug seul vaut mieux que rien.
+ok( 'un domaine inconnu retombe sur le slug',
+	DZE_Netlinking::term_of_url( 'https://ailleurs.test/casques', $map ), 22 );
+ok( 'et une racine ne designe aucune categorie',
+	DZE_Netlinking::term_of_url( 'https://kula-tactical.com/', $map ), 0 );
+
+echo "\nLES VENTES SONT COMPTEES SUR TOUT LE GROUPE DE TRADUCTION\n";
+// La boutique vend a 95 % en anglais. Compter chaque page sur ses seules
+// ventes enterrerait les quatre catalogues traduits sous un zero — alors que
+// ce que la vente prouve, c est que le SUJET rapporte.
+$GLOBALS['wpml_terms'] = [ 11 => 900, 33 => 900, 22 => 901 ];
+$spread = DZE_Netlinking::spread_across_languages( [ 11 => [ 'units' => 400 ] ] );
+ok( 'la page francaise herite du sujet', $spread[33]['units'] ?? 0, 400 );
+ok( 'et l anglaise garde les siennes',   $spread[11]['units'] ?? 0, 400 );
+ok( 'un autre sujet n herite de rien',   isset( $spread[22] ), false );
+
+// ET JAMAIS EN ARGENT : la table de WooCommerce garde chaque commande dans sa
+// devise, et cette boutique en encaisse huit. La premiere mesure a rendu
+// 677 120 pour trente unites — un melange de dollars et de livres turques.
+$src2 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
+ok( 'la recette n est jamais additionnee', false !== strpos( $src2, 'product_net_revenue' ), false );
+ok( 'et le tableau ne montre aucune devise', false !== strpos( $src2, 'get_woocommerce_currency_symbol' ), false );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
