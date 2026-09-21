@@ -4408,6 +4408,14 @@ final class DZE_Translate {
 				/* translators: 1: how many objects, 2: how many fields */
 				'allDone'    => __( '%1$s written, %2$s field(s) in all.', 'dazont-ecom' ),
 				'allNone'    => __( 'Nothing was waiting any more.', 'dazont-ecom' ),
+				// LE REFUS GROUPE DIT COMBIEN DE LIGNES IL EMPORTE : « tout jeter »
+				// sans chiffre, sur une liste dont on ne voit que le haut, est une
+				// question a laquelle personne ne peut repondre en confiance.
+				/* translators: %s: how many rows are ticked */
+				'dropAsk'    => __( 'Throw away what came back for the %s ticked row(s)? It cannot be recovered; the objects stay exactly as they are.', 'dazont-ecom' ),
+				'dropSending'=> __( 'Throwing away…', 'dazont-ecom' ),
+				/* translators: %s: how many were thrown away */
+				'dropDone'   => __( '%s thrown away.', 'dazont-ecom' ),
 				'peek'       => __( 'Read it here', 'dazont-ecom' ),
 				'peekHide'   => __( 'Hide', 'dazont-ecom' ),
 				'peekLoad'   => __( 'Reading…', 'dazont-ecom' ),

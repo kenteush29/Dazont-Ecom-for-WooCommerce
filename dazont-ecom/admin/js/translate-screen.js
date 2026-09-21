@@ -368,7 +368,8 @@
 		if (this.id === 'dze-tr-wall') {
 			$('.dze-tr-wpick').prop('checked', $(this).is(':checked'));
 		}
-		$('#dze-tr-acceptsel').prop('disabled', pickedRefs().length === 0);
+		var none = pickedRefs().length === 0;
+		$('#dze-tr-acceptsel, #dze-tr-dropsel').prop('disabled', none);
 	});
 	function acceptMany(refs) {
 		if (!window.confirm(i18n.allAsk)) { return; }
@@ -389,6 +390,38 @@
 	}
 	$(document).on('click', '#dze-tr-acceptall', function () { acceptMany([]); });
 	$(document).on('click', '#dze-tr-acceptsel', function () { acceptMany(pickedRefs()); });
+
+	// REFUSER EN GROUPE. « Il manque le bouton Discard. » Accepter sept lignes
+	// coutait une presse et en refuser sept en coutait sept : une liste dont
+	// seul l accord est groupe pousse a tout accepter.
+	//
+	// UNE LIGNE APRES L AUTRE, jamais toutes ensemble : chacune est une
+	// ecriture, et sept ecritures lancees de front sur un hebergement mutualise
+	// sont sept chances d en voir aboutir la moitie. C est plus lent et c est
+	// le seul moyen de pouvoir dire combien sont parties.
+	function refuseMany(refs) {
+		if (!refs.length) { return; }
+		if (!window.confirm(sprintf(i18n.dropAsk, refs.length))) { return; }
+		var $b = $('#dze-tr-acceptall, #dze-tr-acceptsel, #dze-tr-dropsel').prop('disabled', true);
+		var $st = $('#dze-tr-allstate').removeClass('is-ko').text(i18n.dropSending);
+		var left = refs.slice(), done = 0;
+		(function next() {
+			if (!left.length) {
+				$st.text(sprintf(i18n.dropDone, done));
+				// Recharger : les compteurs, les pastilles et les onglets se lisent
+				// tous a l ouverture de la page.
+				window.setTimeout(function () { window.location.reload(); }, 900);
+				return;
+			}
+			var ref = left.shift();
+			post('dze_tr_decide', { ref: ref, how: 'refuse' })
+				.done(function (r) {
+					if (r && r.success) { done++; $('tr[data-ref="' + ref + '"]').remove(); }
+				})
+				.always(function () { next(); });
+		}());
+	}
+	$(document).on('click', '#dze-tr-dropsel', function () { refuseMany(pickedRefs()); });
 
 	// LIRE UNE LIGNE SANS QUITTER LA LISTE. Une seule ligne ouverte a la fois :
 	// huit tableaux deplies l un sous l autre, c'est la page qu'on fuyait.

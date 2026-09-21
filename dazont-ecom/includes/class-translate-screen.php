@@ -1669,6 +1669,17 @@ trait DZE_Translate_Screen {
 			?></button>
 			<button type="button" class="button" id="dze-tr-acceptsel" disabled
 				title="<?php esc_attr_e( 'The same, for the ticked rows only.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Accept the ticked', 'dazont-ecom' ); ?></button>
+			<?php
+			// ET REFUSER EN GROUPE, PARCE QU ACCEPTER EN GROUPE EXISTE.
+			//
+			// « Il manque le bouton Discard. » La barre ne savait dire que oui :
+			// on pouvait accepter sept lignes d une presse et il fallait sept
+			// presses pour en refuser sept. Une liste ou l accord est groupe et
+			// le refus ne l est pas pousse a tout accepter, ce qui est exactement
+			// le contraire d une relecture.
+			?>
+			<button type="button" class="button dze-cb-no" id="dze-tr-dropsel" disabled
+				title="<?php esc_attr_e( 'Throws away what came back for the ticked rows. The objects and their translations are not touched.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Discard the ticked', 'dazont-ecom' ); ?></button>
 			<span class="description" id="dze-tr-allstate"></span>
 		</p>
 		<table class="widefat striped" style="max-width:980px;">
@@ -1756,7 +1767,7 @@ trait DZE_Translate_Screen {
 						?>
 						<button type="button" class="button dze-tr-peek"><?php esc_html_e( 'Read it here', 'dazont-ecom' ); ?></button>
 						<a class="button button-primary dze-tr-open" href="<?php echo esc_url( self::editor_url( $r ) ); ?>"><?php esc_html_e( 'Review', 'dazont-ecom' ); ?></a>
-						<button type="button" class="button dze-tr-refuse" title="<?php esc_attr_e( 'Throws away what was translated. The object and its translations are not touched.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button dze-tr-refuse" title="<?php esc_attr_e( 'Throws away what was translated. The object and its translations are not touched.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
 					</td>
 				</tr>
 			<?php endforeach; ?>
