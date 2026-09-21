@@ -951,36 +951,70 @@ final class DZE_Automation {
 		// PHASE ONE — the holes in the mesh: the pages the site points at
 		// least, mended from the pages closest to them. Always first: a page
 		// nobody can reach is worth more than a page that reads a little thin.
-		foreach ( 'out' === $only ? [] : DZE_Mesh::plan( max( 1, $n ) * 3, $judge ) as $row ) {
-			$take( [
-				'tid'   => (int) $row['id'],
-				'name'  => (string) $row['name'],
-				'why'   => (string) $row['why'],
-				'kind'  => (string) $row['kind'],
-				'urls'  => (array) $row['urls'],
-				'phase' => 'in',
-			] );
-			if ( count( $out ) >= $n ) {
-				return $out;
+		// LE VIVIER DOIT DEPASSER CE QUI EST DEJA RETENU.
+		//
+		// « Rien n a tourne depuis un long moment. » La passe automatique demande
+		// UNE page, le vivier valait trois fois la demande — donc trois pages —
+		// et les trois premieres attendaient la relecture de la boutique. Tout
+		// etait ecarte, rien n etait propose, et cela se reproduisait toutes les
+		// dix minutes sans laisser la moindre trace. Le travail reel, lui,
+		// attendait juste derriere : demander deux pages en rendait deux.
+		//
+		// Le vivier s elargit donc tant que tout ce qu il contient est retenu,
+		// et s arrete des que la liste ne rend plus rien de neuf ou que le
+		// plafond est atteint : chercher sans fin coute autant que ne pas
+		// chercher du tout.
+		$pool = max( 1, $n ) * 3;
+		$cap  = max( 60, $n * 30 );
+		while ( 'out' !== $only ) {
+			$rows = DZE_Mesh::plan( $pool, $judge );
+			foreach ( $rows as $row ) {
+				$take( [
+					'tid'   => (int) $row['id'],
+					'name'  => (string) $row['name'],
+					'why'   => (string) $row['why'],
+					'kind'  => (string) $row['kind'],
+					'urls'  => (array) $row['urls'],
+					'phase' => 'in',
+				] );
+				if ( count( $out ) >= $n ) {
+					return $out;
+				}
 			}
+			// La liste a rendu moins qu on lui demandait : elle n a plus rien.
+			if ( count( $rows ) < $pool || $pool >= $cap ) {
+				break;
+			}
+			$pool = min( $cap, $pool * 3 );
 		}
 
 		// PHASE TWO — the work that used to be done by hand: the pages under
 		// their own outgoing quota. No addresses travel with these: the page's
 		// OWN pool decides, and on a shop that pool ranks product categories
 		// above articles, which is the direction that earns the money.
-		foreach ( 'in' === $only ? [] : DZE_Mesh::thin( max( 1, $n ) * 3 ) as $row ) {
-			$take( [
-				'tid'   => (int) $row['id'],
-				'name'  => (string) $row['title'],
-				'why'   => self::thin_said( (int) $row['short'] ),
-				'kind'  => (string) $row['kind'],
-				'urls'  => [],
-				'phase' => 'out',
-			] );
-			if ( count( $out ) >= $n ) {
+		// MEME PIEGE, MEME REMEDE : la deuxieme liste se demandait elle aussi
+		// trois fois la demande, et se retrouvait vide des que ses premieres
+		// lignes etaient deja au travail.
+		$pool = max( 1, $n ) * 3;
+		while ( 'in' !== $only ) {
+			$rows = DZE_Mesh::thin( $pool );
+			foreach ( $rows as $row ) {
+				$take( [
+					'tid'   => (int) $row['id'],
+					'name'  => (string) $row['title'],
+					'why'   => self::thin_said( (int) $row['short'] ),
+					'kind'  => (string) $row['kind'],
+					'urls'  => [],
+					'phase' => 'out',
+				] );
+				if ( count( $out ) >= $n ) {
+					return $out;
+				}
+			}
+			if ( count( $rows ) < $pool || $pool >= $cap ) {
 				break;
 			}
+			$pool = min( $cap, $pool * 3 );
 		}
 		return $out;
 	}
@@ -2124,11 +2158,18 @@ final class DZE_Automation {
 			$out .= $chip(
 				'is-on',
 				'controls-play',
+				// LA PASTILLE DIT L ALLURE REELLE. « Incoherence. Affiche 10 a day
+				// dans la pastille » au-dessus d un reglage sans limite : elle lisait
+				// le nombre sans regarder s il s applique.
 				'month' === $conf['cadence']
 					? __( 'Monthly', 'dazont-ecom' )
-					/* translators: %s: how many items a day */
-					: sprintf( __( '%s a day', 'dazont-ecom' ), number_format_i18n( $conf['per_day'] ) ),
-				__( 'Running on its own, at this rhythm', 'dazont-ecom' )
+					: ( self::takes_all( $id )
+						? __( 'Always on', 'dazont-ecom' )
+						/* translators: %s: how many items a day */
+						: sprintf( __( '%s a day', 'dazont-ecom' ), number_format_i18n( $conf['per_day'] ) ) ),
+				( 'month' !== $conf['cadence'] && self::takes_all( $id ) )
+					? __( 'Running on its own, with no daily limit', 'dazont-ecom' )
+					: __( 'Running on its own, at this rhythm', 'dazont-ecom' )
 			);
 		}
 		// PAGES NOTHING POINTS AT — and only this task mends them. "Il est
@@ -2417,11 +2458,14 @@ final class DZE_Automation {
 							<label>
 								<select name="<?php echo esc_attr( $name ); ?>[pace]" class="dze-auto-pace" data-ration="<?php echo $dze_tr ? '1' : '0'; ?>">
 									<option value="all" <?php selected( 'all', (string) $conf['pace'] ); ?>><?php
+										// « Son nom est stupide. Ca devrait etre autre chose comme :
+										// Always on. Et l autre daily limit. » Les deux etiquettes
+										// decrivaient un fonctionnement ; elles nomment un ETAT.
 										echo $dze_tr
-											? esc_html__( 'Everything it can', 'dazont-ecom' )
-											: esc_html__( 'Everything it can, no daily limit', 'dazont-ecom' );
+											? esc_html__( 'Always on (posts capped below)', 'dazont-ecom' )
+											: esc_html__( 'Always on', 'dazont-ecom' );
 									?></option>
-									<option value="daily" <?php selected( 'daily', (string) $conf['pace'] ); ?>><?php esc_html_e( 'A set number per day, then stop', 'dazont-ecom' ); ?></option>
+									<option value="daily" <?php selected( 'daily', (string) $conf['pace'] ); ?>><?php esc_html_e( 'Daily limit', 'dazont-ecom' ); ?></option>
 								</select>
 							</label>
 							<?php // LES DEUX ETATS SONT ECRITS, UN SEUL EST MONTRE : le reglage
