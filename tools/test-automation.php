@@ -1443,7 +1443,10 @@ DZE_Automation::render_page();
 $page2 = (string) ob_get_clean();
 unset( $_GET['tab'] );
 ok( 'the record is what is drawn',       false !== strpos( $page2, 'dze-auto-past' ), true );
-ok( 'and not the tasks beside it',       false !== strpos( $page2, 'dze-auto-task' ), false );
+// LE PANNEAU LUI-MEME, pas le mot. Le script de la page nomme « .dze-auto-task »
+// dans un selecteur : chercher le mot nu rendait cette verification vraie pour
+// une ligne de JavaScript, donc incapable de voir un panneau reellement dessine.
+ok( 'and not the tasks beside it',       false !== strpos( $page2, 'dze-set dze-auto-task' ), false );
 // ONE SCRIPT FOR THE SCREEN: the undo lives here and the run buttons on the
 // other view, and a handler written twice is two handlers to keep in step.
 ok( 'the screen still carries its script', false !== strpos( $page2, "'.dze-auto-undo'" ), true );
