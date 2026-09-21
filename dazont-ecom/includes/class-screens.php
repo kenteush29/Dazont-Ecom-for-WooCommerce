@@ -170,15 +170,20 @@ final class DZE_Screens {
 			// A TAB OF CONTENT while the diagnostic hosts it, a page of its own
 			// otherwise: switching one module off must never hide a function
 			// that has nothing to do with it.
-			'review'       => [
-				// THE INBOX. "Content to review" named one of the things on it and
-				// hid the rest: it holds category descriptions, article links,
-				// photographs and product texts. What it IS, is the list of what
-				// waits for a decision.
-				'label'  => __( 'To review', 'dazont-ecom' ),
-				'slug'   => 'dazont-ecom-queue',
-				'module' => 'queue',
-			],
+			// L ECRAN CENTRAL A DISPARU. « Dans ce cas on supprime le menu to
+			// review. On simplifie plutot que de complexifier. »
+			//
+			// Il tenait la liste de tout ce qui attend une decision. A force,
+			// chaque module a repris la sienne : le maillage a ses onglets, les
+			// traductions ont toujours eu les leurs, le banc des produits
+			// accepte sur la ligne du produit, et les descriptions de categorie
+			// se relisent desormais la ou elles se fabriquent. Il ne restait
+			// qu une entree de menu qui promettait tout et montrait presque
+			// rien — et dont le compte additionnait des choses qu elle
+			// n affichait pas, ce qui a coute deux corrections.
+			//
+			// DZE_Queue::review_url() dit maintenant ou chaque genre de travail
+			// se relit, en un seul endroit.
 			// ONE BENCH, ONE SUBJECT PER TAB. The categories had a menu entry of
 			// their own that held three lines and a switch — "menu Categories
 			// existant et vide, aucun sens" — while the products had a bench.
@@ -438,9 +443,6 @@ final class DZE_Screens {
 	public static function menu_order(): array {
 		return [
 			'dashboard',
-			// LA BOITE DE RECEPTION, juste apres laccueil : cest la reponse a
-			// « je ne comprends pas la ou il faut donner de lattention ».
-			'review',
 			'content',
 			'bulk',
 			'linking',

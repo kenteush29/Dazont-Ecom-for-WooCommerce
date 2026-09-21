@@ -338,6 +338,17 @@ $wpdb            = $GLOBALS['wpdb'];
 /** The writing queue: what was asked of it, and nothing done. */
 class DZE_Queue {
 	public const NONCE = 'dze_queue';
+	/**
+	 * OU CE TRAVAIL SE RELIT. L ecran central a disparu — « on supprime le
+	 * menu to review, on simplifie plutot que de complexifier » — et c est
+	 * cette fonction qui dit, en un seul endroit, quel ecran de module sait
+	 * montrer quel genre de travail.
+	 */
+	public static function review_url( array $kinds = [] ): string {
+		return $kinds && ! array_diff( $kinds, [ 'cat_desc' ] )
+			? 'http://dze.test/admin.php?page=dazont-content-bulk&tab=categories'
+			: 'http://dze.test/admin.php?page=dazont-ecom-linking&tab=review';
+	}
 	public static array $added = [];
 	public static bool $refuse = false;
 	public static function add( string $kind, array $ids, bool $auto = false, array $payload = [] ): int {
@@ -1040,9 +1051,14 @@ ok( 'nothing waiting, nothing claimed',  DZE_Automation::waiting_for( 'mesh_link
 $GLOBALS['review_by_kind'] = [ 'cat_links' => 2, 'post_links' => 3, 'cat_desc' => 4 ];
 ok( 'the linking task counts both its passes', DZE_Automation::waiting_for( 'mesh_links' )['n'], 5 );
 ok( 'and the writing task counts its own',     DZE_Automation::waiting_for( 'cat_desc' )['n'], 4 );
-// A MESSAGE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN.
-ok( 'the figure is a link to the list',
-	false !== strpos( DZE_Automation::waiting_for( 'mesh_links' )['url'], 'tab=review' ), true );
+// A MESSAGE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN — and since the
+// central list was taken out, the screen it names is the module's own.
+ok( 'the figure is a link to the linking screen',
+	DZE_Automation::waiting_for( 'mesh_links' )['url'],
+	'http://dze.test/admin.php?page=dazont-ecom-linking&tab=review' );
+ok( 'and the writing task points at the bench',
+	DZE_Automation::waiting_for( 'cat_desc' )['url'],
+	'http://dze.test/admin.php?page=dazont-content-bulk&tab=categories' );
 // The shop-wide task writes nothing to the queue: what it leaves is a pile of
 // suggestions on the screen that owns them.
 $GLOBALS['pending_events'] = 3;
@@ -1206,8 +1222,11 @@ ok( 'in the words the list uses',
 ok( 'nothing left over, nothing said',  false !== strpos( $list, 'dze-auto-waiting' ), false );
 $GLOBALS['review_by_kind'] = [ 'cat_links' => 8, 'post_links' => 4, 'cat_desc' => 1 ];
 $more = dze_waiting();
-ok( 'the rest points at the whole list', false !== strpos( $more, '10 more in Content to review' ), true );
-ok( 'and it is a way to that screen',    false !== strpos( $more, 'tab=review' ), true );
+// IL NOMME CE QUI RESTE, PLUS UN ECRAN SUPPRIME. « 10 more in Content to
+// review » designait une page que WordPress refuse desormais : la phrase
+// dit ce qui attend, et le lien mene a lecran qui le relit.
+ok( 'the rest says what is left',       false !== strpos( $more, '10 more waiting for your yes or no' ), true );
+ok( 'and it is a way to that screen',   false !== strpos( $more, 'tab=review' ), true );
 
 // A TASK WHOSE WORK WAITS SOMEWHERE ELSE SAYS SO, AND NAMES WHERE: the
 // calendar's suggestions are not queue rows and cannot be settled here.
@@ -1691,8 +1710,14 @@ $dze_ch  = DZE_Automation::chips_html( 'mesh_links' );
 $dze_src = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
 ok( 'une pastille avec destination est un lien, pas un span',
 	false !== strpos( $dze_src, "'<a class=\"dze-auto-chip is-link '" ), true );
-ok( 'ce qui attend une decision recoit ladresse de la liste, filtree',
-	false !== strpos( $dze_src, "add_query_arg( [ 'kind' => implode( ',', \$jobs ) ], DZE_Screens::url( 'review' ) )" ), true );
+// ET CETTE DESTINATION EST L ECRAN DU MODULE, plus un ecran central.
+// « On supprime le menu to review. On simplifie plutot que de
+// complexifier. » DZE_Queue::review_url() dit, en un seul endroit, quel
+// ecran sait montrer quel genre de travail.
+ok( 'ce qui attend une decision recoit l ecran qui sait le montrer',
+	false !== strpos( $dze_src, 'DZE_Queue::review_url( $jobs )' ), true );
+ok( 'et plus l ecran central, qui n existe plus',
+	false !== strpos( $dze_src, "DZE_Screens::url( 'review' )" ), false );
 ok( 'ce qui est ecrit recoit ladresse des pages ecrites',
 	false !== strpos( $dze_src, "__( 'Written to the shop — press to see which pages', 'dazont-ecom' ), self::past_url( \$id )" ), true );
 ok( 'et cette adresse nomme la tache',

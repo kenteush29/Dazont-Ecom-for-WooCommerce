@@ -1394,7 +1394,7 @@ final class DZE_Diagnostic {
 			wp_send_json_error( [ 'message' => __( 'It is already in the review list.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [
-			'url'     => DZE_Queue::url(),
+			'url'     => DZE_Queue::review_url( [ $kind ] ),
 			'message' => _n( 'Sent — it waits for you to accept it.', 'Sent — they wait for you to accept them.', $added, 'dazont-ecom' ),
 		] );
 	}
@@ -3582,7 +3582,7 @@ final class DZE_Diagnostic {
 					printf(
 						'%1$s<br /><a href="%2$s">%3$s</a> <span class="description">%4$s</span>',
 						esc_html( DZE_Queue::label_for( (string) $dze_was['kind'], $oid ) ),
-						esc_url( DZE_Queue::url() ),
+						esc_url( DZE_Queue::review_url( [ (string) $dze_was['kind'] ] ) ),
 						esc_html__( 'Review', 'dazont-ecom' ),
 						esc_html( $dze_when ? wp_date( $fmt, $dze_when ) : '' )
 					);
@@ -3627,7 +3627,7 @@ final class DZE_Diagnostic {
 				if ( $job ) {
 					printf(
 						'<a href="%1$s">%2$s</a>',
-						esc_url( DZE_Queue::url() ),
+						esc_url( DZE_Queue::review_url( [ (string) ( $job['kind'] ?? '' ) ] ) ),
 						esc_html( 'review' === ( $job['status'] ?? '' )
 							? __( 'Waiting for you', 'dazont-ecom' )
 							: __( 'Being written…', 'dazont-ecom' ) )

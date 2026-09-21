@@ -60,7 +60,6 @@ $dze_where = [
 	'restock'      => [ 'class-restock.php', 'MENU_SLUG' ],
 	'fbt'          => [ 'class-fbt.php', 'MENU_SLUG' ],
 	'sourcing'     => [ 'class-explorer.php', 'MENU_SLUG' ],
-	'review'       => [ 'class-queue.php', 'MENU_SLUG' ],
 	'bulk'         => [ 'class-content.php', 'BULK_SLUG' ],
 	'shortcodes'   => [ 'class-shortcodes.php', 'MENU_SLUG' ],
 	'setup'        => [ 'class-setup.php', 'MENU_SLUG' ],
@@ -139,18 +138,21 @@ ok( 'letabli a son adresse a lui',
 ok( 'a screen not in the catalogue answers nothing', DZE_Screens::name( 'nowhere' ), '' );
 ok( 'and so does a tab the page has not got', DZE_Screens::url( 'logs', 'nowhere' ), '' );
 
-echo "\nA HOSTED PAGE KEEPS ITS NAME AND ANSWERS WITH ITS HOST'S ADDRESS\n";
-// Content to review is a tab of Content while the diagnostic hosts it. A
-// sentence written for the page — there are several — must still land.
-// LA LISTE UNIQUE NEST PLUS HEBERGEE : elle est la boite de reception.
-ok( 'la liste unique nest hebergee par personne', DZE_Screens::hosted_by( 'review' ), null );
-ok( 'its name is its own',                    DZE_Screens::name( 'review' ), 'Dazont Ecom → To review' );
-ok( 'and its address is its own',
-	DZE_Screens::url( 'review' ), 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-queue' );
+echo "\nLA LISTE CENTRALE NEXISTE PLUS : CHAQUE MODULE RELIT SON TRAVAIL\n";
+// « Dans ce cas on supprime le menu to review. On simplifie plutot que de
+// complexifier. » Un ecran de plus a retenir pour une question que chaque
+// module sait deja poser chez lui : le maillage a son onglet, le banc des
+// categories a sa liste sous le banc, les traductions la leur.
+//
+// ELLE EST DONC ABSENTE DU CATALOGUE, et une page absente du catalogue
+// na ni nom ni adresse — cest ce qui empeche une phrase ou un lien de
+// la nommer encore quelque part sans que rien ne le dise.
+ok( 'elle nest plus au catalogue',            isset( DZE_Screens::catalog()['review'] ), false );
+ok( 'elle na plus de nom',                    DZE_Screens::name( 'review' ), '' );
+ok( 'elle na plus dadresse',                  DZE_Screens::url( 'review' ), '' );
+ok( 'et elle nest plus proposee',             DZE_Screens::offered( 'review' ), false );
 $GLOBALS['off'] = [ 'diagnostic' ];
-ok( 'with the host off it stands alone',      DZE_Screens::hosted_by( 'review' ), null );
-ok( 'at its own address',
-	DZE_Screens::url( 'review' ), 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-queue' );
+ok( 'et le diagnostic eteint ny change rien', DZE_Screens::url( 'review' ), '' );
 ok( 'and the host itself is not offered',     DZE_Screens::offered( 'content' ), false );
 ok( 'nor named',                              DZE_Screens::name( 'content' ), 'Dazont Ecom → Diagnostic' );
 ok( 'but has no address',                     DZE_Screens::url( 'content' ), '' );
@@ -187,7 +189,15 @@ ok( 'a tab phrase is there',              isset( $dze_links['Dazont Ecom → Mar
 ok( 'le maillage est une page a lui',
 	$dze_links['Dazont Ecom → Internal linking'] ?? '', 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-linking' );
 ok( 'a settings phrase is there',         isset( $dze_links['Settings → Email campaigns'] ), true );
-ok( 'a hosted page is there by its own name', isset( $dze_links['Dazont Ecom → To review'] ), true );
+// ET AUCUNE PHRASE NE LA NOMME PLUS. Les phrases sont ce que le moteur de
+// recherche de ladmin propose : une entree vers une page supprimee est
+// une impasse que personne ne signale.
+ok( 'aucune phrase ne nomme la liste supprimee', isset( $dze_links['Dazont Ecom → To review'] ), false );
+// Les deux onglets qui la remplacent, eux, sont bien la.
+ok( 'le maillage a son onglet a relire',
+	isset( $dze_links['Dazont Ecom → Internal linking → To review'] ), true );
+ok( 'et les traductions le leur',
+	isset( $dze_links['Dazont Ecom → WPML Translations → To review'] ), true );
 ok( 'and every address is an admin one',
 	count( array_filter( $dze_links, static fn( $u ) => 0 === strpos( (string) $u, 'http://shop.test/wp-admin/' ) ) ),
 	count( $dze_links ) );
@@ -243,7 +253,6 @@ foreach ( [
 	'class-discounts.php'        => 'marketing',
 	'class-translate-screen.php' => 'translations',
 	'class-automation.php'       => 'automation',
-	'class-queue.php'            => 'review',
 	'class-content.php'          => 'bulk',
 	'class-shortcodes.php'       => 'shortcodes',
 	'class-setup.php'            => 'setup',
@@ -302,6 +311,13 @@ class DZE_Queue      {
 		$mesh = array_intersect( $k, [ 'cat_links', 'post_links' ] );
 		$n    = $mesh ? (int) ( $GLOBALS['dze_wait']['mesh'] ?? 0 ) : (int) $GLOBALS['dze_wait']['queue'];
 		return [ 'review' => $n ];
+	}
+	// LA LISTE CENTRALE A ETE SUPPRIMEE : cest cette fonction qui la remplace,
+	// et elle rend lecran du module qui relit ce genre de travail.
+	public static function review_url( array $k = [] ) {
+		return array_intersect( $k, [ 'cat_links', 'post_links' ] )
+			? DZE_Screens::url( 'linking', 'review' )
+			: DZE_Screens::url( 'bulk', 'categories' );
 	}
 }
 class DZE_Mesh       { const KINDS = [ 'cat_links', 'post_links' ]; const MENU_SLUG = 'dazont-ecom-linking'; }
@@ -490,35 +506,50 @@ echo "\nLA BOITE DE RECEPTION NOMME LES ECRANS, ET IL N'Y EN A QU'UNE\n";
 // un ecran tenant quatre travaux sans rapport. Un compte sur lequel on ne peut
 // pas agir a un seul endroit est un compte qui envoie chercher.
 $in_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-dashboard.php' );
-// CHAQUE LIGNE OUVRE LA LISTE UNIQUE, pre-filtree a son travail : une seconde
-// liste avec son propre compte est un compte qui peut contredire lautre.
+// CHAQUE LIGNE OUVRE LECRAN QUI RELIT SON PROPRE TRAVAIL. Elles ouvraient
+// toutes la meme liste centrale, pre-filtree ; cette liste a ete supprimee
+// — « on simplifie plutot que de complexifier » — et cest desormais le
+// routeur qui dit ou, depuis les genres de travail eux-memes.
 ok( 'le maillage a sa propre ligne',
-	false !== strpos( $in_src, "implode( ',', \$mesh ) ], DZE_Screens::url( 'review' )" ), true );
-ok( 'et les deux lignes ouvrent la meme liste',
-	substr_count( $in_src, "DZE_Screens::url( 'review' )" ) >= 2, true );
+	false !== strpos( $in_src, "DZE_Queue::review_url( \$mesh )" ), true );
+ok( 'et le reste ouvre letabli, ou il se relit',
+	false !== strpos( $in_src, "DZE_Screens::url( 'bulk' )" ), true );
+ok( 'et plus rien ne nomme lecran supprime',
+	false !== strpos( $in_src, "DZE_Screens::url( 'review' )" ), false );
 ok( 'le reste est pris par difference',
 	false !== strpos( $in_src, "array_diff( array_keys( DZE_Queue::kinds() ), \$mesh )" ), true );
 ok( 'et plus rien ne pointe vers longlet disparu',
 	false !== strpos( $in_src, "DZE_Screens::url( 'content', 'review' )" ), false );
-// ET L'ANCIENNE DESTINATION UNIQUE QUITTE LE MENU.
+// ET LA LISTE CENTRALE NA PLUS NI ENTREE, NI PAGE, NI BARRE DE FILTRES.
+//
+// « Dans ce cas on supprime le menu to review. On simplifie plutot que de
+// complexifier. » Le retrait avait deja ete tente une fois puis annule,
+// parce quil laissait trois listes de trois portees et AUCUNE vue de tout.
+// Ce nest plus vrai : lApercu recense les trois sources et envoie sur
+// lecran de chacune. La vue densemble existe, ailleurs, et mieux placee.
 $in_q = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-queue.php' );
-// ET ELLE RESTE AU MENU : cest la boite de reception. La retirer laissait la
-// boutique avec trois listes de trois portees differentes et AUCUNE liste de
-// tout — la seule chose que « je ne comprends pas ou donner de lattention »
-// demande vraiment.
-ok( 'la liste unique est au menu',
-	false !== strpos( $in_q, 'remove_submenu_page( $parent, self::MENU_SLUG );' ), false );
-ok( 'elle porte un filtre, pas des ecrans separes',
-	false !== strpos( $in_q, 'public static function rail( array $active ): void' ), true );
-ok( 'et le filtre voyage dans ladresse',
-	false !== strpos( $in_q, "isset( \$_GET['kind'] )" ), true );
-ok( 'mais sa page repond toujours',
-	false !== strpos( $in_q, "[ \$this, 'render' ]" ), true );
-ok( 'et lordre du menu la nomme, juste apres laccueil',
-	array_slice( DZE_Screens::menu_order(), 0, 2 ), [ 'dashboard', 'review' ] );
+ok( 'plus aucune entree de menu',
+	false !== strpos( $in_q, 'add_submenu_page' ), false );
+ok( 'plus de page autour de la table',
+	false !== strpos( $in_q, 'public function render(): void' ), false );
+ok( 'ni de barre de filtres a elle',
+	false !== strpos( $in_q, 'public static function rail(' ), false );
+// MAIS LA TABLE RESTE : cest elle que le maillage et le banc des categories
+// rappellent avec leur propre portee. Ce qui disparait est lenveloppe.
+ok( 'mais la table reste, portee par son hote',
+	false !== strpos( $in_q, 'public function body( array $kinds = [] ): void' ), true );
+ok( 'et un routeur dit ou chaque genre se relit',
+	false !== strpos( $in_q, 'public static function review_url( array $kinds = [] ): string' ), true );
+// ET LES ANCIENNES ADRESSES ATTERRISSENT ENCORE : une page qui nest plus
+// declaree ne repond pas « introuvable », WordPress repond « vous navez
+// pas lautorisation », ce qui se lit comme un droit perdu.
+ok( 'et les vieux signets sont renvoyes',
+	false !== strpos( $in_q, 'wp_safe_redirect( $to );' ), true );
+ok( 'et lordre du menu ne la nomme plus',
+	in_array( 'review', DZE_Screens::menu_order(), true ), false );
 // LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
 ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
-	'dashboard', 'review', 'content', 'bulk', 'linking', 'lab', 'translations', 'marketing',
+	'dashboard', 'content', 'bulk', 'linking', 'lab', 'translations', 'marketing',
 	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 
@@ -624,8 +655,8 @@ ok( 'la barre a sa classe a elle',
 	false !== strpos( $ab_src, 'dze-admin dze-auto dze-auto-strip' ), true );
 ok( 'elle compte ce qui attend',
 	false !== strpos( $ab_src, 'results are waiting for your yes or no' ), true );
-ok( 'et donne le chemin vers la liste, pre-filtree',
-	false !== strpos( $ab_src, "DZE_Screens::url( 'review' )" ), true );
+ok( 'et donne le chemin vers lecran qui relit ce travail',
+	false !== strpos( $ab_src, 'DZE_Queue::review_url( array_unique( $kinds ) )' ), true );
 $ab_css = file_get_contents( __DIR__ . '/../dazont-ecom/admin/css/content.css' );
 ok( 'et elle a un style discret', false !== strpos( $ab_css, '.dze-auto-strip {' ), true );
 // UN NOM POUR UNE CHOSE. « dze-auto-bar » est la barre de PROGRESSION

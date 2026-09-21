@@ -1749,8 +1749,11 @@ final class DZE_Mesh {
 			// the text when it is ready, rather than naming a tab to go and
 			// find.
 			'sent'     => __( 'Sent to the writing queue. Nothing is on the site yet: the text is written there, then waits for your yes or no.', 'dazont-ecom' ),
-			'reviewGo' => __( 'Content to review ↗', 'dazont-ecom' ),
-			'reviewUrl' => class_exists( 'DZE_Queue' ) ? DZE_Queue::url() : '',
+			'reviewGo' => __( 'See what is waiting ↗', 'dazont-ecom' ),
+			// L'ÉCRAN CENTRAL N'EXISTE PLUS : le maillage relit le maillage, sur
+			// son propre onglet « To review ». Un lien qui nommait un écran
+			// supprimé envoyait sur une page que WordPress refuse.
+			'reviewUrl' => class_exists( 'DZE_Queue' ) ? DZE_Queue::review_url( self::KINDS ) : '',
 			'nopick'   => __( 'Tick at least one page.', 'dazont-ecom' ),
 			'none'     => __( 'No page on this site is close enough to link to it. It needs a page written about its subject.', 'dazont-ecom' ),
 			'words'    => __( 'Chosen on wording alone — the writing key is not set, so nothing read these pages.', 'dazont-ecom' ),
@@ -1910,7 +1913,10 @@ final class DZE_Mesh {
 							if ( '' !== $busy ) {
 								echo '<span class="description dze-mesh-busy">' . esc_html( self::busy_said( $busy ) ) . '</span>';
 								if ( 'review' === $busy && class_exists( 'DZE_Queue' ) ) {
-									echo ' <a href="' . esc_url( DZE_Queue::url() ) . '" target="_blank" rel="noopener">' . esc_html__( 'Content to review ↗', 'dazont-ecom' ) . '</a>';
+									$dze_to = DZE_Queue::review_url( self::KINDS );
+									if ( '' !== $dze_to ) {
+										echo ' <a href="' . esc_url( $dze_to ) . '">' . esc_html__( 'See what is waiting ↗', 'dazont-ecom' ) . '</a>';
+									}
 								}
 							} else {
 								echo '<button type="button" class="button button-small dze-mesh-out"' . $off . '>' . esc_html__( 'Add internal links', 'dazont-ecom' ) . '</button>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.

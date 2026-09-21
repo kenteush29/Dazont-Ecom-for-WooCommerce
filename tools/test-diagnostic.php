@@ -374,7 +374,17 @@ class DZE_Queue {
 		$GLOBALS['queued'][] = [ 'kind' => $kind, 'ids' => $ids, 'auto' => $auto, 'payload' => $payload ];
 		return count( (array) $ids );
 	}
-	public static function url( $a = [] ) { return 'http://shop.test/wp-admin/queue'; }
+	/**
+	 * OU CE TRAVAIL SE RELIT. L ecran central a disparu — « on supprime le menu
+	 * to review, on simplifie plutot que de complexifier » — et c est cette
+	 * fonction qui dit, en un seul endroit, quel ecran de module sait montrer
+	 * quel genre de travail.
+	 */
+	public static function review_url( $k = [] ) {
+		return array_intersect( (array) $k, [ 'cat_links', 'post_links' ] )
+			? 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-linking&tab=review'
+			: 'http://shop.test/wp-admin/admin.php?page=dazont-content-bulk&tab=categories';
+	}
 	/** The jobs this queue can actually run — the real list, kept in step. */
 	public static function kinds() {
 		return [
