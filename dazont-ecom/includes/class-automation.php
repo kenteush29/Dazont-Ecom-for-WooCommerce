@@ -1086,87 +1086,106 @@ final class DZE_Automation {
 			if ( ! $langs ) {
 				return []; // one language: there is nothing here to translate into.
 			}
-			// A handful more than needed, because some of them will be held
-			// back — never the whole catalogue, which is a page nobody paged.
-			$page = DZE_Translate::todo_page( $scope, $src, $langs, 1, max( 1, $n ) * 5 );
-			if ( null === $page ) {
-				continue; // WPML's tables cannot be read: this kind answers nothing.
-			}
-			foreach ( (array) $page[0] as $o ) {
-				if ( count( $out ) >= $n ) {
-					break;
+			// ON TOURNE LES PAGES TANT QUE TOUT CE QU ELLES RENDENT EST RETENU.
+			//
+			// Une page de cinq fois la demande, et rien derriere : le jour ou ces
+			// cinq-la attendent deja une relecture, cette portee ne rend plus rien
+			// et le travail qui suit juste derriere reste invisible. C est le meme
+			// piege que le maillage a connu — la passe demandait UNE page, en
+			// regardait trois, et les trois etaient prises : elle a cesse de
+			// travailler pendant vingt heures sans laisser de trace.
+			//
+			// On s arrete des que la liste rend moins qu on lui demande — elle n a
+			// plus rien — ou au plafond : chercher sans fin coute autant que ne
+			// pas chercher.
+			$per   = max( 1, $n ) * 5;
+			$paged = 0;
+			$max   = 6; // six pages de cinq fois la demande, et pas le catalogue.
+			while ( ++$paged <= $max && count( $out ) < $n ) {
+				$page = DZE_Translate::todo_page( $scope, $src, $langs, $paged, $per );
+				if ( null === $page ) {
+					break; // WPML's tables cannot be read: this kind answers nothing.
 				}
-				$oid  = (int) ( $o['id'] ?? 0 );
-				$type = 'term' === (string) ( $o['kind'] ?? '' ) ? 'term' : 'post';
-				if ( $oid < 1 ) {
-					continue;
-				}
-				// ALREADY WAITING FOR A DECISION IS NOT WORK. A second run
-				// over the same object writes a second translation into the
-				// same store, and the one somebody has not read yet is gone.
-				if ( DZE_Translate::waiting( $o ) ) {
-					self::$held['waiting']++;
-					continue;
-				}
-				// LE FOURRE-TOUT D UNE TAXONOMIE N EST PAS DU TEXTE CLIENT.
-				// « Uncategorized » part en cinq langues, revient en cinq
-				// orthographes et remplit la liste a relire de lignes dont la
-				// seule decision honnete est de les ignorer.
-				if ( 'term' === $type && DZE_Translate::is_default_term( $oid, (string) ( $o['type'] ?? '' ) ) ) {
-					continue;
-				}
-				// UNE CATEGORIE VIDE N EST PAS UNE PAGE A TRADUIRE. « Le plugin
-				// a encore traduit une categorie avec 0 produits. » Son archive
-				// est vide, aucun menu n y mene, et la traduire coute un appel
-				// par langue pour une page que personne ne verra. La
-				// descendance compte : une categorie de tete ne porte souvent
-				// rien elle-meme et tout son rayon dessous.
-				if ( 'term' === $type && DZE_Translate::is_empty_term( $oid, (string) ( $o['type'] ?? '' ) ) ) {
-					continue;
-				}
-				if ( self::cooling( $oid, $id, $type, 0, 0, time() - self::COOLDOWN * DAY_IN_SECONDS ) ) {
-					self::$held['recent']++;
-					continue;
-				}
-				$owed = self::translate_owed( $o, $langs );
-				if ( ! $owed ) {
-					continue; // WPML is satisfied with every language of it.
-				}
-				// UN PRODUIT ENTRAINE SES PROPRES ATTRIBUTS, ET AVANT LUI.
-				//
-				// « Un produit avec attributs non traduits, a la traduction du
-				// produit ca doit automatiquement traduire les attributs. » Une
-				// fiche traduite dont la couleur et la taille sont restees en
-				// anglais est une page a moitie faite — et c est la moitie que le
-				// client lit pour choisir.
-				//
-				// Les attributs passent DEVANT et le produit repasse au tour
-				// suivant : l ordre est la seule chose qui garantisse que la fiche
-				// ne sorte jamais avant ce qu elle affiche.
-				if ( 'post' === $type && 'product' === (string) ( $o['type'] ?? '' ) ) {
-					$first = self::attrs_owed( $oid, $langs );
-					if ( $first ) {
-						foreach ( $first as $one ) {
-							if ( count( $out ) >= $n ) {
-								break;
-							}
-							$out[] = $one;
-						}
+				foreach ( (array) $page[0] as $o ) {
+					if ( count( $out ) >= $n ) {
+						break;
+					}
+					$oid  = (int) ( $o['id'] ?? 0 );
+					$type = 'term' === (string) ( $o['kind'] ?? '' ) ? 'term' : 'post';
+					if ( $oid < 1 ) {
 						continue;
 					}
+					// ALREADY WAITING FOR A DECISION IS NOT WORK. A second run
+					// over the same object writes a second translation into the
+					// same store, and the one somebody has not read yet is gone.
+					if ( DZE_Translate::waiting( $o ) ) {
+						self::$held['waiting']++;
+						continue;
+					}
+					// LE FOURRE-TOUT D UNE TAXONOMIE N EST PAS DU TEXTE CLIENT.
+					// « Uncategorized » part en cinq langues, revient en cinq
+					// orthographes et remplit la liste a relire de lignes dont la
+					// seule decision honnete est de les ignorer.
+					if ( 'term' === $type && DZE_Translate::is_default_term( $oid, (string) ( $o['type'] ?? '' ) ) ) {
+						continue;
+					}
+					// UNE CATEGORIE VIDE N EST PAS UNE PAGE A TRADUIRE. « Le plugin
+					// a encore traduit une categorie avec 0 produits. » Son archive
+					// est vide, aucun menu n y mene, et la traduire coute un appel
+					// par langue pour une page que personne ne verra. La
+					// descendance compte : une categorie de tete ne porte souvent
+					// rien elle-meme et tout son rayon dessous.
+					if ( 'term' === $type && DZE_Translate::is_empty_term( $oid, (string) ( $o['type'] ?? '' ) ) ) {
+						continue;
+					}
+					if ( self::cooling( $oid, $id, $type, 0, 0, time() - self::COOLDOWN * DAY_IN_SECONDS ) ) {
+						self::$held['recent']++;
+						continue;
+					}
+					$owed = self::translate_owed( $o, $langs );
+					if ( ! $owed ) {
+						continue; // WPML is satisfied with every language of it.
+					}
+					// UN PRODUIT ENTRAINE SES PROPRES ATTRIBUTS, ET AVANT LUI.
+					//
+					// « Un produit avec attributs non traduits, a la traduction du
+					// produit ca doit automatiquement traduire les attributs. » Une
+					// fiche traduite dont la couleur et la taille sont restees en
+					// anglais est une page a moitie faite — et c est la moitie que le
+					// client lit pour choisir.
+					//
+					// Les attributs passent DEVANT et le produit repasse au tour
+					// suivant : l ordre est la seule chose qui garantisse que la fiche
+					// ne sorte jamais avant ce qu elle affiche.
+					if ( 'post' === $type && 'product' === (string) ( $o['type'] ?? '' ) ) {
+						$first = self::attrs_owed( $oid, $langs );
+						if ( $first ) {
+							foreach ( $first as $one ) {
+								if ( count( $out ) >= $n ) {
+									break;
+								}
+								$out[] = $one;
+							}
+							continue;
+						}
+					}
+					$out[] = [
+						'tid'   => $oid,
+						'name'  => DZE_Translate::obj_label( $o ),
+						'kind'  => 'term' === $type ? 'product_cat' : 'post',
+						'ref'   => DZE_Translate::ref( $o ),
+						'langs' => $owed,
+						'why'   => sprintf(
+							/* translators: %s: the languages it is short of, e.g. "FR, DE" */
+							_n( 'owes %s', 'owes %s', count( $owed ), 'dazont-ecom' ),
+							implode( ', ', array_map( 'strtoupper', $owed ) )
+						),
+					];
 				}
-				$out[] = [
-					'tid'   => $oid,
-					'name'  => DZE_Translate::obj_label( $o ),
-					'kind'  => 'term' === $type ? 'product_cat' : 'post',
-					'ref'   => DZE_Translate::ref( $o ),
-					'langs' => $owed,
-					'why'   => sprintf(
-						/* translators: %s: the languages it is short of, e.g. "FR, DE" */
-						_n( 'owes %s', 'owes %s', count( $owed ), 'dazont-ecom' ),
-						implode( ', ', array_map( 'strtoupper', $owed ) )
-					),
-				];
+				// Moins que demande : cette portee n a plus rien a offrir.
+				if ( count( (array) $page[0] ) < $per ) {
+					break;
+				}
 			}
 		}
 		return $out;
