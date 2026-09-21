@@ -1694,6 +1694,38 @@ final class DZE_Queue {
 			// screen said 7 and listed nothing: "pastille indique 7, sur la
 			// page il n'y a rien." One line, with the way there, only when
 			// there is something to say.
+			// ET LA MOITIÉ « TRADUCTIONS » AUSSI.
+			//
+			// « La page to review est cassée et ne reprend pas la liste wpml.
+			// Que maillage interne. »
+			//
+			// Elle n'était pas cassée, elle était incomplète : une traduction
+			// ne passe pas par cette file — elle attend sur l'objet source, à
+			// côté des mots qu'elle remplace — donc cet écran n'en a jamais rien
+			// su. Trois choses attendent une décision dans ce plugin et une
+			// seule se voyait ici. Une ligne, avec le chemin, comme pour le banc
+			// d'écriture juste dessous : une seule liste par sujet, et aucune
+			// qui se cache.
+			$dze_tr = ( class_exists( 'DZE_Translate' ) && is_callable( [ 'DZE_Translate', 'review_count' ] ) )
+				? (int) DZE_Translate::review_count()
+				: 0;
+			if ( $dze_tr > 0 && class_exists( 'DZE_Screens' ) ) {
+				printf(
+					'<div class="notice notice-info inline" style="margin:0 0 14px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
+					esc_html( sprintf(
+						/* translators: %s: how many objects */
+						_n(
+							'%s translation is waiting for your yes or no. It is not in this list: a translation waits on the object it belongs to, beside the words it replaces.',
+							'%s translations are waiting for your yes or no. They are not in this list: a translation waits on the object it belongs to, beside the words it replaces.',
+							$dze_tr,
+							'dazont-ecom'
+						),
+						number_format_i18n( $dze_tr )
+					) ),
+					esc_url( DZE_Screens::url( 'translations', 'review' ) ),
+					esc_html__( 'Read them →', 'dazont-ecom' )
+				);
+			}
 			$dze_bulk = self::bulk_waiting();
 			if ( $dze_bulk > 0 && class_exists( 'DZE_Content' ) ) {
 				printf(
