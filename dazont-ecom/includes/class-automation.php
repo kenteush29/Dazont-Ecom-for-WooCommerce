@@ -1098,6 +1098,29 @@ final class DZE_Automation {
 				if ( ! $owed ) {
 					continue; // WPML is satisfied with every language of it.
 				}
+				// UN PRODUIT ENTRAINE SES PROPRES ATTRIBUTS, ET AVANT LUI.
+				//
+				// « Un produit avec attributs non traduits, a la traduction du
+				// produit ca doit automatiquement traduire les attributs. » Une
+				// fiche traduite dont la couleur et la taille sont restees en
+				// anglais est une page a moitie faite — et c est la moitie que le
+				// client lit pour choisir.
+				//
+				// Les attributs passent DEVANT et le produit repasse au tour
+				// suivant : l ordre est la seule chose qui garantisse que la fiche
+				// ne sorte jamais avant ce qu elle affiche.
+				if ( 'post' === $type && 'product' === (string) ( $o['type'] ?? '' ) ) {
+					$first = self::attrs_owed( $oid, $langs );
+					if ( $first ) {
+						foreach ( $first as $one ) {
+							if ( count( $out ) >= $n ) {
+								break;
+							}
+							$out[] = $one;
+						}
+						continue;
+					}
+				}
 				$out[] = [
 					'tid'   => $oid,
 					'name'  => DZE_Translate::obj_label( $o ),
@@ -1107,6 +1130,64 @@ final class DZE_Automation {
 					'why'   => sprintf(
 						/* translators: %s: the languages it is short of, e.g. "FR, DE" */
 						_n( 'owes %s', 'owes %s', count( $owed ), 'dazont-ecom' ),
+						implode( ', ', array_map( 'strtoupper', $owed ) )
+					),
+				];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * LES VALEURS D ATTRIBUT QUE CE PRODUIT PORTE ET QUI NE SONT PAS TRADUITES.
+	 *
+	 * Rendues dans la forme d une ligne de liste, pretes a passer devant le
+	 * produit. Deux regles tiennent cette fonction :
+	 *
+	 * — une valeur qu aucun produit ne porte n arrive jamais ici, puisqu on
+	 *   part du produit ; c est l autre moitie de « pas besoin de traduire des
+	 *   attributs non utilises » ;
+	 * — un attribut que la boutique a DECOCHE n est pas traduit non plus, meme
+	 *   en dependance. Une dependance qui passe outre le reglage est un
+	 *   reglage qui ne sert a rien.
+	 *
+	 * @param string[] $langs
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function attrs_owed( int $pid, array $langs ): array {
+		if ( $pid < 1 || ! class_exists( 'DZE_Translate' ) ) {
+			return [];
+		}
+		$picked = DZE_Translate::picked_scope();
+		$out    = [];
+		foreach ( array_keys( $picked ) as $key ) {
+			if ( 0 !== strpos( (string) $key, 'term:pa_' ) ) {
+				continue;
+			}
+			$tax   = substr( (string) $key, strlen( 'term:' ) );
+			$terms = wp_get_object_terms( $pid, $tax, [ 'fields' => 'ids' ] );
+			if ( is_wp_error( $terms ) ) {
+				continue;
+			}
+			foreach ( (array) $terms as $tid ) {
+				$tid = (int) $tid;
+				$one = DZE_Translate::obj( 'term', $tid, $tax );
+				if ( ! $one || DZE_Translate::waiting( $one ) ) {
+					continue; // deja en attente d une decision : ne pas l ecrire deux fois.
+				}
+				$owed = self::translate_owed( $one, $langs );
+				if ( ! $owed ) {
+					continue;
+				}
+				$out[] = [
+					'tid'   => $tid,
+					'name'  => DZE_Translate::obj_label( $one ),
+					'kind'  => 'product_cat',
+					'ref'   => DZE_Translate::ref( $one ),
+					'langs' => $owed,
+					'why'   => sprintf(
+						/* translators: %s: the languages it is short of, e.g. "FR, DE" */
+						__( 'a product needs it — owes %s', 'dazont-ecom' ),
 						implode( ', ', array_map( 'strtoupper', $owed ) )
 					),
 				];
