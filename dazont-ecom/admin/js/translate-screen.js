@@ -364,16 +364,27 @@
 			return $(this).find('.dze-tr-wpick').is(':checked');
 		}).map(function () { return String($(this).data('ref')); }).get();
 	}
+	// LE NOMBRE EST SUR LE BOUTON. « Accept (x) ou Discard (x). Voila ce qu il
+	// doit y avoir, rien de plus. » Un bouton qui annonce le total de la liste
+	// quand on en a coche deux ment sur ce qu il va emporter.
+	function syncBulk() {
+		var n = pickedRefs().length;
+		$('#dze-tr-acceptsel').prop('disabled', !n).text(sprintf(i18n.acceptN, n));
+		$('#dze-tr-dropsel').prop('disabled', !n).text(sprintf(i18n.discardN, n));
+	}
 	$(document).on('change', '.dze-tr-wpick, #dze-tr-wall', function () {
 		if (this.id === 'dze-tr-wall') {
 			$('.dze-tr-wpick').prop('checked', $(this).is(':checked'));
 		}
-		var none = pickedRefs().length === 0;
-		$('#dze-tr-acceptsel, #dze-tr-dropsel').prop('disabled', none);
+		syncBulk();
 	});
+	$(syncBulk);
 	function acceptMany(refs) {
-		if (!window.confirm(i18n.allAsk)) { return; }
-		var $b = $('#dze-tr-acceptall, #dze-tr-acceptsel').prop('disabled', true);
+		// LA QUESTION NOMME LE NOMBRE, comme celle du refus : elle ne porte plus
+		// sur  tout ce qui attend  mais sur ce qui est coche.
+		if (!refs.length) { return; }
+		if (!window.confirm(sprintf(i18n.acceptAsk, refs.length))) { return; }
+		var $b = $('#dze-tr-acceptsel, #dze-tr-dropsel').prop('disabled', true);
 		var $st = $('#dze-tr-allstate').removeClass('is-ko').text(i18n.allSending);
 		post('dze_tr_accept_all', refs && refs.length ? { refs: refs } : {})
 			.done(function (r) {
@@ -388,7 +399,6 @@
 			})
 			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
 	}
-	$(document).on('click', '#dze-tr-acceptall', function () { acceptMany([]); });
 	$(document).on('click', '#dze-tr-acceptsel', function () { acceptMany(pickedRefs()); });
 
 	// REFUSER EN GROUPE. « Il manque le bouton Discard. » Accepter sept lignes
@@ -402,7 +412,7 @@
 	function refuseMany(refs) {
 		if (!refs.length) { return; }
 		if (!window.confirm(sprintf(i18n.dropAsk, refs.length))) { return; }
-		var $b = $('#dze-tr-acceptall, #dze-tr-acceptsel, #dze-tr-dropsel').prop('disabled', true);
+		var $b = $('#dze-tr-acceptsel, #dze-tr-dropsel').prop('disabled', true);
 		var $st = $('#dze-tr-allstate').removeClass('is-ko').text(i18n.dropSending);
 		var left = refs.slice(), done = 0;
 		(function next() {

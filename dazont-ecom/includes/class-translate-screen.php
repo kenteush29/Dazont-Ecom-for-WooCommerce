@@ -1651,35 +1651,28 @@ trait DZE_Translate_Screen {
 			<?php return; ?>
 		<?php endif; ?>
 		<?php
-		// TOUT ACCEPTER, EN UNE FOIS. « Je ne peux meme pas accepter en bulk.
-		// C est ce que j aurais fait ici : tout accepter. Tout est bon. »
-		// Dire oui a huit objets demandait huit ecrans, et un ecran par langue
-		// dans chacun — le plugin qui marche bien coutait plus de clics que le
-		// plugin qui marche mal. Rien n est retraduit : ce sont les textes deja
-		// revenus qui sont ecrits, exactement comme l ecran de lecture le ferait.
+		// DEUX BOUTONS, ET LE NOMBRE DE LIGNES COCHEES. « Accept (x) ou Discard
+		// (x). Voila ce qu il doit y avoir, rien de plus. »
+		//
+		// Il y en avait trois : « tout accepter », « accepter les cochees », et
+		// « refuser les cochees ». « Tout accepter » ne faisait rien que la case
+		// d en-tete ne fasse deja — cocher tout, puis accepter — et deux boutons
+		// qui acceptent obligent a lire lequel fait quoi avant chaque presse.
+		//
+		// Le compte est celui des cochees, pas celui de la liste : un bouton qui
+		// annonce sept quand on en a coche deux ment sur ce qu il va emporter.
 		?>
 		<p class="dze-cb-actions" style="max-width:980px;">
-			<button type="button" class="button button-primary" id="dze-tr-acceptall"
-				title="<?php esc_attr_e( 'Writes every translation waiting here, in every language, exactly as it came back. Nothing is translated again and nothing is paid for.', 'dazont-ecom' ); ?>"><?php
-				echo esc_html( sprintf(
-					/* translators: %s: how many objects are waiting */
-					_n( 'Accept the %s waiting', 'Accept all %s waiting', count( $rows ), 'dazont-ecom' ),
-					number_format_i18n( count( $rows ) )
-				) );
+			<button type="button" class="button button-primary" id="dze-tr-acceptsel" disabled
+				title="<?php esc_attr_e( 'Writes the ticked translations, in every language, exactly as they came back. Nothing is translated again and nothing is paid for.', 'dazont-ecom' ); ?>"><?php
+				/* translators: %s: how many rows are ticked */
+				echo esc_html( sprintf( __( 'Accept (%s)', 'dazont-ecom' ), number_format_i18n( 0 ) ) );
 			?></button>
-			<button type="button" class="button" id="dze-tr-acceptsel" disabled
-				title="<?php esc_attr_e( 'The same, for the ticked rows only.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Accept the ticked', 'dazont-ecom' ); ?></button>
-			<?php
-			// ET REFUSER EN GROUPE, PARCE QU ACCEPTER EN GROUPE EXISTE.
-			//
-			// « Il manque le bouton Discard. » La barre ne savait dire que oui :
-			// on pouvait accepter sept lignes d une presse et il fallait sept
-			// presses pour en refuser sept. Une liste ou l accord est groupe et
-			// le refus ne l est pas pousse a tout accepter, ce qui est exactement
-			// le contraire d une relecture.
-			?>
 			<button type="button" class="button dze-cb-no" id="dze-tr-dropsel" disabled
-				title="<?php esc_attr_e( 'Throws away what came back for the ticked rows. The objects and their translations are not touched.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Discard the ticked', 'dazont-ecom' ); ?></button>
+				title="<?php esc_attr_e( 'Throws away what came back for the ticked rows. The objects and their translations are not touched.', 'dazont-ecom' ); ?>"><?php
+				/* translators: %s: how many rows are ticked */
+				echo esc_html( sprintf( __( 'Discard (%s)', 'dazont-ecom' ), number_format_i18n( 0 ) ) );
+			?></button>
 			<span class="description" id="dze-tr-allstate"></span>
 		</p>
 		<table class="widefat striped" style="max-width:980px;">
