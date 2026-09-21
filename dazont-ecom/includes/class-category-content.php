@@ -1860,7 +1860,9 @@ PROMPT;
 			$known = $links;
 		}
 		if ( ! $known ) {
-			throw new RuntimeException( sprintf(
+			// UN JUGEMENT, PAS UNE PANNE : le texte ne nomme aucune des cibles
+			// proposees, donc il n y a rien a poser ici. Voir DZE_Nothing_To_Do.
+			throw new DZE_Nothing_To_Do( sprintf(
 				/* translators: 1: the text being worked on, 2: the pages it was asked to link to */
 				_n(
 					'Nothing was written: %1$s never mentions %2$s, so there are no words in it to turn into that link. This text was left exactly as it was.',
@@ -2022,9 +2024,13 @@ PROMPT;
 			// And if it still will not, what it said instead is the useful
 			// part: "the model returned nothing usable" tells the shop nothing
 			// it can act on.
-			throw new RuntimeException( sprintf(
+			// APRES UNE RELANCE QUI DEMANDAIT « [] SI RIEN NE CONVIENT », une
+			// note en prose est un refus motive, pas une panne : le modele a lu
+			// le texte, regarde la liste, et dit qu aucune page n est proche.
+			// Sa phrase est gardee telle quelle — c est la reponse.
+			throw new DZE_Nothing_To_Do( sprintf(
 				/* translators: %s: the opening of what the model said instead */
-				__( 'The model answered with a note instead of the list of links: "%s".', 'dazont-ecom' ),
+				__( 'Nothing was linked here. The model looked and said: "%s".', 'dazont-ecom' ),
 				trim( mb_substr( wp_strip_all_tags( $out ), 0, 160 ) )
 			) );
 		}
@@ -2082,7 +2088,12 @@ PROMPT;
 			];
 		}
 		if ( ! $res['applied'] ) {
-			throw new RuntimeException(
+			// UN JUGEMENT, PAS UNE PANNE. Les garde-fous ont refuse ce qui
+			// revenait — une reecriture qui ne tenait pas, une ancre qui ne
+			// nommait pas sa cible — ou aucune cible ne convenait. Le module a
+			// fait son travail ; le dire en rouge a cote de seize pages
+			// parfaitement traitees fait croire qu il est casse.
+			throw new DZE_Nothing_To_Do(
 				$res['refused']
 					? sprintf(
 						/* translators: %s: why each edit was refused */

@@ -364,6 +364,34 @@ final class DZE_Queue {
 				$result = self::produce( (string) $job['kind'], (int) $job['object_id'], $payload );
 				$done   = true;
 			}
+		} catch ( DZE_Nothing_To_Do $e ) {
+			// UNE CONCLUSION, PAS UNE PANNE.
+			//
+			// « Sniper veils et Tactical backpack covers sont en review avec
+			// des erreurs. Ça sème la confusion, ça dit que le module ne
+			// fonctionne pas bien, du point de vue utilisateur. » Les deux
+			// lignes rouges étaient les garde-fous qui avaient refusé du
+			// mauvais travail, et un modèle qui avait jugé qu'aucune page
+			// n'était proche. Le module avait bien travaillé ; l'écran disait
+			// le contraire, à côté de seize pages parfaites.
+			//
+			// Rangé en « rien à faire » : la page est vue, la raison reste
+			// lisible, et la liste ne garde que ce qui attend vraiment une
+			// décision. `decided_by` reste à zéro — c'est ce qui distingue
+			// cette conclusion d'un refus de la boutique, qui porte un nom.
+			$wpdb->update(
+				$table,
+				[ 'status' => 'skipped', 'error' => $e->getMessage(), 'decided_by' => 0, 'updated' => current_time( 'mysql' ) ],
+				[ 'id' => $id ]
+			);
+			self::forget_count();
+			delete_transient( self::LOCK );
+			// La file continue : une page sans rien à poser ne doit pas
+			// arrêter les suivantes.
+			if ( (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'queued'" ) ) { // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+				self::kick();
+			}
+			return;
 		} catch ( \Throwable $e ) {
 			$err = $e->getMessage();
 		}
@@ -1780,6 +1808,9 @@ final class DZE_Queue {
 				'sApplied' => __( 'Saved', 'dazont-ecom' ),
 				'sFailed'  => __( 'Failed', 'dazont-ecom' ),
 				'sSkipped' => __( 'Discarded', 'dazont-ecom' ),
+				// « Ça dit que le module ne fonctionne pas bien. » Une page ou
+				// il n y avait rien a poser n est ni une panne ni un rejet.
+				'sNothing' => __( 'Nothing to link here', 'dazont-ecom' ),
 				'empty'    => __( 'Nothing in the queue.', 'dazont-ecom' ),
 				'idle'     => __( 'Nothing waiting.', 'dazont-ecom' ),
 				'pause'    => __( 'Pause', 'dazont-ecom' ),
@@ -1900,6 +1931,11 @@ final class DZE_Queue {
 					? self::preview_link( (int) $r['id'] )
 					: '',
 				'status'   => (string) $r['status'],
+				// QUI A DECIDE, OU PERSONNE. Un refus de la boutique porte un
+				// nom ; une conclusion du module — « rien a poser ici » — n en a
+				// pas. Les deux finissent en « skipped », et c est ce zero qui
+				// les distingue a l ecran.
+				'own'      => (int) ( $r['decided_by'] ?? 0 ) > 0,
 				'error'    => (string) ( $r['error'] ?? '' ),
 				'progress' => $total ? sprintf(
 					/* translators: 1: section written, 2: sections in total */

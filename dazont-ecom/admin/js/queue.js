@@ -88,9 +88,23 @@
 			// the same thing twice.
 			act.push('<button type="button" class="dze-cb-no dze-q-no" data-id="' + r.id + '" data-status="' + esc(r.status) +
 				'" title="' + esc(r.status === 'review' ? i18n.refuseOne : i18n.dropOne) + '">✗</button>');
-			var state = esc(LABELS[r.status] || r.status);
+			// « RIEN A POSER ICI » N'EST NI UNE PANNE NI UN REJET.
+			//
+			// « Sniper veils et Tactical backpack covers sont en review avec
+			// des erreurs. Ça sème la confusion, ça dit que le module ne
+			// fonctionne pas bien. » Les garde-fous avaient refusé du mauvais
+			// travail, et un modèle avait jugé qu'aucune page n'était proche.
+			// Les deux finissent en « skipped », comme un refus de la boutique
+			// — mais un refus porte un nom, et une conclusion du module n'en a
+			// pas. C'est ce que dit `own`.
+			var mot = (r.status === 'skipped' && !r.own) ? i18n.sNothing : (LABELS[r.status] || r.status);
+			var state = esc(mot);
 			if (r.status === 'running' && r.progress) { state += ' <span class="description">' + esc(r.progress) + '</span>'; }
-			if (r.status === 'failed' && r.error) { state += '<br /><span class="description">' + esc(r.error) + '</span>'; }
+			// La raison se lit sous le mot, dans les deux cas : sur une panne
+			// c'est ce qu'il faut réparer, sur une conclusion c'est pourquoi.
+			if ((r.status === 'failed' || (r.status === 'skipped' && !r.own)) && r.error) {
+				state += '<br /><span class="description">' + esc(r.error) + '</span>';
+			}
 			// WHO SAID YES OR NO. Written by the server, in the shop's own
 			// language, and only where there is somebody to name: a row still
 			// waiting has nobody, and a pass that saved without review has
