@@ -1668,7 +1668,7 @@ trait DZE_Translate_Screen {
 				/* translators: %s: how many rows are ticked */
 				echo esc_html( sprintf( __( 'Accept (%s)', 'dazont-ecom' ), number_format_i18n( 0 ) ) );
 			?></button>
-			<button type="button" class="button dze-cb-no" id="dze-tr-dropsel" disabled
+			<button type="button" class="button" id="dze-tr-dropsel" disabled
 				title="<?php esc_attr_e( 'Throws away what came back for the ticked rows. The objects and their translations are not touched.', 'dazont-ecom' ); ?>"><?php
 				/* translators: %s: how many rows are ticked */
 				echo esc_html( sprintf( __( 'Discard (%s)', 'dazont-ecom' ), number_format_i18n( 0 ) ) );
