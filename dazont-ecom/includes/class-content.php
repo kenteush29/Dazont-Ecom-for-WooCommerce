@@ -3647,7 +3647,7 @@ Answer with STRICT JSON and nothing else: "
 	 * Is the product bulk screen a TAB of Content diagnostic?
 	 *
 	 * One decision, in one place, so it can be exercised — the same shape as
-	 * `DZE_Queue::owns_review()`. It decides three things at once and they
+	 * `DZE_Queue::moved()`. It decides three things at once and they
 	 * must never disagree: whether the tab is a view or a way out, where every
 	 * link to this work points, and whether the screen keeps a menu entry of
 	 * its own. "Products AI bulk > toujours caché, introuvable dans aucun

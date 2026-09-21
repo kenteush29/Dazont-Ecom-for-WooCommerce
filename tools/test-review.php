@@ -67,7 +67,25 @@ function current_time( $t = 'mysql' ) {
 	return 'timestamp' === $t ? strtotime( '2026-09-03 12:00:00' ) : '2026-09-03 12:00:00';
 }
 function admin_url( $p = '' ) { return 'http://shop.test/wp-admin/' . $p; }
-function add_query_arg( ...$a ) { return 'http://shop.test/queue'; }
+/**
+ * UNE VRAIE add_query_arg, parce quon verifie desormais OU un lien va.
+ *
+ * Elle rendait la meme adresse quoi quon lui passe — ce qui suffisait tant
+ * quil ny avait quun seul ecran a atteindre. Depuis que chaque module relit
+ * son propre travail, la question posee est « lequel », et une doublure qui
+ * repond toujours pareil repond toujours oui.
+ */
+function add_query_arg( ...$a ) {
+	$args = is_array( $a[0] ) ? $a[0] : [ $a[0] => $a[1] ];
+	$url  = is_array( $a[0] ) ? ( $a[1] ?? '' ) : ( $a[2] ?? '' );
+	$url  = (string) $url;
+	$has  = false !== strpos( $url, '?' );
+	foreach ( $args as $k => $v ) {
+		$url .= ( $has ? '&' : '?' ) . rawurlencode( (string) $k ) . '=' . rawurlencode( (string) $v );
+		$has  = true;
+	}
+	return $url;
+}
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, $d ); }
 function wp_next_scheduled( $h ) { return 0; }
 function wp_schedule_event() {} function wp_clear_scheduled_hook( $h ) {}
@@ -501,102 +519,82 @@ ok( 'an anchor with no href is not a link',
 ok( 'the words do not move on a linking pass',
 	str_word_count( strip_tags( $dze_before ) ) === str_word_count( strip_tags( $dze_after ) ), false );
 
-echo "ONE screen answers 'what is waiting for me'\n";
-// "Writing queue » / bulk produit > Pourquoi pas dans un onglet reuni
-// (categorie + produits + blog) sous le nom Content to review ?" Two menus
-// for one question is two places to remember and two counts that disagree.
-// ONE ENTRY FOR ONE SUBJECT: reading what is wrong, doing something about it
-// and deciding on what comes back is one piece of work, so this screen is a
-// TAB of Content and registers no entry of its own.
+echo "LA LISTE CENTRALE A ETE SUPPRIMEE : CHAQUE MODULE RELIT SON TRAVAIL\n";
+// « Dans ce cas on supprime le menu to review. On simplifie plutot que de
+// complexifier. »
+//
+// Le retrait avait deja ete tente une fois, puis annule : il laissait la
+// boutique avec trois listes de trois portees et AUCUNE vue densemble. Ce
+// nest plus vrai — lApercu recense les trois sources et envoie sur lecran de
+// chacune — donc la raison de la garder est tombee avec elle.
+$dze_at = static fn( string $page, string $tab = '' ): string =>
+	'http://shop.test/wp-admin/admin.php?page=' . $page . ( '' === $tab ? '' : '&tab=' . $tab );
 $GLOBALS['off'] = [];
 $GLOBALS['menu_added'] = [];
 $GLOBALS['bulk_pending'] = 0;
 DZE_Queue::instance()->menu();
-// IT IS THE INBOX, AND IT HAS ITS OWN ENTRY. As a tab of the diagnostic its
-// address was that screen's — and switching the diagnostic off left the one
-// list holding every kind of waiting work reachable from nowhere at all.
-ok( 'it takes an entry of its own',
-	isset( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ), true );
-ok( 'and it is hosted by nobody',           DZE_Queue::hosted(), false );
-// BUT SWITCHING THE HOST OFF MUST NOT TAKE THIS FUNCTION WITH IT. It goes
-// back to a page of its own, under Dazont Ecom — never under Products, where
-// a screen about everything the plugin writes does not belong.
+ok( 'elle ne prend plus dentree de menu',   $GLOBALS['menu_added'], [] );
+// ET CE NEST PAS UN EFFET DE LINTERRUPTEUR : un module eteint peut cacher sa
+// propre fonction, jamais changer la forme du plugin.
 $GLOBALS['off'] = [ 'diagnostic' ];
 $GLOBALS['menu_added'] = [];
 DZE_Queue::instance()->menu();
-$dze_menu = $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ?? [];
-ok( 'with no host it keeps its own page',    (string) ( $dze_menu['title'] ?? '' ), 'To review' );
-ok( 'and it hangs off Dazont Ecom',          (string) ( $dze_menu['parent'] ?? '' ), 'dazont-ecom' );
-ok( 'and never under Products any more',
-	false !== strpos( (string) ( $dze_menu['parent'] ?? '' ), 'post_type=product' ), false );
+ok( 'et pas davantage avec le diagnostic eteint', $GLOBALS['menu_added'], [] );
 $GLOBALS['off'] = [];
-// EVERY LINK EVER PRINTED AT IT STILL LANDS. A page no longer registered
-// under Products does not answer "not found" — WordPress answers "you are not
-// allowed to access this page", which reads as a permission the shop lost.
-ok( 'the address it moved to',
-	DZE_Queue::url(), 'http://shop.test/queue' );
+
+// UN ROUTEUR REMPLACE LENTREE DE MENU : on lui donne les genres de travail,
+// il rend lecran qui sait les montrer. Cest le seul endroit ou cette
+// correspondance est ecrite, donc le seul a corriger quand un genre apparait.
+ok( 'le maillage se relit sur le maillage',
+	DZE_Queue::review_url( [ 'cat_links', 'post_links' ] ), $dze_at( 'dazont-ecom-linking', 'review' ) );
+ok( 'une description de categorie, sur le banc',
+	DZE_Queue::review_url( [ 'cat_desc' ] ), $dze_at( 'dazont-content-bulk', 'categories' ) );
+ok( 'une photo de produit, sur le banc aussi',
+	DZE_Queue::review_url( [ 'product_shot' ] ), $dze_at( 'dazont-content-bulk', 'products' ) );
+// SANS PORTEE, cest le maillage : cest tout le volume, et la ou lon tombe
+// quand personne na dit de quel travail il sagissait.
+ok( 'sans portee, le maillage',             DZE_Queue::review_url( [] ), $dze_at( 'dazont-ecom-linking', 'review' ) );
+ok( 'et un genre inconnu ne renvoie pas du vide',
+	DZE_Queue::review_url( [ 'nonsense' ] ), $dze_at( 'dazont-ecom-linking', 'review' ) );
+// PLUSIEURS PORTEES A LA FOIS : lApercu est le seul ecran qui les nomme
+// toutes. Choisir lune des deux aurait cache lautre sans le dire.
+ok( 'plusieurs portees, lApercu',
+	DZE_Queue::review_url( [ 'cat_desc', 'cat_links' ] ), $dze_at( 'dazont-ecom-dashboard' ) );
+
+// ET LES ANCIENNES ADRESSES ATTERRISSENT ENCORE. Une page qui nest plus
+// declaree ne repond pas « introuvable » : WordPress repond « vous navez pas
+// lautorisation dacceder a cette page », ce qui se lit comme un droit que la
+// boutique aurait perdu. Les deux adresses imprimees par ce plugin — sous
+// Produits dabord, puis sous Dazont Ecom — sont renvoyees sur la liste.
 $GLOBALS['pagenow'] = 'edit.php';
 $_GET = [ 'post_type' => 'product', 'page' => DZE_Queue::MENU_SLUG, 'paged' => '3' ];
 $GLOBALS['went'] = '';
 try { DZE_Queue::instance()->moved(); } catch ( DZE_Went $e ) { /* it redirected, which is the point */ }
-ok( 'an old bookmark is sent to the new one', '' !== $GLOBALS['went'], true );
-// And nothing else is touched: another Products screen is not hijacked.
+ok( 'un vieux signet sous Produits atterrit', $GLOBALS['went'], $dze_at( 'dazont-ecom-linking', 'review' ) );
+$GLOBALS['pagenow'] = 'admin.php';
+$_GET = [ 'page' => DZE_Queue::MENU_SLUG ];
+$GLOBALS['went'] = '';
+try { DZE_Queue::instance()->moved(); } catch ( DZE_Went $e ) { /* idem */ }
+ok( 'et celui de sa propre page aussi',      $GLOBALS['went'], $dze_at( 'dazont-ecom-linking', 'review' ) );
+// Et rien dautre nest detourne : un autre ecran du plugin est laisse seul.
+$GLOBALS['pagenow'] = 'edit.php';
 $_GET = [ 'post_type' => 'product', 'page' => 'dazont-content-bulk' ];
 $GLOBALS['went'] = '';
 DZE_Queue::instance()->moved();
-ok( 'and another screen is left alone',      $GLOBALS['went'], '' );
+ok( 'et un autre ecran est laisse tranquille', $GLOBALS['went'], '' );
 $GLOBALS['pagenow'] = '';
 $_GET = [];
-// LA PASTILLE NE COMPTE QUE CE QUE CET ECRAN MONTRE.
+
+// LE BANC PORTE SON PROPRE COMPTE.
 //
 // « Ca fausse le comptage des pastilles. En fait ces 5 devraient etre
-// affiches sur bulk writing et pas sur review. » Elle ajoutait les produits
-// du banc, qui ne sont PAS dans cette liste — d ou une notice sous le titre
-// qui expliquait l ecart au lieu de le supprimer. Le banc porte son compte.
-$GLOBALS['off'] = [ 'diagnostic' ];
-$GLOBALS['menu_added'] = [];
+// affiches sur bulk writing et pas sur review. » La pastille ajoutait les
+// produits du banc, qui ne sont PAS dans cette table — do une notice sous le
+// titre qui expliquait lecart au lieu de le supprimer.
 $GLOBALS['bulk_pending'] = 3;
-DZE_Queue::instance()->menu();
-ok( 'the bench is no longer counted here',
-	false !== strpos( (string) ( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ]['menu'] ?? '' ), '>3<' ), false );
-$GLOBALS['off'] = [];
-ok( 'and read from the store that owns them', DZE_Queue::bulk_waiting(), 3 );
+ok( 'et il est lu dans le magasin qui les tient', DZE_Queue::bulk_waiting(), 3 );
 $GLOBALS['bulk_pending'] = 0;
-ok( 'nothing waiting there counts nothing',   DZE_Queue::bulk_waiting(), 0 );
-
-// The screen SAYS SO and goes there. A count with no way to act on it is a
-// number, not a screen.
-$GLOBALS['bulk_pending'] = 2;
-ob_start();
-DZE_Queue::instance()->render();
-$dze_page = (string) ob_get_clean();
-ok( 'the page is named for what it holds',
-	false !== strpos( $dze_page, '<h1>To review</h1>' ), true );
-// AND IT DOES NOT SEND YOU LOOKING FOR THE SCREEN YOU ARE ON. A blue box
-// inside this screen announced that products were waiting somewhere else and
-// offered to take you there — read from the chair of somebody who came here
-// asking "what is waiting for me?", that is the screen describing itself
-// instead of showing the work. Products are a TAB of the Content diagnostic,
-// beside this one, with their own count.
-ok( 'nothing here points at another waiting list',
-	false !== strpos( $dze_page, 'holding content nobody has decided on' ), false );
-$GLOBALS['bulk_pending'] = 0;
-ob_start();
-DZE_Queue::instance()->render();
-$dze_quiet = (string) ob_get_clean();
-ok( 'and says nothing when nothing waits',
-	false !== strpos( $dze_quiet, 'holding content nobody has decided on' ), false );
-
-// AND ONE MENU. The product bulk screen takes its own entry out while this
-// screen is the one that lists what is waiting — but keeps it the moment the
-// module is off, because switching a module off must never hide a function
-// that has nothing to do with it.
-$GLOBALS['off'] = [];
-ok( 'this screen owns the question',    DZE_Queue::owns_review(), true );
-$GLOBALS['off'] = [ 'queue' ];
-ok( 'switched off, it owns nothing',    DZE_Queue::owns_review(), false );
-$GLOBALS['off'] = [];
-
+ok( 'rien qui attend la-bas ne compte rien',      DZE_Queue::bulk_waiting(), 0 );
 echo "And WHO said yes or no is written down\n";
 // The installer, RUN — not read. A column declared in a string nobody
 // executes is a column the shop does not have.

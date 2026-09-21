@@ -328,6 +328,15 @@ class DZE_Queue {
 	public static array $added = [];
 	/** What the queue holds, by "family:id" => status — the shape pending_for() answers with. */
 	public static array $holds = [];
+	/**
+	 * OU CE TRAVAIL SE RELIT. L ecran central a disparu — « on supprime le menu
+	 * to review, on simplifie plutot que de complexifier » — et c est cette
+	 * fonction qui dit, en un seul endroit, quel ecran de module sait montrer
+	 * quel genre de travail.
+	 */
+	public static function review_url( array $k = [] ): string {
+		return 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-linking&tab=review';
+	}
 	public static function add( string $kind, array $ids, bool $auto = false, array $payload = [] ): int {
 		self::$added[] = [ 'kind' => $kind, 'ids' => $ids, 'payload' => $payload ];
 		return count( $ids );

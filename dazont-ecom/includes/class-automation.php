@@ -438,7 +438,7 @@ final class DZE_Automation {
 			'translate' => [
 				'label'   => __( 'Translations', 'dazont-ecom' ),
 				'what'    => __( 'Hand the shop\'s translations to Dazont Ecom. It translates what WPML says is owed, a few objects a day.', 'dazont-ecom' ),
-				'more'    => __( 'WPML already knows what this shop owes a translation of: an object with no translation in one of your languages, or one WPML has marked as needing an update. This pass takes those, oldest work first, and translates ONE object a day for each you allow — every language it is short of, in one go, because a product translated into French and not into German is a job half done. What is sent is only what really moved: the module keeps its own register of the words each translation was made from, so a product flagged because its category was renamed sends nothing at all and is simply marked up to date, for nothing. Which kinds of content take part is the shop\'s own list under Settings → Translation, and what is inside each object — which fields are translated, which WPML copies — is WPML\'s answer and never ours. An object it has worked on is left alone for a month, and one already holding a translation waiting for your yes or no is never sent twice. Nothing reaches the shop until you accept it: unlike the other tasks here, what it produces does not wait in Content to review — a translation is one object times its languages times its fields, and it is decided on Dazont Ecom → WPML Translations, the screen built for it. Tick "Save without review" and each translation is written the moment it comes back.', 'dazont-ecom' ),
+				'more'    => __( 'WPML already knows what this shop owes a translation of: an object with no translation in one of your languages, or one WPML has marked as needing an update. This pass takes those, oldest work first, and translates ONE object a day for each you allow — every language it is short of, in one go, because a product translated into French and not into German is a job half done. What is sent is only what really moved: the module keeps its own register of the words each translation was made from, so a product flagged because its category was renamed sends nothing at all and is simply marked up to date, for nothing. Which kinds of content take part is the shop\'s own list under Settings → Translation, and what is inside each object — which fields are translated, which WPML copies — is WPML\'s answer and never ours. An object it has worked on is left alone for a month, and one already holding a translation waiting for your yes or no is never sent twice. Nothing reaches the shop until you accept it: unlike the other tasks here, what it produces does not wait with the rest — a translation is one object times its languages times its fields, and it is decided on Dazont Ecom → WPML Translations, the screen built for it. Tick "Save without review" and each translation is written the moment it comes back.', 'dazont-ecom' ),
 				'module'  => 'translate',
 				'scope'   => 'translate',
 				// No queue row: what waits lives on the source object, which
@@ -514,9 +514,12 @@ final class DZE_Automation {
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
 			return [ 'n' => 0, 'url' => '' ];
 		}
+		// CHAQUE TÂCHE RENVOIE SUR L'ÉCRAN QUI RELIT SON PROPRE TRAVAIL.
+		// L'écran central a disparu — « on simplifie plutôt que de
+		// complexifier » — et ce sont les genres de la tâche qui disent où.
 		return [
 			'n'   => DZE_Queue::review_count_for( (array) ( $task['jobs'] ?? [] ) ),
-			'url' => DZE_Queue::url(),
+			'url' => DZE_Queue::review_url( (array) ( $task['jobs'] ?? [] ) ),
 		];
 	}
 
@@ -2074,8 +2077,8 @@ final class DZE_Automation {
 			// one line, the words only on hover, is three figures to decode.
 			/* translators: %s: how many pieces of work are waiting */
 			$jobs  = array_values( array_filter( array_map( 'strval', (array) ( $task['jobs'] ?? [] ) ) ) );
-			$where = ( $jobs && class_exists( 'DZE_Screens' ) && '' !== DZE_Screens::url( 'review' ) )
-				? add_query_arg( [ 'kind' => implode( ',', $jobs ) ], DZE_Screens::url( 'review' ) )
+			$where = ( $jobs && class_exists( 'DZE_Queue' ) )
+				? DZE_Queue::review_url( $jobs )
 				: '';
 			$out .= $chip( 'is-wait', 'visibility', sprintf( __( '%s to review', 'dazont-ecom' ), number_format_i18n( $left['n'] ) ), __( 'Waiting for your yes or no — press to read them', 'dazont-ecom' ), $where );
 		}
@@ -2219,7 +2222,7 @@ final class DZE_Automation {
 					_n( '%s result is waiting for your yes or no.', '%s results are waiting for your yes or no.', $waiting, 'dazont-ecom' ),
 					number_format_i18n( $waiting )
 				) ),
-				esc_url( add_query_arg( [ 'kind' => implode( ',', array_unique( $kinds ) ) ], DZE_Screens::url( 'review' ) ) ),
+				esc_url( DZE_Queue::review_url( array_unique( $kinds ) ) ),
 				esc_html__( 'Read them →', 'dazont-ecom' )
 			);
 		}
@@ -2376,7 +2379,7 @@ final class DZE_Automation {
 					</p>
 					<?php if ( ! $ready ) : ?>
 						<p class="description dze-auto-blocked">
-							<?php esc_html_e( 'Switch its module and Content to review back on: the work is theirs, this only decides which page gets it, and when.', 'dazont-ecom' ); ?>
+							<?php esc_html_e( 'Switch its module and the Writing queue back on: the work is theirs, this only decides which page gets it, and when.', 'dazont-ecom' ); ?>
 						</p>
 					<?php endif; ?>
 					<div class="dze-auto-state" data-task="<?php echo esc_attr( $id ); ?>"><?php self::render_state( $id ); ?></div>
@@ -2965,8 +2968,8 @@ final class DZE_Automation {
 		// a yes, on a screen with no list and no link, is a line that cannot
 		// be acted on: "je ne peux pas voir quelles pages ont été retravaillées".
 		$mine = self::my_kinds( $id );
-		$to   = ( $done > 0 && $mine && class_exists( 'DZE_Screens' ) && '' !== DZE_Screens::url( 'review' ) )
-			? add_query_arg( [ 'kind' => implode( ',', $mine ) ], DZE_Screens::url( 'review' ) )
+		$to   = ( $done > 0 && $mine && class_exists( 'DZE_Queue' ) )
+			? DZE_Queue::review_url( $mine )
 			: '';
 		echo '<p class="dze-auto-runsaid">' . esc_html( self::run_said( $c ) );
 		if ( '' !== $to ) {
@@ -3183,6 +3186,7 @@ final class DZE_Automation {
 	public static function render_waiting(): void {
 		$rows  = [];
 		$queue = 0;   // waiting in the writing queue, across every task.
+		$kinds = [];  // and of which kinds, so "the rest" knows where to send you.
 		$aside = [];  // tasks whose work waits somewhere else entirely.
 		foreach ( self::tasks() as $id => $task ) {
 			$left = self::waiting_for( $id );
@@ -3199,6 +3203,7 @@ final class DZE_Automation {
 				continue;
 			}
 			$queue += (int) $left['n'];
+			$kinds  = array_merge( $kinds, (array) ( $task['jobs'] ?? [] ) );
 			foreach ( self::todo( $id, self::TODO_MAX ) as $row ) {
 				$rows[] = $row;
 			}
@@ -3261,13 +3266,19 @@ final class DZE_Automation {
 		// WHAT IS NOT ON THE LIST, and only that. Repeating the figure the rows
 		// already show is the same answer twice on one screen.
 		$rest = $queue - count( $rows );
-		if ( $rest > 0 && class_exists( 'DZE_Queue' ) && DZE_Modules::enabled( 'queue' ) ) {
+		// ET IL NOMME L'ÉCRAN QUI LES TIENT. L'écran central a été supprimé,
+		// donc « dans Content to review » désignait une page que WordPress
+		// refuse : ce sont les genres en jeu qui disent où le reste attend.
+		$more = ( $rest > 0 && class_exists( 'DZE_Queue' ) && DZE_Modules::enabled( 'queue' ) )
+			? DZE_Queue::review_url( $kinds )
+			: '';
+		if ( '' !== $more ) {
 			printf(
 				'<p class="dze-auto-waiting"><a href="%1$s">%2$s</a></p>',
-				esc_url( DZE_Queue::url() ),
+				esc_url( $more ),
 				esc_html( sprintf(
-					/* translators: %s: how many more pieces of work are waiting on the review screen */
-					_n( '%s more in Content to review', '%s more in Content to review', $rest, 'dazont-ecom' ),
+					/* translators: %s: how many more pieces of work are waiting for a yes or a no */
+					_n( '%s more waiting for your yes or no', '%s more waiting for your yes or no', $rest, 'dazont-ecom' ),
 					number_format_i18n( $rest )
 				) )
 			);

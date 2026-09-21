@@ -1023,6 +1023,58 @@ final class DZE_Queue {
 		return $map;
 	}
 
+	/**
+	 * OÙ CE TRAVAIL SE RELIT — l'écran du module qui le fabrique.
+	 *
+	 * « Dans ce cas on supprime le menu to review. On simplifie plutôt que de
+	 * complexifier. »
+	 *
+	 * Il y avait un écran central pour tout ce qui attend une décision. À
+	 * force, chaque module a repris la sienne : le maillage a ses onglets, les
+	 * traductions ont toujours eu les leurs, le banc des produits accepte sur
+	 * la ligne du produit. L'écran central ne relisait plus que les
+	 * descriptions de catégorie, derrière une entrée de menu qui promettait
+	 * tout et ne montrait presque rien — et son compte additionnait des choses
+	 * qu'il n'affichait pas, ce qui a coûté deux corrections.
+	 *
+	 * Cette fonction remplace l'entrée de menu : on lui donne les genres de
+	 * travail, elle rend l'écran qui sait les montrer. Un genre inconnu s'en
+	 * va vers le maillage, qui est tout le volume — et quand un nouveau genre
+	 * apparaîtra, c'est ici qu'on écrira où il se relit, en un seul endroit.
+	 *
+	 * @param array<int,string> $kinds
+	 */
+	public static function review_url( array $kinds = [] ): string {
+		if ( ! class_exists( 'DZE_Screens' ) ) {
+			return '';
+		}
+		$kinds = self::clean_kinds( $kinds );
+		if ( ! $kinds ) {
+			return DZE_Screens::url( 'linking', 'review' );
+		}
+		// UNE PORTÉE, UN ÉCRAN. Chaque genre sait où son travail se relit ;
+		// tant qu'ils désignent le même écran, on y va tout droit.
+		$where = [
+			'cat_desc'     => [ 'bulk', 'categories' ],
+			'product_shot' => [ 'bulk', 'products' ],
+			'cat_links'    => [ 'linking', 'review' ],
+			'post_links'   => [ 'linking', 'review' ],
+		];
+		$seen = [];
+		foreach ( $kinds as $k ) {
+			$one = $where[ $k ] ?? [ 'linking', 'review' ];
+			$seen[ implode( '|', $one ) ] = $one;
+		}
+		if ( 1 === count( $seen ) ) {
+			$one = reset( $seen );
+			return DZE_Screens::url( $one[0], $one[1] );
+		}
+		// PLUSIEURS PORTÉES : l'Aperçu est le seul écran qui les nomme toutes
+		// et qui envoie sur celui de chacune. C'est lui qui a remplacé la
+		// liste centrale, et c'est donc lui qui répond quand elle manquerait.
+		return DZE_Screens::url( 'dashboard' );
+	}
+
 	/** The job waiting on this object, if any. */
 	public static function pending_for( int $object_id, string $family = 'cat_' ): array {
 		return self::pending_map( $family )[ $object_id ] ?? [];
@@ -1218,52 +1270,17 @@ final class DZE_Queue {
 	// =========================================================================
 
 	/**
-	 * Is this screen a TAB of Dazont Ecom → Content rather than a page?
+	 * L'ÉCRAN N'EXISTE PLUS — MAIS SES ADRESSES DOIVENT ENCORE ATTERRIR.
 	 *
-	 * It is, whenever the module that hosts the tabs is on. One entry in the
-	 * menu for one subject — diagnose, do, review — instead of three the owner
-	 * has to remember and connect himself. When that module is off it goes
-	 * back to being its own page: a module switched off must never take a
-	 * function with it that has nothing to do with it.
-	 */
-	/**
-	 * NOT HOSTED ANYWHERE ANY MORE. It is the inbox, and it has its own entry.
+	 * « Dans ce cas on supprime le menu to review. On simplifie plutôt que de
+	 * complexifier. » La liste est rendue à l'endroit où le travail est fait :
+	 * le maillage relit le maillage, le banc des catégories relit ses textes.
 	 *
-	 * It used to live as a tab of the diagnostic screen, so its address was
-	 * that screen's — and when the diagnostic module was switched off, the one
-	 * list holding every kind of waiting work became reachable from nowhere at
-	 * all. Kept as a function because callers ask it, and it now answers the
-	 * only true thing: no.
-	 */
-	public static function hosted(): bool {
-		return false;
-	}
-
-	/** The screen's address, in one place. */
-	public static function url( array $args = [] ): string {
-		return add_query_arg(
-			array_merge( [ 'page' => self::MENU_SLUG ], $args ),
-			admin_url( 'admin.php' )
-		);
-	}
-
-	/** Where it USED to live, so a bookmark or an old link still lands. */
-	public static function old_url( array $args = [] ): string {
-		return add_query_arg(
-			array_merge( [ 'post_type' => 'product', 'page' => self::MENU_SLUG ], $args ),
-			admin_url( 'edit.php' )
-		);
-	}
-
-	/**
-	 * An old address, sent to the new one.
-	 *
-	 * The screen moved out of Products and into Dazont Ecom — "ça porte à
-	 * confusion, ça devrait plutôt se trouver dans l'onglet de dazont ecom" —
-	 * and a page that is no longer registered under Products does not answer
-	 * "not found": WordPress answers "you are not allowed to access this
-	 * page", which reads as a permission the shop has lost. Every link this
-	 * plugin has ever printed still lands.
+	 * Une page qui n'est plus déclarée ne répond pas « introuvable » : WordPress
+	 * répond « vous n'avez pas l'autorisation d'accéder à cette page », ce qui
+	 * se lit comme un droit que la boutique aurait perdu. Les deux adresses que
+	 * ce plugin a imprimées — sous Produits d'abord, puis sous Dazont Ecom —
+	 * sont donc renvoyées sur l'écran qui tient désormais la liste.
 	 */
 	public function moved(): void {
 		global $pagenow;
@@ -1271,80 +1288,37 @@ final class DZE_Queue {
 		if ( ! isset( $_GET['page'] ) || self::MENU_SLUG !== sanitize_key( wp_unslash( $_GET['page'] ) ) ) {
 			return;
 		}
-		// Under Products, where it used to live; or on its own page, now that
-		// it is a tab. Both are addresses this plugin has printed, and both
-		// have to land.
-		if ( 'edit.php' !== $pagenow && ! ( 'admin.php' === $pagenow && self::hosted() ) ) {
+		// phpcs:enable
+		if ( 'edit.php' !== $pagenow && 'admin.php' !== $pagenow ) {
 			return;
 		}
-		$args = array_diff_key( $_GET, array_flip( [ 'page', 'post_type' ] ) );
-		// phpcs:enable
-		wp_safe_redirect( self::url( array_map( 'sanitize_text_field', array_map( 'strval', $args ) ) ) );
+		$to = self::review_url();
+		if ( '' === $to ) {
+			return; // nowhere to send it is better than an empty address.
+		}
+		wp_safe_redirect( $to );
 		exit;
 	}
 
-	public function menu(): void {
-		// A tab of Content, normally: no second entry in the menu for it.
-		if ( self::hosted() ) {
-			return;
-		}
-		// UNDER DAZONT ECOM, not under Products. It holds categories, products
-		// AND articles — "ça porte à confusion, ça devrait plutôt se trouver
-		// dans l'onglet de dazont ecom" — and a screen about everything the
-		// plugin has written does not belong inside one of the things it
-		// writes. The slug is unchanged and the old address redirects, so
-		// every link ever printed at it still lands.
-		$parent  = class_exists( 'DZE_Restock' ) ? DZE_Restock::MENU_SLUG : 'dazont-ecom';
-		// The count rides on the menu label: what is waiting for a decision
-		// should be visible without opening the screen it waits on.
-		// CE QUE CET ÉCRAN PEUT MONTRER, ET RIEN D'AUTRE.
-		//
-		// « Ça fausse le comptage des pastilles. En fait ces 5 devraient être
-		// affichés sur bulk writing et pas sur review. » La pastille ajoutait
-		// les produits du banc, qui ne sont pas dans cette liste — d'où une
-		// notice sous le titre expliquant l'écart au lieu de le supprimer.
-		// Le banc porte son propre compte maintenant ; celui-ci ne compte plus
-		// que ses propres lignes.
-		$waiting = self::review_count();
-		// ONE NAME FOR THE ONE SCREEN. "Writing queue » / bulk produit >
-		// Pourquoi pas dans un onglet réuni (catégorie + produits + blog) sous
-		// le nom Content to review ?" — so this is that screen: categories,
-		// products and articles, everything the shop has generated and not yet
-		// decided on, in one place. A menu named after one of the things on it
-		// is a menu the other things are hidden behind.
-		$label   = DZE_Screens::label( 'review' );
-		$menu    = $waiting
-			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
-				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
-			: $label;
-		add_submenu_page(
-			$parent,
-			$label,
-			$menu,
-			'manage_woocommerce',
-			self::MENU_SLUG,
-			[ $this, 'render' ]
-		);
-		// AND IT STAYS IN THE MENU. It was taken out of it earlier today, on
-		// the reasoning that each work screen shows its own part — which left
-		// the shop with three lists of three different scopes and NO list of
-		// everything, the one thing "je ne comprends pas là où il faut donner
-		// de l'attention" actually asks for. It is the inbox: one entry, one
-		// table, one count, filtered by a rail rather than split across
-		// screens. Its rail is printed by `body()`.
-	}
-
 	/**
-	 * Is THIS the one screen that lists what is waiting for a decision?
+	 * PLUS D'ENTRÉE DE MENU POUR CET ÉCRAN.
 	 *
-	 * True while the module is on, and then the product bulk screen takes its
-	 * own entry out of the menu — one question, one place, one count. False
-	 * when the module is switched off, and the bulk screen keeps its menu
-	 * because otherwise switching a module off would hide a function that has
-	 * nothing to do with it.
+	 * « Dans ce cas on supprime le menu to review. On simplifie plutôt que de
+	 * complexifier. »
+	 *
+	 * Le retrait avait déjà été tenté une fois, puis annulé : il laissait la
+	 * boutique avec trois listes de trois portées et aucune vue d'ensemble —
+	 * ce que « je ne comprends pas là où il faut donner de l'attention »
+	 * demandait justement. Ce n'est plus vrai : l'Aperçu recense les trois
+	 * sources et envoie sur l'écran de chacune — le maillage, le banc
+	 * d'écriture, les traductions. La vue d'ensemble existe, ailleurs, et
+	 * mieux placée.
+	 *
+	 * `body()` RESTE : c'est la table, et c'est elle que le maillage et le
+	 * banc des catégories rappellent avec leur propre portée. Ce qui disparaît
+	 * est l'entrée de menu et la page qui l'enveloppait — pas le tableau.
 	 */
-	public static function owns_review(): bool {
-		return ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' );
+	public function menu(): void {
 	}
 
 	/**
@@ -1565,81 +1539,6 @@ final class DZE_Queue {
 	public static function forget_count(): void {
 		delete_transient( self::COUNT_KEY );
 		self::$pending_cache = [];
-	}
-
-	/**
-	 * The screen on its own, when it has one.
-	 *
-	 * It normally lives as a TAB of Dazont Ecom → Content, beside the
-	 * diagnostic that finds the work — one subject, several views, which is
-	 * WordPress's own idiom and the owner's own way of thinking about it. It
-	 * keeps a page of its own only for the case where the module that hosts
-	 * the tabs is switched off, because switching a module off must never
-	 * hide a function that has nothing to do with it.
-	 */
-	/**
-	 * ONE TABLE, ONE FILTER — WordPress's own Comments pattern.
-	 *
-	 * Three screens each drawing the same table with its own scope is three
-	 * counts that can disagree and no way to clear the day in one place. The
-	 * rail is built from the kinds catalogue, so a kind added tomorrow appears
-	 * here without anybody remembering to add it, and each entry carries its
-	 * own count — read in one query for the whole rail.
-	 *
-	 * @param array<int,string> $active
-	 */
-	public static function rail( array $active ): void {
-		$kinds = self::kinds();
-		$all   = array_keys( $kinds );
-		// The families a shop actually thinks in, named by what waits in them.
-		$groups = [
-			'' => [ 'label' => __( 'All', 'dazont-ecom' ), 'kinds' => $all ],
-		];
-		foreach ( $all as $k ) {
-			$groups[ (string) $k ] = [
-				'label' => (string) ( $kinds[ $k ]['label'] ?? $k ),
-				'kinds' => [ (string) $k ],
-			];
-		}
-		$now  = implode( ',', $active );
-		$base = add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) );
-		$out  = [];
-		foreach ( $groups as $key => $one ) {
-			$n = (int) ( self::counts_for( $one['kinds'] )['review'] ?? 0 );
-			// A family nothing has ever waited in is not a filter, it is noise.
-			if ( '' !== $key && 0 === $n && ! in_array( $key, $active, true ) ) {
-				continue;
-			}
-			$here = ( '' === $key && ! $active ) || ( $now === $key );
-			$out[] = sprintf(
-				'<a href="%1$s"%2$s>%3$s <span class="count">(%4$s)</span></a>',
-				esc_url( '' === $key ? $base : add_query_arg( [ 'kind' => $key ], $base ) ),
-				$here ? ' class="current"' : '',
-				esc_html( (string) $one['label'] ),
-				esc_html( number_format_i18n( $n ) )
-			);
-		}
-		if ( count( $out ) < 2 ) {
-			return; // one family is not a choice.
-		}
-		echo '<ul class="subsubsub" style="float:none;margin:0 0 12px;">';
-		echo '<li>' . implode( ' |</li><li>', $out ) . '</li>';
-		echo '</ul>';
-	}
-	public function render(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			return;
-		}
-		echo '<div class="wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'review' ) ) . '</h1>';
-		// THE FILTER IS IN THE ADDRESS, so a filtered view is a bookmark and
-		// a link — which is what lets every other screen point AT this list
-		// instead of drawing a second copy of it.
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
-		$want = isset( $_GET['kind'] ) ? sanitize_text_field( wp_unslash( $_GET['kind'] ) ) : '';
-		$want = self::clean_kinds( array_map( 'sanitize_key', explode( ',', $want ) ) );
-		self::rail( $want );
-		$this->body( array_values( $want ) );
-		echo '</div>';
 	}
 
 	/**
@@ -2426,7 +2325,7 @@ font:400 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica 
 		wp_send_json_success( [
 			'added' => $n,
 			'job'   => $job,
-			'url'   => self::url(),
+			'url'   => self::review_url( [ $kind ] ),
 		] );
 	}
 

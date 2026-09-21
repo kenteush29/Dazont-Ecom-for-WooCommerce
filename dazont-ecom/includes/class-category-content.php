@@ -3560,7 +3560,7 @@ PROMPT;
 			?>
 			<?php if ( ! $q_on ) : ?>
 				<div class="dze-cc-warn">
-					<p><strong><?php esc_html_e( 'The Content to review module is switched off.', 'dazont-ecom' ); ?></strong></p>
+					<p><strong><?php esc_html_e( 'The Writing queue module is switched off.', 'dazont-ecom' ); ?></strong></p>
 					<p><?php esc_html_e( 'Writing runs through it — in the background, so a long description cannot be cut off by the server. Switch it back on under Settings → Modules to generate anything here.', 'dazont-ecom' ); ?></p>
 				</div>
 			<?php endif; ?>
@@ -3904,7 +3904,10 @@ PROMPT;
 		// Straight to the queue: you asked for work to be done, the place where
 		// it happens is where you want to be. Coming back to the categories
 		// list with a notice pointing at another screen was one click too many.
-		return DZE_Queue::url( [ 'dze_cc_queued' => $n ] );
+		// LE BANC RELIT SES PROPRES TEXTES : la liste est sous le banc, pas
+		// sur un écran central qui n'existe plus.
+		$to = DZE_Queue::review_url( [ 'cat_desc' ] );
+		return '' === $to ? '' : add_query_arg( [ 'dze_cc_queued' => $n ], $to );
 	}
 
 	public function bulk_notice(): void {
@@ -3915,13 +3918,15 @@ PROMPT;
 		// A NOTICE THAT NAMES WHERE THE WORK WENT IS A WAY THERE. "Added to
 		// the queue" left the reader to find the queue; the review list is
 		// where these land, and it is one press away.
-		$to = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'review' ) : '';
+		$to = class_exists( 'DZE_Queue' ) ? DZE_Queue::review_url( [ 'cat_desc' ] ) : '';
 		echo '<div class="notice notice-success"><p>' . sprintf(
 			/* translators: %s: number of categories queued */
 			esc_html( _n( '%s category added to the queue — it starts writing right away.', '%s categories added to the queue — it starts writing right away.', $n, 'dazont-ecom' ) ),
 			esc_html( number_format_i18n( $n ) )
 		) . ( '' !== $to
-			? ' <a href="' . esc_url( $to ) . '">' . esc_html( DZE_Screens::label( 'review' ) ) . ' →</a>'
+			// L'ÉCRAN CENTRAL N'EXISTE PLUS, donc plus personne ne porte ce nom :
+			// le lien dit ce qu'il fait, et descend sur la liste du banc lui-même.
+			? ' <a href="' . esc_url( $to ) . '">' . esc_html__( 'See what is waiting', 'dazont-ecom' ) . ' →</a>'
 			: '' ) . '</p></div>';
 	}
 
@@ -4229,20 +4234,33 @@ PROMPT;
 		) . ' <a href="' . esc_url( admin_url( 'edit-tags.php?taxonomy=product_cat&post_type=product' ) ) . '">'
 			. esc_html__( 'Open the category list →', 'dazont-ecom' ) . '</a></p>';
 
-		// WHAT CAME BACK, said in one line with the way into the ONE list,
-		// pre-filtered to this work. Never a second table.
+		// CE QUI ATTEND SE LIT ICI, PAS UN MENU PLUS LOIN.
+		//
+		// « Dans ce cas on supprime le menu to review. On simplifie plutôt que
+		// de complexifier. »
+		//
+		// Il y avait un écran central pour tout ce qui attend une décision, et
+		// chaque module y renvoyait par une notice. Mais le maillage a sa
+		// propre liste depuis peu, les traductions ont toujours eu la leur, et
+		// le banc des produits aussi : l'écran central ne relisait plus que les
+		// descriptions de catégorie, derrière une entrée de menu qui promettait
+		// tout et ne montrait presque rien.
+		//
+		// Alors les descriptions se relisent où elles se fabriquent. C'est LA
+		// MÊME fonction que l'écran central appelait, réduite à ce genre de
+		// travail : un seul tableau, un seul compte, et l'entrée de menu en
+		// moins.
 		$waiting = class_exists( 'DZE_Queue' ) ? (int) ( DZE_Queue::counts_for( [ 'cat_desc' ] )['review'] ?? 0 ) : 0;
-		if ( $waiting && class_exists( 'DZE_Screens' ) ) {
+		if ( $waiting && class_exists( 'DZE_Queue' ) ) {
 			printf(
-				'<div class="notice notice-info inline" style="margin:0 0 16px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
+				'<h2 style="margin:24px 0 8px;">%s</h2>',
 				esc_html( sprintf(
 					/* translators: %s: how many descriptions */
-					_n( '%s description waits for your yes or no.', '%s descriptions wait for your yes or no.', $waiting, 'dazont-ecom' ),
+					_n( '%s description waits for your yes or no', '%s descriptions wait for your yes or no', $waiting, 'dazont-ecom' ),
 					number_format_i18n( $waiting )
-				) ),
-				esc_url( add_query_arg( [ 'kind' => 'cat_desc' ], DZE_Screens::url( 'review' ) ) ),
-				esc_html__( 'Read them →', 'dazont-ecom' )
+				) )
 			);
+			DZE_Queue::instance()->body( [ 'cat_desc' ] );
 		}
 
 		echo '</div>';

@@ -133,8 +133,8 @@ final class DZE_Dashboard {
 					'said' => sprintf( _n( '%s page has links waiting for your yes or no', '%s pages have links waiting for your yes or no', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
 					// Into the ONE list, pre-filtered to this work: a second list
 					// with its own count is a count that can disagree.
-					'url'  => add_query_arg( [ 'kind' => implode( ',', $mesh ) ], DZE_Screens::url( 'review' ) ),
-					'to'   => DZE_Screens::label( 'review' ),
+					'url'  => DZE_Queue::review_url( $mesh ),
+					'to'   => DZE_Screens::label( 'linking' ),
 				];
 			}
 		}
@@ -154,8 +154,13 @@ final class DZE_Dashboard {
 				'n'    => $n,
 				/* translators: %s: how many */
 				'said' => sprintf( _n( '%s piece of content waits for your yes or no', '%s pieces of content wait for your yes or no', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
-				'url'  => DZE_Screens::url( 'review' ),
-				'to'   => DZE_Screens::label( 'review' ),
+				// LES DEUX MOITIÉS DE CETTE CARTE VIVENT SUR LE BANC : les
+				// descriptions de catégorie sur son onglet Categories, les
+				// produits sur son onglet Products. Depuis que l'écran central
+				// a disparu, c'est là qu'on les relit — et c'est une seule
+				// destination, donc une seule carte.
+				'url'  => DZE_Screens::url( 'bulk' ),
+				'to'   => DZE_Screens::label( 'bulk' ),
 			];
 		}
 		if ( class_exists( 'DZE_Translate' ) && $on( 'translate' ) ) {
