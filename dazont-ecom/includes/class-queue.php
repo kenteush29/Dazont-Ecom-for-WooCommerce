@@ -2087,11 +2087,15 @@ final class DZE_Queue {
 			'preview_id'    => $pid,
 			'preview_nonce' => wp_create_nonce( 'post_preview_' . $pid ),
 		] );
-		// LE SCHEMA DU SITE, PAS CELUI QUE LE PERMALIEN A SOUS LA MAIN. Sur
-		// cette boutique `home` est en https et `siteurl` en http, et le lien
-		// d'aperçu sortait en http : le cookie de session est marqué « secure »,
-		// il ne serait pas envoyé, et l'aperçu répondrait « vous n'avez pas
-		// l'autorisation » sur un nonce parfaitement valide.
+		// LE SCHEMA DU SITE, PAS CELUI QUE LE PERMALIEN A SOUS LA MAIN.
+		//
+		// Le lien d'aperçu est déjà sorti en http alors que la boutique est en
+		// https — WordPress le bâtit depuis le contexte de la requête, qui
+		// derrière un proxy ou hors requête normale ne voit pas toujours le TLS.
+		// Et un lien en http suffit à tout casser sans rien dire : le cookie de
+		// session est marqué « secure », il n'est donc pas envoyé, et l'aperçu
+		// répond « vous n'avez pas l'autorisation » sur un nonce parfaitement
+		// valide. On force le schéma du site, quelle qu'en soit la cause.
 		$scheme = (string) wp_parse_url( (string) home_url(), PHP_URL_SCHEME );
 		if ( '' !== $scheme ) {
 			$url = (string) set_url_scheme( $url, $scheme );
