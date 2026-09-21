@@ -148,6 +148,13 @@ final class DZE_Screens {
 					'done'   => [ 'label' => __( 'Done', 'dazont-ecom' ) ],
 				],
 			],
+			// A COTE DU MAILLAGE, parce que c est la meme question vue de l autre
+			// cote : qui pointe vers quoi.
+			'netlinking'   => [
+				'label'  => __( 'Netlinking', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-netlinking',
+				'module' => 'netlinking',
+			],
 			'restock'      => [
 				'label'  => __( 'Restock', 'dazont-ecom' ),
 				'slug'   => self::PARENT,
@@ -446,6 +453,7 @@ final class DZE_Screens {
 			'content',
 			'bulk',
 			'linking',
+			'netlinking',
 			'lab',
 			'translations',
 			'marketing',
