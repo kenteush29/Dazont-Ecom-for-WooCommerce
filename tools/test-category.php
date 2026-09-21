@@ -356,6 +356,10 @@ class DZE_Modules { public static function enabled( $id ) { return ! in_array( $
 
 require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
+// « Rien a poser ici » est un type d incident a part, pas une panne :
+// sans lui, le refus du maillage devient « classe introuvable » et le
+// message que la boutique doit lire disparait.
+require_once __DIR__ . '/../' . $dir . '/includes/class-nothing-to-do.php';
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
 require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
@@ -1295,6 +1299,52 @@ ok( 'a document cut short is damage',       '' !== DZE_Blocks::damage( $dze_gb, 
 // the question is whether THIS write makes it worse.
 ok( 'an already wrapped document may still be linked',
 	DZE_Blocks::damage( $dze_autop, $dze_autop ), '' );
+
+
+echo "\n« RIEN A POSER ICI » N EST PAS UNE PANNE\n";
+// « Sniper veils et Tactical backpack covers sont en review avec des erreurs.
+// Ça sème la confusion, en fait, ça dit que le module ne fonctionne pas bien,
+// du point de vue utilisateur. Et c'est énervant. Pour les autres dans la
+// liste d'attente, travail parfait. »
+//
+// Les deux lignes rouges n etaient pas des pannes : sur l une les garde-fous
+// avaient refuse une reecriture qui ne tenait pas et une ancre qui ne nommait
+// pas sa cible, sur l autre le modele avait juge qu aucune page n etait
+// proche. Le module avait fait son travail, et l ecran disait le contraire.
+ok( 'le type d incident existe',
+	class_exists( 'DZE_Nothing_To_Do' ), true );
+// IL RESTE UNE EXCEPTION : tout ce qui l attrapait avant l attrape encore.
+ok( 'et il reste attrapable comme avant',
+	is_subclass_of( 'DZE_Nothing_To_Do', 'RuntimeException' ), true );
+
+// LES TROIS REFUS DU MAILLAGE LE LEVENT, et rien d autre ne le leve.
+$dze_src_cc = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-category-content.php' );
+ok( 'le texte qui ne nomme aucune cible',
+	false !== strpos( $dze_src_cc, 'throw new DZE_Nothing_To_Do( sprintf(' ), true );
+ok( 'tout ce qui revient refuse',
+	false !== strpos( $dze_src_cc, "throw new DZE_Nothing_To_Do(\n\t\t\t\t\$res['refused']" ), true );
+ok( 'et le modele qui repond par une note',
+	false !== strpos( $dze_src_cc, 'Nothing was linked here. The model looked and said' ), true );
+// ET CE QUI EST VRAIMENT CASSE RESTE CASSE : un service absent, une page
+// disparue, un budget atteint. Le rouge se merite.
+ok( 'une panne reste une panne',
+	substr_count( $dze_src_cc, 'throw new RuntimeException(' ) > 0, true );
+
+// LA FILE LE RANGE EN « RIEN A FAIRE », SANS NOM DE DECIDEUR.
+$dze_src_q = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-queue.php' );
+ok( 'la file attrape ce type a part',
+	false !== strpos( $dze_src_q, 'catch ( DZE_Nothing_To_Do $e )' ), true );
+ok( 'et le range sans le compter comme un echec',
+	false !== strpos( $dze_src_q, "[ 'status' => 'skipped', 'error' => \$e->getMessage(), 'decided_by' => 0," ), true );
+// LE ZERO EST LA DISTINCTION : un refus de la boutique porte un nom.
+ok( 'l ecran sait qui a decide, ou personne',
+	false !== strpos( $dze_src_q, "'own'      => (int) ( \$r['decided_by'] ?? 0 ) > 0," ), true );
+ok( 'et il a un mot pour ca',
+	false !== strpos( $dze_src_q, "'sNothing' => __( 'Nothing to link here'" ), true );
+// ET LA FILE NE S ARRETE PAS DESSUS : une page sans rien a poser ne doit pas
+// retenir les suivantes.
+ok( 'la file continue apres',
+	false !== strpos( $dze_src_q, "// La file continue : une page sans rien à poser ne doit pas" ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

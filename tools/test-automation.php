@@ -563,6 +563,14 @@ class DZE_Translate {
 	public static function review_count(): int { return (int) ( $GLOBALS['tr_waiting'] ?? 0 ); }
 }
 
+// « Rien a poser ici » est un type d incident a part, pas une panne :
+
+// sans lui, le refus du maillage devient « classe introuvable » et le
+
+// message que la boutique doit lire disparait.
+
+require_once __DIR__ . '/../' . $dir . '/includes/class-nothing-to-do.php';
+
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
 require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
