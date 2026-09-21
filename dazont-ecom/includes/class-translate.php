@@ -183,6 +183,10 @@ final class DZE_Translate {
 		// list posts `scope_sent` whether or not a single box is ticked —
 		// without it, unticking the last one would leave the old list standing
 		// for ever, which is a control that cannot be undone.
+		if ( isset( $in['when'] ) ) {
+			$w = sanitize_text_field( (string) $in['when'] );
+			$out['when'] = in_array( $w, [ 'new', 'update', 'both' ], true ) ? $w : 'both';
+		}
 		if ( ! empty( $in['scope_sent'] ) ) {
 			$out['scope'] = array_values( array_intersect(
 				array_map( 'sanitize_text_field', (array) ( $in['scope'] ?? [] ) ),
@@ -928,13 +932,25 @@ final class DZE_Translate {
 	 * would be missing from a list written today — so every `pa_*` taxonomy is
 	 * in by the same rule.
 	 */
-	public static function always(): array {
+	public static function by_default(): array {
 		return [ 'post:page', 'post:post', 'post:product', 'term:product_cat', 'term:product_tag' ];
 	}
 
-	/** Is this one of the things the shop never has to choose? */
-	public static function is_always( string $key ): bool {
-		return in_array( $key, self::always(), true ) || 0 === strpos( $key, 'term:pa_' );
+	/**
+	 * RIEN N EST IMPOSE : c est un defaut, pas une regle.
+	 *
+	 * « Il faudrait […] aussi choisir quels posts traduire automatiquement. »
+	 * Ces cinq-la, et tous les attributs, etaient coches ET desactives : la
+	 * liste disait « choisissez » et refusait la moitie du choix. Une boutique
+	 * qui ne veut pas payer la traduction de ses attributs ne pouvait pas le
+	 * dire — et c est justement ce qui remplissait la file d attributs que
+	 * personne n emploie.
+	 *
+	 * Ce qui reste vrai est le DEFAUT : une boutique qui n a jamais repondu
+	 * traduit ce qu elle traduisait avant que la question existe.
+	 */
+	public static function is_default( string $key ): bool {
+		return in_array( $key, self::by_default(), true ) || 0 === strpos( $key, 'term:pa_' );
 	}
 
 	/**
@@ -948,14 +964,37 @@ final class DZE_Translate {
 	public static function picked_scope(): array {
 		$all    = self::scope();
 		$picked = self::get_settings()['scope'] ?? null;
-		$extra  = is_array( $picked ) ? array_map( 'strval', $picked ) : [];
 		$out    = [];
+		// JAMAIS REPONDU N EST PAS REPONDU NON. Une boutique qui n a pas encore
+		// vu cette liste continue de traduire ce qu elle traduisait avant que le
+		// choix existe ; une boutique qui a repondu est prise au mot, y compris
+		// quand elle a tout decoche.
+		$never = ! is_array( $picked );
+		$picked = $never ? [] : array_map( 'strval', $picked );
 		foreach ( $all as $key => $one ) {
-			if ( self::is_always( $key ) || in_array( $key, $extra, true ) ) {
+			if ( $never ? self::is_default( $key ) : in_array( $key, $picked, true ) ) {
 				$out[ $key ] = $one;
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * NOUVEAUX, MISES A JOUR, OU LES DEUX.
+	 *
+	 * « Il faut la possibilite de choisir : traduction des nouveaux posts, mise
+	 * a jour des anciens, les deux. » Les deux travaux n ont ni le meme cout ni
+	 * la meme urgence : une page qui n existe dans aucune langue est un trou
+	 * dans le catalogue, une page dont la source a bouge est un entretien.
+	 *
+	 * WPML repond deja aux deux questions — une langue manquante d un cote, son
+	 * drapeau `needs_update` de l autre — donc c est un filtre, pas un calcul.
+	 *
+	 * @return string 'new', 'update' ou 'both'
+	 */
+	public static function when(): string {
+		$w = (string) ( self::get_settings()['when'] ?? 'both' );
+		return in_array( $w, [ 'new', 'update', 'both' ], true ) ? $w : 'both';
 	}
 
 	/**
@@ -2449,21 +2488,24 @@ final class DZE_Translate {
 							<p class="description"><?php esc_html_e( 'WPML is not set to translate any post type or taxonomy on this site. Open WPML → Settings and say what should be translated; this list follows that answer and never overrides it.', 'dazont-ecom' ); ?></p>
 						<?php endif; ?>
 						<?php foreach ( $dze_all as $dze_key => $dze_one ) : ?>
-							<?php $dze_fixed = self::is_always( $dze_key ); ?>
+							<?php // PLUS AUCUNE CASE GRISEE : la liste demandait de choisir et
+								// refusait la moitie du choix. Ce qui etait « toujours traduit »
+								// est desormais « coche par defaut », et se decoche. ?>
 							<label style="display:block;margin-bottom:3px;">
 								<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[scope][]" value="<?php echo esc_attr( $dze_key ); ?>"
-									<?php checked( $dze_fixed || in_array( $dze_key, $dze_picked, true ) ); ?>
-									<?php disabled( $dze_fixed ); ?> />
+									<?php checked( in_array( $dze_key, $dze_picked, true ) ); ?> />
 								<?php echo esc_html( $dze_one['label'] ); ?>
 								<?php if ( ! empty( $dze_one['attr'] ) ) : ?>
 									<span class="description"><?php esc_html_e( '· product attribute', 'dazont-ecom' ); ?></span>
 								<?php endif; ?>
-								<?php if ( $dze_fixed ) : ?>
-									<span class="description"><?php esc_html_e( '· always translated', 'dazont-ecom' ); ?></span>
-									<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[scope][]" value="<?php echo esc_attr( $dze_key ); ?>" />
+								<?php if ( self::is_default( $dze_key ) ) : ?>
+									<span class="description"><?php esc_html_e( '· on by default', 'dazont-ecom' ); ?></span>
 								<?php endif; ?>
 							</label>
 						<?php endforeach; ?>
+						<p class="description">
+							<?php esc_html_e( 'An attribute is only ever translated when a product uses it — an attribute value nothing is tagged with is a page nobody can reach, and it is never sent.', 'dazont-ecom' ); ?>
+						</p>
 						<p class="description"><?php esc_html_e( 'Only what WPML is set to translate can appear here — this list follows WPML and never overrides it.', 'dazont-ecom' ); ?></p>
 						<?php
 						// WHERE THE BRIDGE ENDS, said once, with WPML's own
@@ -2485,6 +2527,31 @@ final class DZE_Translate {
 								<?php esc_html_e( 'On this site WPML is not set to duplicate media, so your images stay single and shared between languages.', 'dazont-ecom' ); ?>
 							<?php endif; ?>
 						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'When it translates', 'dazont-ecom' ); ?></th>
+					<td>
+						<?php
+						// DEUX TRAVAUX, PAS UN. « Il faut la possibilite de choisir :
+						// traduction des nouveaux posts, mise a jour des anciens, les
+						// deux. » Une page qui n existe dans aucune langue est un trou
+						// dans le catalogue ; une page dont la source a bouge est de
+						// l entretien. WPML repond deja aux deux questions, donc c est
+						// un filtre sur sa reponse et jamais un calcul a nous.
+						$dze_when = self::when();
+						foreach ( [
+							'both'   => __( 'Both — fill the gaps and keep them up to date', 'dazont-ecom' ),
+							'new'    => __( 'Only what has never been translated into a language', 'dazont-ecom' ),
+							'update' => __( 'Only translations WPML marks as out of date', 'dazont-ecom' ),
+						] as $dze_k => $dze_lbl ) :
+						?>
+							<label style="display:block;margin-bottom:3px;">
+								<input type="radio" name="<?php echo esc_attr( self::OPT ); ?>[when]" value="<?php echo esc_attr( $dze_k ); ?>" <?php checked( $dze_k, $dze_when ); ?> />
+								<?php echo esc_html( $dze_lbl ); ?>
+							</label>
+						<?php endforeach; ?>
+						<p class="description"><?php esc_html_e( 'This narrows what the automatic pass picks up and what the Translations screen lists as owed. It never changes what WPML itself considers translated.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>

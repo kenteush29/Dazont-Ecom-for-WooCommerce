@@ -1077,31 +1077,44 @@ DZE_Translate::obj_write( $dze_prod, 60, [ 'block_text_1' => '<p>Fabriqué en Eu
 ok( 'and written back onto the translation',
 	get_post_meta( 60, 'block_text_1', true ), '<p>Fabriqué en Europe.</p>' );
 
-echo "\nThe list is the shop's own, and six things are always in it\n";
+echo "\nThe list is the shop's own, and nothing is imposed on it\n";
+// « Il faudrait […] aussi choisir quels posts traduire automatiquement. » Ces
+// six-la etaient cochees ET desactivees : la liste disait « choisissez » et
+// refusait la moitie du choix. Elles restent le DEFAUT, et se decochent.
 $GLOBALS['opts']['dze_translate_settings'] = [];
 $dze_pick = DZE_Translate::picked_scope();
 foreach ( [ 'post:page', 'post:post', 'post:product', 'term:product_cat', 'term:product_tag' ] as $dze_k ) {
-	ok( $dze_k . ' is always translated',   isset( $dze_pick[ $dze_k ] ), true );
+	ok( $dze_k . ' is on by default',       isset( $dze_pick[ $dze_k ] ), true );
 }
 // An attribute is in by the RULE, never by name: a shop adds one next month
 // and a list written today would not have it.
 ok( 'and every product attribute with them', isset( $dze_pick['term:pa_colour'] ), true );
-ok( 'a new attribute is in by the rule too', DZE_Translate::is_always( 'term:pa_material' ), true );
+ok( 'a new attribute is in by the rule too', DZE_Translate::is_default( 'term:pa_material' ), true );
+// ET UNE BOUTIQUE QUI A REPONDU EST PRISE AU MOT. Un reglage enregistre est
+// une reponse entiere : ce qui n y est pas a ete decoche, pas oublie.
+$GLOBALS['opts']['dze_translate_settings'] = [ 'scope' => [ 'post:page' ] ];
+ok( 'what was ticked is translated',      isset( DZE_Translate::picked_scope()['post:page'] ), true );
+ok( 'and what was unticked is not',       isset( DZE_Translate::picked_scope()['post:product'] ), false );
+ok( 'an attribute can be unticked too',   isset( DZE_Translate::picked_scope()['term:pa_colour'] ), false );
+// Tout decocher est une reponse, pas une absence de reponse.
+$GLOBALS['opts']['dze_translate_settings'] = [ 'scope' => [] ];
+ok( 'everything unticked translates nothing', DZE_Translate::picked_scope(), [] );
 // Everything else starts OUT and is a tick.
+$GLOBALS['opts']['dze_translate_settings'] = [];
 $GLOBALS['opts']['icl_sitepress_settings']['custom_posts_sync_option']['acme_doc'] = 1;
 ok( 'an optional type is offered',        isset( DZE_Translate::scope()['post:acme_doc'] ), true );
 ok( 'and is not translated until ticked', isset( DZE_Translate::picked_scope()['post:acme_doc'] ), false );
-$GLOBALS['opts']['dze_translate_settings'] = [ 'scope' => [ 'post:acme_doc' ] ];
+$GLOBALS['opts']['dze_translate_settings'] = [ 'scope' => [ 'post:acme_doc', 'post:product' ] ];
 ok( 'ticked, it joins the list',          isset( DZE_Translate::picked_scope()['post:acme_doc'] ), true );
-ok( 'and the six are still there',        isset( DZE_Translate::picked_scope()['post:product'] ), true );
+ok( 'beside what was kept ticked',        isset( DZE_Translate::picked_scope()['post:product'] ), true );
 // THE SETTING IS WRITTEN ONLY WHEN THE FORM CARRIED IT, or another tab's save
 // empties the shop's list without anybody touching it.
 $dze_tr = DZE_Translate::instance();
 $dze_tr->sanitize( [ 'model' => 'peu-importe' ] );
 ok( 'another form saving does not empty the list',
-	DZE_Translate::get_settings()['scope'] ?? null, [ 'post:acme_doc' ] );
+	DZE_Translate::get_settings()['scope'] ?? null, [ 'post:acme_doc', 'post:product' ] );
 ok( 'and a sanitizer called with null keeps everything',
-	( $dze_tr->sanitize( null )['scope'] ?? null ), [ 'post:acme_doc' ] );
+	( $dze_tr->sanitize( null )['scope'] ?? null ), [ 'post:acme_doc', 'post:product' ] );
 // Unticking the last one IS an answer, and must be storable.
 $dze_out = $dze_tr->sanitize( [ 'scope_sent' => 1 ] );
 ok( 'unticking everything is kept',       $dze_out['scope'], [] );
@@ -2395,5 +2408,38 @@ ok( 'sans dessiner leur liste ici',
 ok( 'et le banc garde son chemin',
 	false !== strpos( $dze_src_q, 'DZE_Content::bulk_url()' ), true );
 
+echo "\nNOUVEAUX, MISES A JOUR, OU LES DEUX\n";
+// « Il faut la possibilite de choisir : traduction des nouveaux posts, mise a
+// jour des anciens, les deux. » Les deux travaux n ont ni le meme cout ni la
+// meme urgence, et WPML repond deja aux deux questions — une langue manquante
+// d un cote, son drapeau `needs_update` de l autre. C est donc un filtre sur
+// sa reponse, jamais un calcul a nous : la clause est isolee de la requete
+// pour qu elle puisse etre lue sans base de donnees.
+$GLOBALS['opts']['dze_translate_settings'] = [];
+ok( 'sans reglage, les deux',            DZE_Translate::when(), 'both' );
+ok( 'et la clause les prend toutes deux',
+	DZE_Translate_Screen::owed_clause( 4, 'NEED' ), 'COUNT( DISTINCT t.language_code ) < 4 OR NEED' );
+$GLOBALS['opts']['dze_translate_settings'] = [ 'when' => 'new' ];
+ok( 'les nouveaux seuls',                DZE_Translate::when(), 'new' );
+ok( 'et la clause oublie les perimes',
+	DZE_Translate_Screen::owed_clause( 4, 'NEED' ), 'COUNT( DISTINCT t.language_code ) < 4' );
+$GLOBALS['opts']['dze_translate_settings'] = [ 'when' => 'update' ];
+ok( 'les mises a jour seules',           DZE_Translate::when(), 'update' );
+ok( 'et la clause oublie les trous',     DZE_Translate_Screen::owed_clause( 4, 'NEED' ), 'NEED' );
+// UN REGLAGE ABIME NE VAUT PAS UN FILTRE : il vaut le comportement complet.
+$GLOBALS['opts']['dze_translate_settings'] = [ 'when' => 'n importe quoi' ];
+ok( 'une valeur inconnue retombe sur les deux', DZE_Translate::when(), 'both' );
+$GLOBALS['opts']['dze_translate_settings'] = [];
+
+// ET LE REGLAGE S ENREGISTRE.
+$dze_tr = DZE_Translate::instance();
+ok( 'le choix est enregistre',           ( $dze_tr->sanitize( [ 'when' => 'new' ] )['when'] ?? '' ), 'new' );
+ok( 'une valeur inventee est ramenee',   ( $dze_tr->sanitize( [ 'when' => 'pirate' ] )['when'] ?? '' ), 'both' );
+// Un autre formulaire enregistre ne doit pas effacer ce choix.
+$GLOBALS['opts']['dze_translate_settings'] = [ 'when' => 'update' ];
+ok( 'un autre formulaire ne l efface pas', ( $dze_tr->sanitize( [ 'model' => 'x' ] )['when'] ?? '' ), 'update' );
+$GLOBALS['opts']['dze_translate_settings'] = [];
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
+

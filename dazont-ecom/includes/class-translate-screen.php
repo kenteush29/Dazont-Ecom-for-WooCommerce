@@ -1296,6 +1296,25 @@ trait DZE_Translate_Screen {
 	 * about which objects are work — the automation would offer an object the
 	 * screen does not list, and nobody could say which of the two was right.
 	 */
+	/**
+	 * CE QUE LA BOUTIQUE CONSIDERE COMME DU. Separee de la requete parce qu une
+	 * clause enfouie dans un SQL de quarante lignes ne s eprouve pas.
+	 *
+	 * @param int    $want Combien de langues sont attendues.
+	 * @param string $need L expression qui dit « WPML l a marque perime ».
+	 */
+	public static function owed_clause( int $want, string $need ): string {
+		$missing = "COUNT( DISTINCT t.language_code ) < {$want}";
+		$when    = class_exists( 'DZE_Translate' ) ? DZE_Translate::when() : 'both';
+		if ( 'new' === $when ) {
+			return $missing;
+		}
+		if ( 'update' === $when ) {
+			return $need;
+		}
+		return "{$missing} OR {$need}";
+	}
+
 	public static function todo_page( array $scope, string $src, array $targets, int $paged, int $per, bool $todo_only = true ): ?array {
 		global $wpdb;
 		if ( ! $wpdb || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() || ! $targets ) {
@@ -1335,6 +1354,25 @@ trait DZE_Translate_Screen {
 			// three had kept draft and pending.
 			: "INNER JOIN {$wpdb->posts} p ON p.ID = src.element_id
 			      AND p.post_status IN ('publish','private')";
+		// UN ATTRIBUT QUE RIEN N EMPLOIE N EST PAS UNE PAGE A TRADUIRE.
+		//
+		// « Pas besoin de traduire des attributs non utilises. » Sur cette
+		// boutique 44 couleurs sur 218 ne sont portees par aucun produit : leur
+		// archive est vide, aucun filtre ne les propose, et chacune coutait un
+		// appel par langue. La valeur d attribut suit le produit ou elle ne part
+		// pas du tout.
+		//
+		// Le test porte sur les LIGNES de rattachement et non sur tt.count, qui
+		// est un cache et ment des qu une passe l a laisse en arriere.
+		//
+		// EXISTS et non une jointure : une jointure rendrait une ligne par
+		// produit portant la valeur, que le GROUP BY replierait ensuite pour
+		// rien — sur un catalogue de dix mille produits c est le genre de detail
+		// qui transforme une liste en attente.
+		$used = ( $term && 0 === strpos( (string) $scope['type'], 'pa_' ) )
+			? " AND EXISTS ( SELECT 1 FROM {$wpdb->term_relationships} dze_use
+			                  WHERE dze_use.term_taxonomy_id = tt.term_taxonomy_id )"
+			: '';
 		$pick  = $term ? 'tt.term_id' : 'src.element_id';
 		$order = $term ? 'tm.name' : 'p.post_title';
 		$marks = $has_s ? "LEFT JOIN {$st} s ON s.translation_id = t.translation_id" : '';
@@ -1344,12 +1382,18 @@ trait DZE_Translate_Screen {
 			LEFT JOIN {$tr} t ON t.trid = src.trid AND t.element_id <> src.element_id
 			      AND t.element_type = src.element_type AND t.language_code IN ( {$in} )
 			{$marks}
-			WHERE src.element_type = %s AND src.language_code = %s
+			WHERE src.element_type = %s AND src.language_code = %s {$used}
 			GROUP BY src.element_id, {$pick}, {$order}"
 			// "SHOW THEM TOO" IS THE SAME QUERY WITHOUT THE NARROWING, never a
 			// second reading: two readings of one list is how a count and the
 			// rows under it start disagreeing.
-			. ( $todo_only ? " HAVING COUNT( DISTINCT t.language_code ) < {$want} OR {$need}" : '' );
+			// NOUVEAUX, MISES A JOUR, OU LES DEUX — et c est la MEME requete,
+			// resserree. Deux lectures d une liste est la facon dont un compte et
+			// les lignes en dessous se mettent a diverger.
+			//
+			// « Une langue manquante » et « WPML dit que c est perime » sont deux
+			// travaux : remplir un trou du catalogue, ou entretenir l existant.
+			. ( $todo_only ? ' HAVING ' . self::owed_clause( $want, $need ) : '' );
 		$found = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM ( SELECT src.element_id {$body} ) dze_todo",
 			$name,
