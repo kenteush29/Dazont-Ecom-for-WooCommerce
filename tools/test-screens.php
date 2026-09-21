@@ -673,5 +673,30 @@ foreach ( [ 'class-mesh.php', 'class-category-content.php', 'class-translate-scr
 	ok( "$ab_f porte la barre", false !== strpos( $ab_s, 'DZE_Automation::panel_form(' ), true );
 }
 
+echo "\nUNE CLASSE TAILLEE POUR UN SIGNE N HABILLE PAS UN BOUTON QUI PARLE\n";
+// « Style cassé. Ils se chevauchent. » Le bouton « Discard (7) » portait
+// `dze-cb-no`, qui est la petite croix des listes : width 26px, height 26px.
+// Le texte debordait d un carre de vingt-six pixels et le message d etat
+// passait par-dessus. Ces deux classes dessinent UN caractere ; un bouton qui
+// porte des mots ne peut pas les porter.
+$dze_sized = [];
+foreach ( glob( __DIR__ . '/../' . $dir . '/includes/*.php' ) as $dze_f ) {
+	$dze_src = (string) file_get_contents( $dze_f );
+	if ( ! preg_match_all( '~<button\b[^>]*>(.*?)</button>~s', $dze_src, $m, PREG_SET_ORDER ) ) {
+		continue;
+	}
+	foreach ( $m as $one ) {
+		if ( ! preg_match( '~class="[^"]*\bdze-cb-(yes|no)\b~', $one[0] ) ) {
+			continue;
+		}
+		// Le contenu attendu est une entite HTML seule : &#10003; ou &#10007;.
+		$dze_in = trim( $one[1] );
+		if ( ! preg_match( '~^&\#?[0-9a-zA-Z]+;$~', $dze_in ) ) {
+			$dze_sized[] = basename( $dze_f ) . ': ' . mb_substr( $dze_in, 0, 40 );
+		}
+	}
+}
+ok( 'no worded button wears the one-glyph size', $dze_sized, [] );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
