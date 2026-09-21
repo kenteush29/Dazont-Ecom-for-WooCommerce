@@ -186,6 +186,16 @@ final class DZE_Modules {
 				'desc'  => __( 'Reads who links to whom across the site, names the pages nobody points at, and says which pages should point at them (Dazont Ecom → Internal linking).', 'dazont-ecom' ),
 				'more'  => __( 'Everything else on this site counted links; nothing knew who linked to whom. A category knew how many links its own description held, an article knew how many it held, and neither could say whether anybody in the shop pointed at it — so a page could be written, translated and forgotten, reachable from a menu and from nowhere else. This module reads the whole site once and writes the graph down: one row per internal link, from a page to a page, with the words the link was made of. Product categories, articles and pages; products are left out, since a product page already lists what it belongs to. From that graph it answers the two questions a mesh is judged on — which pages nobody points at, and which pages point at nothing — and, for a page that is short, which other pages should be the ones to link to it: a first pass on wording that ignores the words half the site uses, then a short reading that keeps only the pages genuinely about the same subject. Nothing is written by this module: the pages you tick are sent to the writing queue, where the same linking pass the rest of the plugin uses adds the sentence, and it comes back for review like everything else. Pages laid out with a page builder are read for their links and can be linked TO, but are never offered as a place to write one: their text is not in the post, so a link written there would be stored and never appear.', 'dazont-ecom' ),
 			],
+			// L AUTRE MOITIE DU MAILLAGE. Celui d a cote s occupe des liens que ce
+			// site se donne a lui-meme ; celui-ci des liens qui viendraient du
+			// dehors — il n en obtient aucun, il dit OU les mettre.
+			'netlinking' => [
+				'class' => 'DZE_Netlinking',
+				'group' => 'catalog',
+				'label' => __( 'Netlinking', 'dazont-ecom' ),
+				'desc'  => __( 'Reads Search Console once a day and names the pages a link from outside would lift, with the words to link them by (Dazont Ecom → Netlinking).', 'dazont-ecom' ),
+				'more'  => __( 'Internal linking is about the links this site gives itself. This is the other half: the links that would come from elsewhere. It obtains none and writes none — it says WHERE they would pay and WITH WHAT WORDS, which is the only part of the job a machine can do honestly. What Search Console gives is impressions, click-through and average position, page by page: a page with four thousand impressions in fourteenth place is a page people are looking for and nobody sees, which is exactly the page a link lifts. The queries it already works are the anchor text to aim for — measured, not guessed. What Search Console does NOT give is backlinks: its API has no such endpoint, the Links report exists on screen and nowhere else, so this module never pretends to list the links you already have. It is entirely passive: read-only access to Google, nothing written to the shop, nothing sent to a model, nothing paid for. It reads itself once a day and waits to be consulted.', 'dazont-ecom' ),
+			],
 			'automation' => [
 				'class' => 'DZE_Automation',
 				'group' => 'tech',

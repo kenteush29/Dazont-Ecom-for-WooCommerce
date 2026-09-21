@@ -54,6 +54,7 @@ $dze_where = [
 	'content'      => [ 'class-diagnostic.php', 'MENU_SLUG' ],
 	'lab'          => [ 'class-image-lab.php', 'MENU_SLUG' ],
 	'linking'      => [ 'class-mesh.php', 'MENU_SLUG' ],
+	'netlinking'   => [ 'class-netlinking.php', 'MENU_SLUG' ],
 	'marketing'    => [ 'class-discounts.php', 'MENU_SLUG_EVENTS' ],
 	'translations' => [ 'class-translate-screen.php', 'MENU_SLUG' ],
 	'automation'   => [ 'class-automation.php', 'MENU_SLUG' ],
@@ -254,6 +255,7 @@ foreach ( [
 	'class-translate-screen.php' => 'translations',
 	'class-automation.php'       => 'automation',
 	'class-content.php'          => 'bulk',
+	'class-netlinking.php'       => 'netlinking',
 	'class-shortcodes.php'       => 'shortcodes',
 	'class-setup.php'            => 'setup',
 	'class-health.php'           => 'logs',
@@ -549,7 +551,7 @@ ok( 'et lordre du menu ne la nomme plus',
 	in_array( 'review', DZE_Screens::menu_order(), true ), false );
 // LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
 ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
-	'dashboard', 'content', 'bulk', 'linking', 'lab', 'translations', 'marketing',
+	'dashboard', 'content', 'bulk', 'linking', 'netlinking', 'lab', 'translations', 'marketing',
 	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 
