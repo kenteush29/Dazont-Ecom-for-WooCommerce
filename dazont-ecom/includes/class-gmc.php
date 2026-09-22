@@ -378,8 +378,16 @@ final class DZE_Gmc {
 		return is_array( $c ) ? $c : [];
 	}
 
+	/**
+	 * L adresse commune a tout le plugin — voir DZE_Oauth.
+	 *
+	 * Une connexion qui tourne ne casse pas au passage : cette adresse ne sert
+	 * qu a la PREMIERE autorisation, le rafraichissement du jeton ne s en sert
+	 * pas. L ancienne adresse reste branchee pour qu un consentement en cours
+	 * de route atterrisse quand meme.
+	 */
 	public function oauth_redirect_uri(): string {
-		return admin_url( 'admin-post.php?action=dze_gmc_oauth' );
+		return class_exists( 'DZE_Oauth' ) ? DZE_Oauth::redirect_uri() : admin_url( 'admin-post.php?action=dze_gmc_oauth' );
 	}
 
 	public function oauth_authorize_url(): string {
@@ -391,7 +399,7 @@ final class DZE_Gmc {
 			'scope'         => self::OAUTH_SCOPE,
 			'access_type'   => 'offline',
 			'prompt'        => 'consent',
-			'state'         => wp_create_nonce( 'dze_gmc_oauth' ),
+			'state'         => class_exists( 'DZE_Oauth' ) ? DZE_Oauth::state( 'gmc', 'dze_gmc_oauth' ) : wp_create_nonce( 'dze_gmc_oauth' ),
 		] );
 	}
 

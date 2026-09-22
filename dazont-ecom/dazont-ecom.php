@@ -3,7 +3,7 @@
  * Plugin Name:       Dazont Ecom
  * Plugin URI:        https://github.com/kenteush29/Dazont-Ecom-for-WooCommerce
  * Description:       Dazont Ecom toolkit for WooCommerce. Modules (each switchable under Settings → Modules): Restock, Trending Products, Discounts & Marketing events, Google Merchant Center promotions, Marketing Assistant, Sourcing Assistant, Product Content, POD image, Variation Split, Dashboard.
- * Version:     4.463.1
+ * Version:     4.464.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Dazont
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DZE_VERSION', '4.463.1' );
+define( 'DZE_VERSION', '4.464.0' );
 define( 'DZE_FILE',    __FILE__ );
 define( 'DZE_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'DZE_URL',     plugin_dir_url( __FILE__ ) );
@@ -79,6 +79,10 @@ final class DZE_Plugin {
 		DZE_Modules::instance();
 		DZE_Modules::boot();
 		DZE_Api_Keys::init();
+		// UNE SEULE ADRESSE DE RETOUR OAuth pour tout le plugin : chaque module
+		// qui se connecte a Google apportait la sienne, donc une ligne de plus a
+		// coller dans la console Google a chaque fois.
+		DZE_Oauth::init();
 		// Carrying one shop's prompts and criteria to another is the plugin's
 		// own facility, not a module: it owns no data, it writes what other
 		// modules own, and the day a shop needs it is the day it is standing
