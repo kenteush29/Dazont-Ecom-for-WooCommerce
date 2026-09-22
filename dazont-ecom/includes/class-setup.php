@@ -133,12 +133,83 @@ final class DZE_Setup {
 			'said'   => $gmc_done
 				? __( 'Connected, with a merchant account chosen.', 'dazont-ecom' )
 				: __( 'Not connected.', 'dazont-ecom' ),
+			// MEME PROJET GOOGLE, AUTRE API : celle-ci se sert de la Merchant API,
+			// et elle s allume au meme endroit que l autre.
+			'links'  => [
+				[ __( 'Enable the Merchant API', 'dazont-ecom' ), 'https://console.cloud.google.com/apis/library/merchantapi.googleapis.com' ],
+			],
 			'url'    => class_exists( 'DZE_Discounts' )
 				? admin_url( 'admin.php?page=' . DZE_Discounts::MENU_SLUG_EVENTS . '&tab=gmc' )
 				: '',
 			'do'     => $gmc_done ? __( 'Open', 'dazont-ecom' ) : __( 'Connect', 'dazont-ecom' ),
 		];
 
+		// L ADRESSE DE RETOUR, UNE FOIS POUR TOUT LE PLUGIN.
+		//
+		// « Tout ça doit figurer dans le plugin setup, ainsi que le lien vers
+		// l'activation de l'api. » C etait explique dans l ecran du module qui
+		// en avait besoin, donc a un endroit qu on ne relit jamais et que le
+		// module suivant ne connait pas. Cette ligne-ci est la seule chose a
+		// coller chez Google, et elle ne changera plus.
+		$any_google = self::on( 'gmc' ) || self::on( 'netlinking' );
+		if ( $any_google && class_exists( 'DZE_Oauth' ) ) {
+			$out[] = [
+				'id'     => 'oauth_uri',
+				'group'  => 'keys',
+				'label'  => __( 'Google sign-in address', 'dazont-ecom' ),
+				'why'    => __( 'Paste this once into the Google app, under "Authorised redirect URIs". Every part of this plugin that connects to Google comes back through it, so there is never a second one to add.', 'dazont-ecom' ),
+				'module' => '',
+				'need'   => false,
+				// RIEN ICI NE SE VERIFIE DEPUIS LA BOUTIQUE : ce qui est declare
+				// chez Google ne se lit pas d ici, et afficher « fait » sur une
+				// chose qu on n a pas regardee est pire que de se taire.
+				'state'  => 'unknown',
+				'said'   => __( 'Copy it into Google Cloud → Credentials.', 'dazont-ecom' ),
+				'copy'   => DZE_Oauth::redirect_uri(),
+				'links'  => [
+					[ __( 'Google Cloud → Credentials', 'dazont-ecom' ), 'https://console.cloud.google.com/apis/credentials' ],
+					[ __( 'Publish the app (else Google drops it every 7 days)', 'dazont-ecom' ), 'https://console.cloud.google.com/apis/credentials/consent' ],
+				],
+				'url'    => '',
+				'do'     => '',
+			];
+		}
+
+		// SEARCH CONSOLE — la connexion, et l API qu il faut allumer avec elle.
+		//
+		// L API oubliee est le ratage le plus probable : la connexion reussit,
+		// tout a l air fait, et c est la PREMIERE lecture qui est refusee. Le
+		// lien de son activation vit donc ici, a cote de la connexion.
+		$nl_on = self::on( 'netlinking' );
+		if ( class_exists( 'DZE_Netlinking' ) ) {
+			$nl_conn = $nl_on && DZE_Netlinking::connected();
+			$nl_read = (int) ( DZE_Netlinking::data()['at'] ?? 0 );
+			$out[]   = [
+				'id'     => 'netlinking',
+				'group'  => 'keys',
+				'label'  => __( 'Search Console (Netlinking)', 'dazont-ecom' ),
+				'why'    => __( 'Reads which pages a link from outside would lift, and with what words. Read-only: it can never change anything at Google.', 'dazont-ecom' ),
+				'module' => 'netlinking',
+				// OPTIONNEL TANT QU ON NE S EN SERT PAS, REQUIS DES QU ON S EN SERT.
+				// Une boutique qui n a pas connecte Search Console ne manque de
+				// rien ; une boutique qui l a connectee et dont rien ne se lit a un
+				// travail inachevé, et le compte en haut doit le dire.
+				'need'   => $nl_conn,
+				'state'  => ! $nl_on ? 'off' : ( ( $nl_conn && $nl_read ) ? 'done' : 'todo' ),
+				'said'   => ! $nl_conn
+					? __( 'Not connected.', 'dazont-ecom' )
+					: ( $nl_read
+						? __( 'Connected, and reading.', 'dazont-ecom' )
+						// CONNECTE MAIS JAMAIS LU : c est presque toujours l API.
+						: __( 'Connected, but nothing read yet — usually the API below is still off.', 'dazont-ecom' ) ),
+				'links'  => [
+					[ __( 'Enable the Search Console API', 'dazont-ecom' ), 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com' ],
+					[ __( 'Check your properties in Search Console', 'dazont-ecom' ), 'https://search.google.com/search-console' ],
+				],
+				'url'    => class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'netlinking' ) : '',
+				'do'     => $nl_conn ? __( 'Open', 'dazont-ecom' ) : __( 'Connect', 'dazont-ecom' ),
+			];
+		}
 		// ---- THE SHOP AROUND IT: conditions outside the plugin ----
 		$woo   = class_exists( 'WooCommerce' );
 		$out[] = [
@@ -740,7 +811,33 @@ final class DZE_Setup {
 			// WHAT IT IS FOR, in a line — and the reason it is a line and not
 			// a paragraph is that a paragraph explaining a control usually
 			// means the control is wrong.
-			. '<br><span class="description">' . esc_html( (string) $row['why'] ) . '</span></td>';
+			. '<br><span class="description">' . esc_html( (string) $row['why'] ) . '</span>';
+		// L ADRESSE A COLLER, LA OU ON LA CHERCHE. « Tout ça doit figurer dans le
+		// plugin setup » : une consigne rangee dans l ecran d un module est une
+		// consigne que personne ne relit, et celle-ci se colle une fois chez
+		// Google pour tout le plugin.
+		if ( ! empty( $row['copy'] ) ) {
+			echo '<br><code class="dze-setup-copy" style="user-select:all;display:inline-block;margin-top:5px;padding:3px 7px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;font-size:12px;">'
+				. esc_html( (string) $row['copy'] ) . '</code>';
+		}
+		// ET LES PAGES OU LE GESTE SE FAIT, nommees et cliquables : un numero de
+		// projet a recopier dans une adresse est une etape qu on rate.
+		if ( ! empty( $row['links'] ) ) {
+			echo '<br><span class="description">';
+			$first = true;
+			foreach ( (array) $row['links'] as $one ) {
+				$label = (string) ( $one[0] ?? '' );
+				$href  = (string) ( $one[1] ?? '' );
+				if ( '' === $label || '' === $href ) {
+					continue;
+				}
+				echo $first ? '' : ' · ';
+				printf( '<a href="%s" target="_blank" rel="noopener">%s ↗</a>', esc_url( $href ), esc_html( $label ) );
+				$first = false;
+			}
+			echo '</span>';
+		}
+		echo '</td>';
 		echo '<td class="dze-setup-says">' . esc_html( (string) $row['said'] ) . '</td>';
 		// THE ACTION GOES WHERE THE SETTING IS MADE — never a second settings
 		// surface beside the real one, which is how two screens start
