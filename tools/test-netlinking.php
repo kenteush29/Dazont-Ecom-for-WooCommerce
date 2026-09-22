@@ -41,8 +41,10 @@ function admin_url( $p = '' ) { return 'https://kula-tactical.com/wp-admin/' . $
 function add_query_arg( $args, $url = '' ) { return $url . '?' . http_build_query( (array) $args ); }
 function sanitize_text_field( $s ) { return trim( (string) $s ); }
 function wp_parse_url( $u, $c = -1 ) { return parse_url( $u, $c ); }
+function apply_filters( $h, $v, ...$a ) { return 'wpml_active_languages' === $h ? ( $GLOBALS['langs'] ?? [] ) : $v; }
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (int) $d ); }
-$GLOBALS['opts'] = [];
+$GLOBALS['opts']  = [];
+$GLOBALS['langs'] = [];
 $GLOBALS['tr']   = [];
 
 /**
@@ -186,12 +188,22 @@ $one  = DZE_Netlinking::rank( [ $blog ], $sales, $map )[0];
 ok( 'un article ne porte aucune categorie', (int) $one['tid'], 0 );
 ok( 'et aucune vente inventee',             (float) $one['worth'], 0.0 );
 
-echo "\nLE DOMAINE DONNE LA LANGUE\n";
-// Cinq langues, cinq domaines : c est l adresse qui dit dans quel catalogue
-// chercher le slug. Le meme slug existe souvent dans deux langues.
-$GLOBALS['opts']['icl_sitepress_settings'] = [ 'language_domains' => [ 'fr' => 'kula-tactical.fr' ] ];
-ok( 'le domaine francais donne le francais', DZE_Netlinking::lang_of_host( 'kula-tactical.fr' ), 'fr' );
-ok( 'et le principal la langue par defaut',  DZE_Netlinking::lang_of_host( 'kula-tactical.com' ), 'en' );
+echo "\nC EST WPML QUI DICTE, PAS NOUS\n";
+// « C'est WPML et ses réglages qui doivent dicter la façon de fonctionner. »
+// Trois manieres de separer les langues, et elles ne se lisent pas pareil.
+// Rien n est devine : le reglage est lu, et tout en decoule.
+
+// MODE 2 — UN DOMAINE PAR LANGUE. « Un multidomaine = une search console par
+// domaine. »
+$GLOBALS['opts']['icl_sitepress_settings'] = [
+	'language_negotiation_type' => 2,
+	'default_language'          => 'en',
+	'language_domains'          => [ 'fr' => 'kula-tactical.fr' ],
+];
+ok( 'le mode est lu chez WPML',              DZE_Netlinking::negotiation(), 2 );
+ok( 'le domaine francais donne le francais', DZE_Netlinking::lang_of_url( 'https://kula-tactical.fr/bottes' ), 'fr' );
+ok( 'et le principal la langue par defaut',  DZE_Netlinking::lang_of_url( 'https://kula-tactical.com/bottes' ), 'en' );
+ok( 'chaque domaine est une propriete',      count( DZE_Netlinking::domains() ), 2 );
 ok( 'le slug francais rend le terme francais',
 	DZE_Netlinking::term_of_url( 'https://kula-tactical.fr/bottes', $map ), 33 );
 ok( 'et le slug anglais le terme anglais',
@@ -202,15 +214,38 @@ ok( 'un domaine inconnu retombe sur le slug',
 ok( 'et une racine ne designe aucune categorie',
 	DZE_Netlinking::term_of_url( 'https://kula-tactical.com/', $map ), 0 );
 
-echo "\nLES VENTES SONT COMPTEES SUR TOUT LE GROUPE DE TRADUCTION\n";
-// La boutique vend a 95 % en anglais. Compter chaque page sur ses seules
-// ventes enterrerait les quatre catalogues traduits sous un zero — alors que
-// ce que la vente prouve, c est que le SUJET rapporte.
-$GLOBALS['wpml_terms'] = [ 11 => 900, 33 => 900, 22 => 901 ];
-$spread = DZE_Netlinking::spread_across_languages( [ 11 => [ 'units' => 400 ] ] );
-ok( 'la page francaise herite du sujet', $spread[33]['units'] ?? 0, 400 );
-ok( 'et l anglaise garde les siennes',   $spread[11]['units'] ?? 0, 400 );
-ok( 'un autre sujet n herite de rien',   isset( $spread[22] ), false );
+// MODE 1 — UN REPERTOIRE PAR LANGUE. Une seule propriete les contient toutes :
+// en chercher cinq n aurait aucun sens.
+$GLOBALS['opts']['icl_sitepress_settings'] = [ 'language_negotiation_type' => 1, 'default_language' => 'en' ];
+$GLOBALS['langs'] = [ 'en' => [], 'fr' => [] ];
+ok( 'un repertoire par langue, une seule propriete', count( DZE_Netlinking::domains() ), 1 );
+ok( 'et le repertoire donne la langue',      DZE_Netlinking::lang_of_url( 'https://kula-tactical.com/fr/bottes' ), 'fr' );
+ok( 'la racine reste la langue par defaut',  DZE_Netlinking::lang_of_url( 'https://kula-tactical.com/' ), 'en' );
+// UN PREMIER MORCEAU QUI RESSEMBLE A UNE LANGUE SANS EN ETRE UNE reste une
+// categorie : « /es/ » est l espagnol, « /escalade/ » ne l est pas.
+ok( 'une categorie n est pas prise pour une langue',
+	DZE_Netlinking::lang_of_url( 'https://kula-tactical.com/escalade/bottes' ), 'en' );
+ok( 'et le slug reste le dernier morceau',
+	DZE_Netlinking::term_of_url( 'https://kula-tactical.com/fr/bottes', $map ), 33 );
+
+// MODE 3 — UN PARAMETRE.
+$GLOBALS['opts']['icl_sitepress_settings'] = [ 'language_negotiation_type' => 3, 'default_language' => 'en' ];
+ok( 'le parametre donne la langue',          DZE_Netlinking::lang_of_url( 'https://kula-tactical.com/bottes?lang=fr' ), 'fr' );
+ok( 'sans parametre, la langue par defaut',  DZE_Netlinking::lang_of_url( 'https://kula-tactical.com/bottes' ), 'en' );
+$GLOBALS['opts']['icl_sitepress_settings'] = [ 'language_negotiation_type' => 2, 'default_language' => 'en', 'language_domains' => [ 'fr' => 'kula-tactical.fr' ] ];
+
+echo "\nCHAQUE LANGUE COMPTE SES PROPRES VENTES\n";
+// « Les ventes sont comptabilisées seulement sur la langue concernée. » Une
+// version precedente reportait les ventes sur tout le groupe de traduction :
+// c etait decider a la place de la boutique. Un zero sur la page allemande EST
+// l information — ce catalogue ne vend pas encore.
+ok( 'le report entre langues a disparu',
+	method_exists( 'DZE_Netlinking', 'spread_across_languages' ), false );
+$vendu = [ 11 => [ 'units' => 400 ] ];
+$fr    = [ 'url' => 'https://kula-tactical.fr/bottes', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
+$one2  = DZE_Netlinking::rank( [ $fr ], $vendu, $map )[0];
+ok( 'la page francaise est bien reconnue',  (int) $one2['tid'], 33 );
+ok( 'et ne recupere pas les ventes anglaises', (int) $one2['units'], 0 );
 
 // ET JAMAIS EN ARGENT : la table de WooCommerce garde chaque commande dans sa
 // devise, et cette boutique en encaisse huit. La premiere mesure a rendu
