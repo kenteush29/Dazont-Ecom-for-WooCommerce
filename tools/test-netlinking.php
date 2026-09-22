@@ -267,5 +267,21 @@ ok( 'celle de l ecran de consentement aussi',
 ok( 'et l activation de l API Search Console',
 	false !== strpos( $src3, 'apis/library/searchconsole.googleapis.com' ), true );
 
+echo "\nUN REFUS DE GOOGLE SE LIT, ET PORTE SON REMEDE\n";
+// « Google Search Console API has not been used in project 549418223064
+// before or it is disabled. » Le message est juste et illisible : il arrive
+// APRES une connexion reussie — tout a l air fait, rien ne marche — et il
+// faut y pecher un numero de projet pour fabriquer soi-meme l adresse.
+$brut = 'Google Search Console API has not been used in project 549418223064 before or it is disabled. Enable it by visiting https://x then retry.';
+$dit  = DZE_Netlinking::said( $brut );
+ok( 'l API eteinte est reconnue',      false !== strpos( $dit, 'not switched on' ), true );
+ok( 'et le lien vise LE bon projet',  false !== strpos( $dit, 'project=549418223064' ), true );
+// UN REFUS DE DROITS N EST PAS LA MEME CHOSE, et n appelle pas le meme geste.
+$droits = DZE_Netlinking::said( 'Request had insufficient authentication scopes.' );
+ok( 'un refus de droits parle de droits', false !== strpos( $droits, 'Users and permissions' ), true );
+// ET CE QU ON NE RECONNAIT PAS EST RENDU TEL QUEL : deformer un message
+// qu on ne comprend pas empeche de chercher ce qu il veut dire.
+ok( 'un message inconnu passe intact',   DZE_Netlinking::said( 'Backend error 503' ), 'Backend error 503' );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
