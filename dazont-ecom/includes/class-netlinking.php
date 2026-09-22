@@ -138,8 +138,9 @@ final class DZE_Netlinking {
 		return ! empty( $c['refresh_token'] ) && empty( $c['broken'] );
 	}
 
+	/** L adresse commune a tout le plugin — voir DZE_Oauth. */
 	public function redirect_uri(): string {
-		return admin_url( 'admin-post.php?action=dze_nl_oauth' );
+		return class_exists( 'DZE_Oauth' ) ? DZE_Oauth::redirect_uri() : admin_url( 'admin-post.php?action=dze_nl_oauth' );
 	}
 
 	public function authorize_url(): string {
@@ -151,7 +152,9 @@ final class DZE_Netlinking {
 			'scope'         => self::SCOPE,
 			'access_type'   => 'offline',
 			'prompt'        => 'consent',
-			'state'         => wp_create_nonce( 'dze_nl_oauth' ),
+			// Qui demande, et son jeton : le routeur commun lit le premier et
+			// rend le second a ce module, qui le verifie comme avant.
+			'state'         => class_exists( 'DZE_Oauth' ) ? DZE_Oauth::state( 'nl', 'dze_nl_oauth' ) : wp_create_nonce( 'dze_nl_oauth' ),
 		] );
 	}
 
