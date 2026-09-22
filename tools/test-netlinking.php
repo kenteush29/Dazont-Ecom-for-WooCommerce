@@ -254,5 +254,18 @@ $src2 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-n
 ok( 'la recette n est jamais additionnee', false !== strpos( $src2, 'product_net_revenue' ), false );
 ok( 'et le tableau ne montre aucune devise', false !== strpos( $src2, 'get_woocommerce_currency_symbol' ), false );
 
+echo "\nUNE CONSIGNE SANS ADRESSE EST UNE CONSIGNE QU ON NE PEUT PAS SUIVRE\n";
+// « Il manque des explications. Url là ou il faut aller ? » L encart disait
+// d ajouter une adresse a l application Google sans dire ou cette
+// application se trouve. Et il manquait une etape entiere : sans l API
+// activee, la connexion reussit et la premiere lecture est refusee.
+$src3 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
+ok( 'la page des identifiants est donnee',
+	false !== strpos( $src3, 'console.cloud.google.com/apis/credentials' ), true );
+ok( 'celle de l ecran de consentement aussi',
+	false !== strpos( $src3, 'apis/credentials/consent' ), true );
+ok( 'et l activation de l API Search Console',
+	false !== strpos( $src3, 'apis/library/searchconsole.googleapis.com' ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

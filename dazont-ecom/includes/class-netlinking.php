@@ -954,29 +954,96 @@ final class DZE_Netlinking {
 		echo '</p>';
 	}
 
+	/** Les adresses exactes, chez Google, ou chaque etape se fait. */
+	private const GOOGLE_CREDENTIALS = 'https://console.cloud.google.com/apis/credentials';
+	private const GOOGLE_CONSENT     = 'https://console.cloud.google.com/apis/credentials/consent';
+	private const GOOGLE_API         = 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com';
+
+	/**
+	 * COMMENT CONNECTER, AVEC LES ADRESSES.
+	 *
+	 * « Il manque des explications. Url là ou il faut aller ? » L encart disait
+	 * « ajoutez cette adresse a l application Google » sans dire ou se trouve
+	 * cette application — une consigne sans adresse est une consigne qu on ne
+	 * peut pas suivre.
+	 *
+	 * Et il manquait une etape entiere : l API Search Console doit etre ACTIVEE
+	 * dans le projet Google, sinon la connexion se fait et la premiere lecture
+	 * echoue sur un refus que rien n annonce.
+	 */
 	private static function render_connect(): void {
 		$me  = self::instance();
 		$o   = self::client();
 		$has = ! empty( $o['client_id'] ) && ! empty( $o['client_secret'] );
 		$c   = self::connection();
-		echo '<div class="dze-set" style="max-width:900px;padding:14px 16px;border:1px solid #dcdcde;background:#fff;border-radius:8px;">';
+		echo '<div class="dze-set" style="max-width:900px;padding:14px 18px;border:1px solid #dcdcde;background:#fff;border-radius:8px;">';
+
 		if ( ! empty( $c['broken'] ) ) {
-			echo '<p><strong>' . esc_html__( 'The connection to Google has come apart.', 'dazont-ecom' ) . '</strong> ';
-			esc_html_e( 'While the Google app is still in "Testing" mode, Google drops the authorisation after seven days. Publishing the app stops that happening; connecting again brings it back until then.', 'dazont-ecom' );
-			echo '</p>';
+			echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>'
+				. esc_html__( 'The connection to Google came apart.', 'dazont-ecom' ) . '</strong> '
+				. esc_html__( 'While the Google app is still in "Testing", Google drops the authorisation after seven days. Publishing the app stops that; connecting again brings it back until then.', 'dazont-ecom' )
+				. ' <a href="' . esc_url( self::GOOGLE_CONSENT ) . '" target="_blank" rel="noopener">'
+				. esc_html__( 'Publish the app', 'dazont-ecom' ) . ' ↗</a></p></div>';
 		}
+
 		if ( ! $has ) {
-			echo '<p>' . esc_html__( 'This needs the same Google app the Merchant Center uses. Set that up first, or enter a client id and secret of its own under Settings.', 'dazont-ecom' ) . '</p>';
+			echo '<p>' . esc_html__( 'This uses the same Google app as the Merchant Center, and that app is not set up yet. Create an OAuth client of type "Web application" in Google Cloud, then come back here.', 'dazont-ecom' ) . '</p>';
+			echo '<p><a class="button" href="' . esc_url( self::GOOGLE_CREDENTIALS ) . '" target="_blank" rel="noopener">'
+				. esc_html__( 'Open Google Cloud credentials', 'dazont-ecom' ) . ' ↗</a></p>';
 			echo '</div>';
 			return;
 		}
+
 		echo '<p>' . esc_html__( 'Read-only access: this can see your Search Console figures and can never change anything there.', 'dazont-ecom' ) . '</p>';
-		echo '<p><strong>' . esc_html__( 'Before connecting', 'dazont-ecom' ) . '</strong> — ' . esc_html__( 'add this address to the Google app, under Authorised redirect URIs:', 'dazont-ecom' ) . '</p>';
-		echo '<p><code style="user-select:all;">' . esc_html( $me->redirect_uri() ) . '</code></p>';
-		echo '<p><a class="button button-primary" href="' . esc_url( $me->authorize_url() ) . '">' . esc_html__( 'Connect Search Console', 'dazont-ecom' ) . '</a></p>';
+
+		echo '<p><strong>' . esc_html__( 'Two things to do at Google first, once.', 'dazont-ecom' ) . '</strong></p>';
+		echo '<ol style="margin:0 0 14px 18px;">';
+
+		// 1 — l adresse de retour, dans le bon client.
+		echo '<li style="margin-bottom:10px;">';
+		printf(
+			/* translators: %s: link to the Google Cloud credentials page */
+			esc_html__( 'Open %s, click the OAuth client below, and paste this address into "Authorised redirect URIs":', 'dazont-ecom' ),
+			'<a href="' . esc_url( self::GOOGLE_CREDENTIALS ) . '" target="_blank" rel="noopener">'
+				. esc_html__( 'Google Cloud → Credentials', 'dazont-ecom' ) . ' ↗</a>'
+		);
+		echo '<br /><code style="user-select:all;display:inline-block;margin:6px 0;padding:4px 8px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;">'
+			. esc_html( $me->redirect_uri() ) . '</code>';
+		// QUEL CLIENT : il y en a souvent plusieurs dans un projet, et se
+		// tromper de ligne donne une erreur qui ne dit pas laquelle.
+		echo '<br /><span class="description">' . esc_html__( 'The client to open is the one whose ID starts with:', 'dazont-ecom' ) . ' <code>'
+			. esc_html( mb_substr( (string) $o['client_id'], 0, 24 ) ) . '…</code></span>';
+		echo '</li>';
+
+		// 2 — l API, qu il faut activer dans le projet.
+		echo '<li style="margin-bottom:10px;">';
+		printf(
+			/* translators: %s: link to the API library page */
+			esc_html__( 'Turn the Search Console API on in that same project: %s. Without it the connection succeeds and the first reading is refused.', 'dazont-ecom' ),
+			'<a href="' . esc_url( self::GOOGLE_API ) . '" target="_blank" rel="noopener">'
+				. esc_html__( 'Enable the Search Console API', 'dazont-ecom' ) . ' ↗</a>'
+		);
+		echo '</li>';
+		echo '</ol>';
+
+		echo '<p><a class="button button-primary" href="' . esc_url( $me->authorize_url() ) . '">'
+			. esc_html__( 'Connect Search Console', 'dazont-ecom' ) . '</a></p>';
+
+		// CE QUI SERA LU, dit avant de connecter : cinq domaines, cinq
+		// proprietes, et c est le reglage de WPML qui l a decide.
+		$doms = self::domains();
+		if ( count( $doms ) > 1 ) {
+			echo '<p class="description">';
+			printf(
+				/* translators: 1: how many domains, 2: the list of domains */
+				esc_html__( 'WPML keeps this shop on %1$s domains, so Search Console holds one property for each and all %1$s are read: %2$s. Your Google account has to be able to see them.', 'dazont-ecom' ),
+				esc_html( number_format_i18n( count( $doms ) ) ),
+				esc_html( implode( ', ', $doms ) )
+			);
+			echo '</p>';
+		}
 		echo '</div>';
 	}
-
 	private static function render_targets(): void {
 		$d    = self::data();
 		$rows = (array) ( $d['rows'] ?? [] );
