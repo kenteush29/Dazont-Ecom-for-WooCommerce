@@ -412,5 +412,24 @@ ok( 'called Setup',                     $GLOBALS['menu'][0][1] ?? '', 'Setup' );
 ok( 'and it is the page we draw',       $GLOBALS['menu'][0][4] ?? '', DZE_Setup::MENU_SLUG );
 ok( 'for somebody who can act',         $GLOBALS['menu'][0][3] ?? '', 'manage_woocommerce' );
 
+echo "\nCE QU IL FAUT COLLER CHEZ GOOGLE VIT ICI, PAS DANS UN MODULE\n";
+// « Tout ça doit figurer dans le plugin setup, ainsi que le lien vers
+// l activation de l api. » C etait explique dans l ecran du module qui en
+// avait besoin — donc a un endroit qu on ne relit jamais, et que le module
+// suivant ne connait pas.
+$dze_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-setup.php' );
+ok( 'l adresse de retour commune est proposee a coller',
+	false !== strpos( $dze_src, 'DZE_Oauth::redirect_uri()' ), true );
+ok( 'l activation de l API Search Console est donnee',
+	false !== strpos( $dze_src, 'apis/library/searchconsole.googleapis.com' ), true );
+ok( 'celle de la Merchant API aussi',
+	false !== strpos( $dze_src, 'apis/library/merchantapi.googleapis.com' ), true );
+ok( 'et la publication de l application',
+	false !== strpos( $dze_src, 'apis/credentials/consent' ), true );
+// UNE LIGNE PEUT PORTER SES LIENS ET SON ADRESSE A COPIER : sans ce support,
+// les consignes seraient retournees dans l ecran du module.
+ok( 'une ligne sait porter des liens',   false !== strpos( $dze_src, '$row[\'links\']' ), true );
+ok( 'et une adresse a copier',           false !== strpos( $dze_src, '$row[\'copy\']' ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
