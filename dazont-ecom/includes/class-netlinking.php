@@ -317,12 +317,14 @@ final class DZE_Netlinking {
 	 * prefere donc le domaine, et on ne demande que si rien ne correspond.
 	 */
 	/**
-	 * TOUTES LES PROPRIETES DE CETTE BOUTIQUE, pas une seule.
+	 * AUTANT DE PROPRIETES QUE WPML A DE DOMAINES.
 	 *
-	 * Les cinq langues vivent sur cinq domaines, donc Search Console en tient
-	 * CINQ proprietes. N en lire qu une — celle du domaine principal — ne
-	 * montrait que l anglais et laissait quatre catalogues invisibles, sans
-	 * rien dire. On lit celles qui correspondent a un domaine connu de WPML.
+	 * « Un multidomaine = une search console par domaine. » C est le reglage de
+	 * WPML qui commande : en mode domaine, Search Console tient une propriete
+	 * par langue et il faut les lire toutes — n en lire qu une laissait quatre
+	 * catalogues invisibles sans rien dire. Dans les deux autres modes, toutes
+	 * les langues vivent sous le meme domaine, donc une seule propriete les
+	 * contient deja et en chercher cinq n aurait aucun sens.
 	 *
 	 * @return array<int,string>
 	 */
@@ -331,6 +333,8 @@ final class DZE_Netlinking {
 		if ( ! empty( $set['properties'] ) && is_array( $set['properties'] ) ) {
 			return array_map( 'strval', $set['properties'] );
 		}
+		// En mode domaine, tous les domaines de WPML ; sinon, celui du site — et
+		// domains() rend deja l un ou l autre selon le reglage.
 		$hosts = array_values( self::domains() );
 		$found = [];
 		foreach ( self::properties() as $one ) {
@@ -427,12 +431,15 @@ final class DZE_Netlinking {
 	 * impressions qui ne vend rien au-dessus d une a 800 qui vend : du trafic
 	 * pour du trafic, ce qui n est pas le metier de cette boutique.
 	 *
-	 * TOUTES LANGUES CONFONDUES, et c est un choix. Les cinq langues vivent sur
-	 * cinq domaines et les ventes se font a 95 % sur l anglais : compter chaque
-	 * page sur ses seules ventes enterrerait toutes les pages traduites sous un
-	 * zero. Ce que la vente prouve, c est que le SUJET rapporte — et c est le
-	 * sujet que le lien va pousser, dans la langue ou on le pose. L ecran le
-	 * dit, plutot que de laisser croire que la page francaise a vendu ca.
+	 * CHAQUE LANGUE COMPTE SES PROPRES VENTES. « Les ventes sont comptabilisées
+	 * seulement sur la langue concernée. »
+	 *
+	 * Une version precedente reportait les ventes sur tout le groupe de
+	 * traduction, au motif que la boutique vend presque tout en anglais et que
+	 * les pages traduites se seraient retrouvees a zero. C etait decider a la
+	 * place de la boutique : un zero sur la page allemande EST l information —
+	 * ce catalogue ne vend pas encore — et la masquer derriere un chiffre
+	 * anglais empechait de le voir.
 	 *
 	 * La table de WooCommerce Analytics est la source, comme pour le bloc des
 	 * meilleures ventes ; absente ou vide, on rend un tableau vide et le module
@@ -446,114 +453,152 @@ final class DZE_Netlinking {
 			return [];
 		}
 		$lookup = $wpdb->prefix . 'wc_order_product_lookup';
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WooCommerce's own table.
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WooCommerce's and WPML's own tables.
 		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $lookup ) ) !== $lookup ) {
 			return [];
 		}
+		$icl  = $wpdb->prefix . 'icl_translations';
+		$wpml = class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() && DZE_Wpml::has_table( $icl );
+
+		// SANS WPML, une categorie est une categorie et la question ne se pose pas.
+		if ( ! $wpml ) {
+			$rows = (array) $wpdb->get_results( $wpdb->prepare(
+				"SELECT tt.term_id AS tid, SUM( l.product_qty ) AS units
+				   FROM {$lookup} l
+				   INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = l.product_id
+				   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				  WHERE tt.taxonomy = 'product_cat'
+				    AND l.date_created > DATE_SUB( NOW(), INTERVAL %d DAY )
+				  GROUP BY tt.term_id",
+				max( 1, $days )
+			), ARRAY_A );
+			$out = [];
+			foreach ( $rows as $r ) {
+				$out[ (int) $r['tid'] ] = [ 'units' => (int) $r['units'] ];
+			}
+			return $out;
+			// phpcs:enable
+		}
+
+		// LA LANGUE EST CELLE DU PRODUIT VENDU, jamais celle de sa categorie.
+		//
+		// Sur ce catalogue, les produits traduits sont ranges dans les
+		// categories ANGLAISES : le produit francais 988039969 est dans la
+		// categorie 7240, qui est anglaise. Compter par la langue de la
+		// categorie rendrait donc zero pour quatre langues sur cinq — un
+		// artefact du rangement, pas un fait sur les ventes, et le genre de
+		// zero qu on prend pour une reponse.
+		//
+		// Ce qui a ete vendu, c est le produit ; sa langue est la sienne. On
+		// prend donc sa categorie, et on la ramene dans SA langue par le groupe
+		// de traduction. Une vente francaise compte pour la categorie
+		// francaise, et pour elle seule.
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WooCommerce's and WPML's own tables.
 		$rows = (array) $wpdb->get_results( $wpdb->prepare(
-			"SELECT tt.term_id AS tid,
-			        SUM( l.product_qty ) AS units
+			"SELECT ct.trid AS trid, pl.language_code AS lang, SUM( l.product_qty ) AS units
 			   FROM {$lookup} l
+			   INNER JOIN {$icl} pl ON pl.element_id = l.product_id AND pl.element_type = 'post_product'
 			   INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = l.product_id
 			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			   INNER JOIN {$icl} ct ON ct.element_id = tt.term_taxonomy_id AND ct.element_type = 'tax_product_cat'
 			  WHERE tt.taxonomy = 'product_cat'
 			    AND l.date_created > DATE_SUB( NOW(), INTERVAL %d DAY )
-			  GROUP BY tt.term_id",
+			  GROUP BY ct.trid, pl.language_code",
 			max( 1, $days )
 		), ARRAY_A );
-		// phpcs:enable
-		$per = [];
-		foreach ( $rows as $r ) {
-			$per[ (int) $r['tid'] ] = [ 'units' => (int) $r['units'] ];
-		}
-		return self::spread_across_languages( $per );
-	}
 
-	/**
-	 * CE QU UN GROUPE DE TRADUCTION A VENDU, rendu a chacun de ses membres.
-	 *
-	 * Sans WPML, chaque terme garde ses propres chiffres et rien ne bouge.
-	 *
-	 * @param array<int,array{units:int}> $per
-	 * @return array<int,array{units:int}>
-	 */
-	public static function spread_across_languages( array $per ): array {
-		global $wpdb;
-		if ( ! $per || ! $wpdb || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
-			return $per;
-		}
-		$table = $wpdb->prefix . 'icl_translations';
-		if ( ! DZE_Wpml::has_table( $table ) ) {
-			return $per;
-		}
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table.
-		$rows = (array) $wpdb->get_results(
-			"SELECT tt.term_id AS tid, ic.trid
-			   FROM {$table} ic
+		// Le terme de chaque groupe, langue par langue.
+		$members = [];
+		foreach ( (array) $wpdb->get_results(
+			"SELECT ic.trid, ic.language_code AS lang, tt.term_id AS tid
+			   FROM {$icl} ic
 			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = ic.element_id
 			  WHERE ic.element_type = 'tax_product_cat'",
 			ARRAY_A
-		);
-		// phpcs:enable
-		$trid_of = [];
-		$members = [];
-		foreach ( $rows as $r ) {
-			$tid  = (int) $r['tid'];
-			$trid = (int) $r['trid'];
-			$trid_of[ $tid ]   = $trid;
-			$members[ $trid ][] = $tid;
+		) as $m ) {
+			$members[ (int) $m['trid'] ][ (string) $m['lang'] ] = (int) $m['tid'];
 		}
-		$total = [];
-		foreach ( $per as $tid => $n ) {
-			$trid = $trid_of[ $tid ] ?? 0;
-			if ( ! $trid ) {
+		// phpcs:enable
+
+		$out = [];
+		foreach ( $rows as $r ) {
+			$trid = (int) $r['trid'];
+			$lang = (string) $r['lang'];
+			// LA CATEGORIE DE CETTE LANGUE, ou rien. Quand elle n existe pas
+			// encore, la vente n est attribuee a personne plutot qu a la page
+			// anglaise : inventer une attribution est pire que de se taire.
+			$tid = (int) ( $members[ $trid ][ $lang ] ?? 0 );
+			if ( ! $tid ) {
 				continue;
 			}
-			$total[ $trid ]['units'] = ( $total[ $trid ]['units'] ?? 0 ) + (int) $n['units'];
+			$out[ $tid ]['units'] = ( $out[ $tid ]['units'] ?? 0 ) + (int) $r['units'];
 		}
-		$out = $per;
-		foreach ( $total as $trid => $n ) {
-			foreach ( (array) ( $members[ $trid ] ?? [] ) as $tid ) {
-				$out[ $tid ] = [ 'units' => (int) $n['units'] ];
+		return $out;
+	}
+	/**
+	 * COMMENT WPML SEPARE SES LANGUES — et c est lui qui decide, pas nous.
+	 *
+	 * « C'est WPML et ses réglages qui doivent dicter la façon de fonctionner. »
+	 * Trois façons, et elles ne se lisent pas pareil :
+	 *
+	 *   2  un domaine par langue   kula-tactical.fr/bottes
+	 *   1  un repertoire par langue  exemple.com/fr/bottes
+	 *   3  un parametre             exemple.com/bottes?lang=fr
+	 *
+	 * Rien ici n est devine : le reglage est lu, et tout le reste en decoule —
+	 * combien de proprietes Search Console lire, et comment retrouver la langue
+	 * d une adresse que Google rend.
+	 */
+	public static function negotiation(): int {
+		$s = get_option( 'icl_sitepress_settings', [] );
+		return (int) ( is_array( $s ) ? ( $s['language_negotiation_type'] ?? 0 ) : 0 );
+	}
+
+	/** Le code de la langue par defaut, tel que WPML le connait. */
+	public static function default_lang(): string {
+		if ( class_exists( 'DZE_Category_Content' ) ) {
+			$l = (string) DZE_Category_Content::default_lang();
+			if ( '' !== $l ) {
+				return $l;
 			}
+		}
+		$s = get_option( 'icl_sitepress_settings', [] );
+		return (string) ( is_array( $s ) ? ( $s['default_language'] ?? 'en' ) : 'en' );
+	}
+
+	/**
+	 * Un domaine par langue — seulement quand WPML travaille ainsi.
+	 *
+	 * Dans les deux autres modes, toutes les langues partagent le domaine de la
+	 * boutique, et rendre une liste de domaines ferait croire le contraire.
+	 */
+	public static function domains(): array {
+		$home = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+		$home = (string) preg_replace( '/^www\./', '', (string) $home );
+		$def  = self::default_lang();
+		if ( 2 !== self::negotiation() ) {
+			return '' === $home ? [] : [ $def => $home ];
+		}
+		$s   = get_option( 'icl_sitepress_settings', [] );
+		$out = [];
+		foreach ( (array) ( is_array( $s ) ? ( $s['language_domains'] ?? [] ) : [] ) as $code => $d ) {
+			$d = (string) preg_replace( '~^https?://~', '', (string) $d );
+			$d = (string) preg_replace( '/^www\./', '', rtrim( $d, '/' ) );
+			if ( '' !== $d ) {
+				$out[ (string) $code ] = $d;
+			}
+		}
+		// Le domaine principal n est pas dans cette liste : WPML n y met que les
+		// langues traduites, la langue par defaut vivant sur le domaine du site.
+		if ( '' !== $home && ! in_array( $home, $out, true ) ) {
+			$out[ $def ] = $home;
 		}
 		return $out;
 	}
 
-	/**
-	 * QUELLE CATEGORIE EST DERRIERE CETTE ADRESSE.
-	 *
-	 * Le domaine donne la langue — cinq langues, cinq domaines sur cette
-	 * boutique — et le dernier morceau du chemin donne le slug. On cherche donc
-	 * un terme de ce slug, et on prefere celui de la bonne langue quand
-	 * plusieurs le portent : sur un catalogue traduit, le meme slug existe
-	 * souvent dans deux langues.
-	 *
-	 * Rend 0 quand l adresse n est pas une categorie — un article, une page, un
-	 * produit — et c est une reponse, pas un echec.
-	 */
-	public static function term_of_url( string $url, array $slug_map ): int {
-		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
-		$path = trim( $path, '/' );
-		if ( '' === $path ) {
-			return 0;
-		}
-		$bits = explode( '/', $path );
-		$slug = (string) end( $bits );
-		if ( '' === $slug ) {
-			return 0;
-		}
-		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
-		$lang = (string) ( self::lang_of_host( $host ) );
-		if ( '' !== $lang && isset( $slug_map[ $lang . '|' . $slug ] ) ) {
-			return (int) $slug_map[ $lang . '|' . $slug ];
-		}
-		return (int) ( $slug_map[ '|' . $slug ] ?? 0 );
-	}
-
-	/** La langue d un domaine, d apres les reglages de WPML. */
+	/** La langue d un domaine, quand les langues sont sur des domaines. */
 	public static function lang_of_host( string $host ): string {
-		$host = preg_replace( '/^www\./', '', strtolower( $host ) );
+		$host = (string) preg_replace( '/^www\./', '', strtolower( $host ) );
 		foreach ( self::domains() as $code => $one ) {
 			if ( $one === $host ) {
 				return (string) $code;
@@ -562,42 +607,113 @@ final class DZE_Netlinking {
 		return '';
 	}
 
-	/** Un domaine par langue, ou rien quand WPML travaille autrement. */
-	public static function domains(): array {
-		$s   = get_option( 'icl_sitepress_settings', [] );
+	/**
+	 * LA LANGUE D UNE ADRESSE, selon le mode que WPML a reglé.
+	 *
+	 * Rend '' quand l adresse ne dit rien — et '' n est pas la langue par
+	 * defaut : ne pas savoir et savoir sont deux etats differents, et les
+	 * confondre attribuerait des ventes anglaises a une page qu on n a pas su
+	 * reconnaitre.
+	 */
+	public static function lang_of_url( string $url ): string {
+		switch ( self::negotiation() ) {
+			case 2: // un domaine par langue.
+				return self::lang_of_host( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+
+			case 1: // un repertoire par langue.
+				$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+				if ( '' === $path ) {
+					return self::default_lang();
+				}
+				$first = (string) strtok( $path, '/' );
+				// Un premier morceau qui EST un code de langue actif, et pas une
+				// categorie qui lui ressemble.
+				return in_array( $first, self::active_codes(), true ) ? $first : self::default_lang();
+
+			case 3: // un parametre.
+				$q = (string) wp_parse_url( $url, PHP_URL_QUERY );
+				$a = [];
+				parse_str( $q, $a );
+				$code = (string) ( $a['lang'] ?? '' );
+				return in_array( $code, self::active_codes(), true ) ? $code : self::default_lang();
+		}
+		return '';
+	}
+
+	/** Les codes que WPML dit actifs, la langue par defaut comprise. */
+	public static function active_codes(): array {
 		$out = [];
-		foreach ( (array) ( is_array( $s ) ? ( $s['language_domains'] ?? [] ) : [] ) as $code => $d ) {
-			$d = preg_replace( '~^https?://~', '', (string) $d );
-			$d = preg_replace( '/^www\./', '', rtrim( (string) $d, '/' ) );
-			if ( '' !== $d ) {
-				$out[ (string) $code ] = $d;
-			}
+		foreach ( (array) apply_filters( 'wpml_active_languages', null, [] ) as $code => $one ) {
+			$out[] = (string) $code;
 		}
-		$home = (string) wp_parse_url( home_url(), PHP_URL_HOST );
-		$home = preg_replace( '/^www\./', '', (string) $home );
-		$def  = class_exists( 'DZE_Category_Content' ) ? (string) DZE_Category_Content::default_lang() : 'en';
-		if ( '' !== $home && ! in_array( $home, $out, true ) ) {
-			$out[ $def ] = $home;
+		if ( ! $out ) {
+			$out = array_keys( self::domains() );
 		}
-		return $out;
+		return array_values( array_unique( array_filter( $out ) ) );
 	}
 
 	/**
+	 * QUELLE CATEGORIE EST DERRIERE CETTE ADRESSE.
+	 *
+	 * La langue vient de WPML, le dernier morceau du chemin donne le slug — en
+	 * mode repertoire, le code de langue est un morceau parmi d autres et ne
+	 * gene pas, puisqu on prend le dernier.
+	 *
+	 * Rend 0 quand l adresse n est pas une categorie — un article, une page, un
+	 * produit — et c est une reponse, pas un echec.
+	 */
+	public static function term_of_url( string $url, array $slug_map ): int {
+		$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+		if ( '' === $path ) {
+			return 0;
+		}
+		$bits = explode( '/', $path );
+		$slug = (string) end( $bits );
+		if ( '' === $slug ) {
+			return 0;
+		}
+		$lang = self::lang_of_url( $url );
+		if ( '' !== $lang && isset( $slug_map[ $lang . '|' . $slug ] ) ) {
+			return (int) $slug_map[ $lang . '|' . $slug ];
+		}
+		return (int) ( $slug_map[ '|' . $slug ] ?? 0 );
+	}
+	/**
 	 * « langue|slug » et « |slug » vers le term_id, en une requete.
 	 *
-	 * La seconde clef est le filet : un slug sans langue connue vaut mieux que
-	 * pas de categorie du tout, et la premiere lui passe devant.
+	 * LA LANGUE EST LUE EN TABLE, JAMAIS PAR UN FILTRE.
+	 *
+	 * `DZE_Category_Content::lang_code()` passe par le filtre
+	 * `wpml_element_language_details`, et un filtre ne repond que la ou les
+	 * hooks de son extension sont charges. Hors de ce cas il rend null, le code
+	 * retombe sur « la langue par defaut », et TOUTE categorie passe pour
+	 * anglaise sans que rien ne le signale : mesure sur cette boutique, la
+	 * categorie 7240 est francaise et le filtre repondait « en ». Cette
+	 * lecture-ci tourne aussi en cron, ou rien ne garantit ces hooks.
+	 *
+	 * La seconde clef, « |slug », est le filet : un slug dont on ne sait pas la
+	 * langue vaut mieux que pas de categorie du tout, et la premiere lui passe
+	 * devant.
 	 */
 	public static function slug_map(): array {
 		global $wpdb;
 		if ( ! $wpdb ) {
 			return [];
 		}
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own read.
+		$icl  = $wpdb->prefix . 'icl_translations';
+		$wpml = class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() && DZE_Wpml::has_table( $icl );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own read of WPML's table.
 		$rows = (array) $wpdb->get_results(
-			"SELECT t.term_id AS tid, t.slug FROM {$wpdb->terms} t
-			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
-			  WHERE tt.taxonomy = 'product_cat'",
+			$wpml
+				? "SELECT t.term_id AS tid, t.slug AS slug, ic.language_code AS lang
+				     FROM {$wpdb->terms} t
+				     INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				     LEFT JOIN {$icl} ic ON ic.element_id = tt.term_taxonomy_id AND ic.element_type = 'tax_product_cat'
+				    WHERE tt.taxonomy = 'product_cat'"
+				: "SELECT t.term_id AS tid, t.slug AS slug, '' AS lang
+				     FROM {$wpdb->terms} t
+				     INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				    WHERE tt.taxonomy = 'product_cat'",
 			ARRAY_A
 		);
 		// phpcs:enable
@@ -605,7 +721,7 @@ final class DZE_Netlinking {
 		foreach ( $rows as $r ) {
 			$tid  = (int) $r['tid'];
 			$slug = (string) $r['slug'];
-			$lang = class_exists( 'DZE_Category_Content' ) ? (string) DZE_Category_Content::lang_code( $tid ) : '';
+			$lang = (string) ( $r['lang'] ?? '' );
 			if ( '' !== $lang ) {
 				$out[ $lang . '|' . $slug ] = $tid;
 			}
@@ -926,7 +1042,7 @@ final class DZE_Netlinking {
 		echo '<p class="description" style="max-width:980px;margin-top:10px;">';
 		esc_html_e( 'The impressions and the clicks are what Google measured, and the units are what the category actually sold.', 'dazont-ecom' );
 		echo ' ';
-		esc_html_e( 'Units and worth are counted across ALL languages of the same category: the shop sells almost entirely in English, so counting each page on its own sales would bury every translated page under a nought. What the sales prove is that the SUBJECT earns — and it is the subject a link pushes, in whichever language you place it.', 'dazont-ecom' );
+		esc_html_e( 'Each language counts its OWN sales: the units beside a German page are what the German catalogue sold, not what the English one did. A nought there is the answer, not a gap.', 'dazont-ecom' );
 		echo ' ';
 		esc_html_e( '"Clicks to gain" and "Units to gain" are ESTIMATES — the first is what the page would do at about fifth place against what it does now, the second turns that into units at this category\'s own units-per-click, which overstates because sales come from every source and not only from Google. Both are here to RANK the pages against one another, never to promise a figure.', 'dazont-ecom' );
 		echo ' ';
