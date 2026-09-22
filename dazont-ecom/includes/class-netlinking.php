@@ -295,11 +295,46 @@ final class DZE_Netlinking {
 		$code = (int) wp_remote_retrieve_response_code( $res );
 		$data = json_decode( wp_remote_retrieve_body( $res ), true );
 		if ( $code < 200 || $code > 299 ) {
-			throw new RuntimeException( (string) ( $data['error']['message'] ?? sprintf( 'HTTP %d', $code ) ) );
+			throw new RuntimeException( self::said( (string) ( $data['error']['message'] ?? sprintf( 'HTTP %d', $code ) ) ) );
 		}
 		return is_array( $data ) ? $data : [];
 	}
 
+	/**
+	 * CE QUE GOOGLE REFUSE, DIT EN CLAIR ET AVEC LE LIEN QUI LE REGLE.
+	 *
+	 * « Google Search Console API has not been used in project 549418223064
+	 * before or it is disabled. » Le message est juste, et il est illisible :
+	 * il arrive APRES une connexion reussie, ce qui donne l impression que tout
+	 * est fait et que rien ne marche. Et il faut y trouver un numero de projet
+	 * pour construire soi-meme l adresse a visiter.
+	 *
+	 * Ce cas-la est le plus probable de tous — c est l etape qu on oublie — donc
+	 * il est reconnu, et le numero de projet que Google donne sert a fabriquer
+	 * le lien exact du bon projet.
+	 */
+	public static function said( string $raw ): string {
+		if ( false !== stripos( $raw, 'has not been used in project' ) || false !== stripos( $raw, 'is disabled' ) ) {
+			$project = '';
+			if ( preg_match( '/project\s+(\d{6,})/i', $raw, $m ) ) {
+				$project = (string) $m[1];
+			}
+			$url = self::GOOGLE_API . ( '' !== $project ? '?project=' . rawurlencode( $project ) : '' );
+			return sprintf(
+				/* translators: %s: the address of the API page in the shop's own Google project */
+				__( 'The Search Console API is not switched on in your Google project, so Google refuses to answer. Turn it on here, wait two or three minutes for Google to propagate it, then read again: %s', 'dazont-ecom' ),
+				$url
+			);
+		}
+		if ( false !== stripos( $raw, 'insufficient' ) || false !== stripos( $raw, 'permission' ) || false !== stripos( $raw, 'forbidden' ) ) {
+			return sprintf(
+				/* translators: %s: Google's own wording */
+				__( 'Google refused: the connected account cannot read one of this shop\'s Search Console properties. Add it in Search Console under Settings → Users and permissions, then read again. (%s)', 'dazont-ecom' ),
+				$raw
+			);
+		}
+		return $raw;
+	}
 	/** Les proprietes que ce compte peut lire. */
 	public static function properties(): array {
 		$out = [];
@@ -883,7 +918,16 @@ final class DZE_Netlinking {
 		try {
 			wp_send_json_success( self::refresh() );
 		} catch ( Throwable $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+			// L ADRESSE EST SORTIE DU TEXTE pour pouvoir etre cliquee : une
+			// consigne qui contient un lien qu il faut recopier a la main est une
+			// consigne a moitie donnee.
+			$msg = $e->getMessage();
+			$url = '';
+			if ( preg_match( '~https?://\S+~', $msg, $m ) ) {
+				$url = rtrim( (string) $m[0], '.,);' );
+				$msg = trim( str_replace( (string) $m[0], '', $msg ), " :\t\n" );
+			}
+			wp_send_json_error( [ 'message' => $msg, 'url' => $url ] );
 		}
 	}
 
@@ -1128,7 +1172,11 @@ final class DZE_Netlinking {
 					.done( function ( r ) {
 						if ( !r || !r.success ) {
 							$b.prop( 'disabled', false );
-							$s.text( ( r && r.data && r.data.message ) ? r.data.message : 'Error' );
+							var d = ( r && r.data ) ? r.data : {};
+							$s.text( d.message || 'Error' );
+							if ( d.url ) {
+								$s.append( ' ' ).append( $( '<a/>', { href: d.url, text: d.url, target: '_blank', rel: 'noopener' } ) );
+							}
 							return;
 						}
 						window.location.reload();
