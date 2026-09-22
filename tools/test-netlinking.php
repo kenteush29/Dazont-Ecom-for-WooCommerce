@@ -290,7 +290,8 @@ echo "\nUN BOUTON ET SON ECOUTEUR NE SE SEPARENT PAS\n";
 // message — donc on accuse Google.
 $src4 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
 $pos_script = strpos( $src4, 'self::render_script();' );
-$pos_vide   = strpos( $src4, 'if ( ! $rows ) {' );
+// Le retour anticipe : la liste vide, quel que soit le nom de sa variable.
+$pos_vide   = strpos( $src4, 'if ( ! $all ) {' );
 ok( 'le script est branche avant le retour anticipe',
 	$pos_script !== false && $pos_vide !== false && $pos_script < $pos_vide, true );
 // ET IL NE RESTE AUCUN <script> APRES CE RETOUR : c est le motif exact qui a
@@ -319,6 +320,45 @@ $p50  = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 50 ] ], $map )[0]['w
 $p500 = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 500 ] ], $map )[0]['worth'];
 ok( 'dix fois plus de ventes ne fait pas dix fois le rang', $p500 < $p50 * 2, true );
 ok( 'mais il monte quand meme',                          $p500 > $p50, true );
+
+echo "\nCHAQUE LANGUE GARDE UNE PLACE DANS LA LISTE\n";
+// Mesure sur la boutique : 58 cibles anglaises, une francaise, une polonaise.
+// Le plafond etant global, l anglais l absorbait et les quatre catalogues
+// traduits disparaissaient — or on repare le maillage externe d une langue.
+$beaucoup = [];
+for ( $i = 0; $i < 200; $i++ ) { $beaucoup[] = [ 'url' => 'https://x/en' . $i, 'lang' => 'en', 'worth' => 1000 - $i ]; }
+for ( $i = 0; $i < 40;  $i++ ) { $beaucoup[] = [ 'url' => 'https://x/fr' . $i, 'lang' => 'fr', 'worth' => 5 - ($i/100) ]; }
+usort( $beaucoup, fn($a,$b) => $b['worth'] <=> $a['worth'] );
+$part = DZE_Netlinking::share_out( $beaucoup );
+$cpt = []; foreach ( $part as $r ) { $cpt[$r['lang']] = ($cpt[$r['lang']] ?? 0) + 1; }
+ok( 'le francais nest plus efface',       ($cpt['fr'] ?? 0) >= 10, true );
+ok( 'langlais garde la plus grosse part', ($cpt['en'] ?? 0) > ($cpt['fr'] ?? 0), true );
+ok( 'et le plafond tient',                count( $part ) <= 60, true );
+// L ORDRE GENERAL EST RENDU TEL QUEL : la tete de liste reste la tete de liste.
+ok( 'la meilleure reste en tete',          $part[0]['url'], $beaucoup[0]['url'] );
+// UNE SEULE LANGUE NE DECLENCHE AUCUN PARTAGE, et une liste courte non plus.
+$courte = array_slice( $beaucoup, 0, 12 );
+ok( 'une liste sous le plafond passe entiere', count( DZE_Netlinking::share_out( $courte ) ), 12 );
+
+echo "\nLE MODULE EST BRANCHE COMME LES AUTRES\n";
+// Un module qui ne dit pas son etat au journal de sante, ne se montre pas
+// sur l accueil et laisse ses options derriere lui a la desinstallation est
+// un module a part — et ce qui est a part est ce qu on oublie.
+$h = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-health.php' );
+ok( 'il a son controle de sante',        false !== strpos( $h, 'function check_searchconsole' ), true );
+ok( 'et le journal sait ou le reparer',  false !== strpos( $h, "case 'searchconsole'" ), true );
+$dash = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-dashboard.php' );
+ok( 'il a sa ligne sur laccueil',        false !== strpos( $dash, 'DZE_Netlinking::data()' ), true );
+$cl = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-cleanup.php' );
+foreach ( [ 'dze_nl_connection', 'dze_nl_settings', 'dze_nl_targets', 'dze_nl_last_error', 'dze_nl_token' ] as $opt ) {
+	ok( "la desinstallation emporte $opt", false !== strpos( $cl, $opt ), true );
+}
+// ET UN ECHEC DE LA LECTURE AUTOMATIQUE LAISSE UNE TRACE : sans cela l ecran
+// dit « pas encore lu », la meme phrase que le premier jour.
+$src5 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
+ok( 'le cron passe par une enveloppe',   false !== strpos( $src5, 'function cron_refresh' ), true );
+ok( 'qui retient ce qui a rate',         false !== strpos( $src5, 'OPT_LAST_ERROR' ), true );
+ok( 'et le dit au journal de sante',     false !== strpos( $src5, 'DZE_Health::log' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

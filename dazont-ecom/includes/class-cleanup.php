@@ -60,6 +60,12 @@ final class DZE_Cleanup {
 				'options'    => [ 'dze_gmc_credentials', 'dze_gmc_accounts', 'dze_gmc_oauth', 'dze_gmc_advanced', 'dze_gmc_connection', 'dze_gmc_datasources', 'dze_gmc_ads_only', 'dze_gmc_auto' ],
 				'transients' => [ 'dze_gmc_oauth_token', 'dze_gmc_ads_', 'dze_gmc_pc_', 'dze_gmc_run_', 'dze_gmc_q_' ],
 			],
+			// Le maillage externe ne pose ni meta ni table : quatre options et un
+			// jeton, et le jeton d acces expire de lui-meme.
+			'netlinking' => [
+				'options'    => [ 'dze_nl_connection', 'dze_nl_settings', 'dze_nl_targets', 'dze_nl_last_error' ],
+				'transients' => [ 'dze_nl_token' ],
+			],
 			'gmc_activation' => [
 				'post_meta' => [ '_merchant_center_activation' ],
 			],

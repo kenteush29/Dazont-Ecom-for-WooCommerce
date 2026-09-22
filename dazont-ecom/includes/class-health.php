@@ -362,6 +362,7 @@ final class DZE_Health {
 			'fal'       => __( 'fal.ai (the images)', 'dazont-ecom' ),
 			'klaviyo'   => __( 'Klaviyo (the campaigns)', 'dazont-ecom' ),
 			'gmc'       => __( 'Google Merchant Center', 'dazont-ecom' ),
+			'searchconsole' => __( 'Search Console (Netlinking)', 'dazont-ecom' ),
 			'analytics' => __( 'WooCommerce analytics', 'dazont-ecom' ),
 			'jobs'      => __( 'Scheduled work', 'dazont-ecom' ),
 			'plugin'    => __( 'This plugin', 'dazont-ecom' ),
@@ -392,6 +393,8 @@ final class DZE_Health {
 				return [ 'url' => DZE_Screens::url( 'settings', 'email' ), 'do' => __( 'Check the key', 'dazont-ecom' ) ];
 			case 'gmc':
 				return [ 'url' => DZE_Screens::url( 'marketing', 'gmc' ), 'do' => __( 'Reconnect Google', 'dazont-ecom' ) ];
+			case 'searchconsole':
+				return [ 'url' => DZE_Screens::url( 'netlinking' ), 'do' => __( 'Open Netlinking', 'dazont-ecom' ) ];
 			case 'analytics':
 				return [ 'url' => admin_url( 'admin.php?page=wc-admin&path=/analytics/settings' ), 'do' => __( 'Open WooCommerce Analytics', 'dazont-ecom' ) ];
 			case 'jobs':
@@ -547,6 +550,22 @@ final class DZE_Health {
 			'state'   => ! empty( $probe['ok'] ) ? 'ok' : 'down',
 			'message' => (string) $probe['message'],
 		];
+	}
+
+	/**
+	 * SEARCH CONSOLE, VU D ICI. Le module sait son propre etat — connecte ou
+	 * non, lu ou non, et ce qui a rate — donc ce controle le lui demande au
+	 * lieu d en refaire un second qui pourrait dire autre chose.
+	 *
+	 * Et il ne rappelle PAS Google : un controle de sante qui coute un appel
+	 * reseau a chaque ouverture de page est un controle qu on finit par
+	 * eteindre.
+	 */
+	private static function check_searchconsole(): array {
+		if ( ! class_exists( 'DZE_Netlinking' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'netlinking' ) ) ) {
+			return [ 'state' => 'off', 'message' => __( 'Module off.', 'dazont-ecom' ) ];
+		}
+		return DZE_Netlinking::health();
 	}
 
 	private static function check_analytics(): array {

@@ -40,6 +40,72 @@ final class DZE_Netlinking {
 	/** Les reglages de la boutique : propriete choisie, fenetre, seuils. */
 	public const OPT_SET = 'dze_nl_settings';
 
+	/** Ce que la derniere lecture a refuse de faire, et quand. */
+	public const OPT_LAST_ERROR = 'dze_nl_last_error';
+
+	/**
+	 * LA LECTURE AUTOMATIQUE, ET CE QU ELLE FAIT DE SES ECHECS.
+	 *
+	 * Elle en garde la raison et l heure, pour que l ecran puisse dire « la
+	 * derniere lecture a echoue, voici pourquoi » au lieu de « pas encore lu ».
+	 * Et elle le dit au journal de sante, qui est l endroit ou une boutique va
+	 * voir ce qui ne repond plus.
+	 */
+	public static function cron_refresh(): void {
+		try {
+			self::refresh();
+			delete_option( self::OPT_LAST_ERROR );
+		} catch ( Throwable $e ) {
+			update_option( self::OPT_LAST_ERROR, [ 'at' => time(), 'why' => $e->getMessage() ], false );
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log( 'searchconsole', __( 'Reading Search Console', 'dazont-ecom' ), $e->getMessage() );
+			}
+		}
+	}
+
+	/** Ce qui a empeche la derniere lecture, ou [] quand tout va bien. */
+	public static function last_error(): array {
+		$e = get_option( self::OPT_LAST_ERROR, [] );
+		return is_array( $e ) ? $e : [];
+	}
+
+	/**
+	 * L ETAT DE LA CONNEXION, en un mot, pour le journal de sante.
+	 *
+	 * @return array{state:string,message:string}
+	 */
+	public static function health(): array {
+		if ( ! self::connected() ) {
+			$c = self::connection();
+			if ( ! empty( $c['broken'] ) ) {
+				return [ 'state' => 'down', 'message' => __( 'Google revoked the authorisation. While the Google app is in "Testing" it drops every seven days; publishing the app stops that.', 'dazont-ecom' ) ];
+			}
+			return [ 'state' => 'off', 'message' => __( 'Not connected.', 'dazont-ecom' ) ];
+		}
+		$bad = self::last_error();
+		if ( ! empty( $bad['why'] ) ) {
+			return [ 'state' => 'down', 'message' => (string) $bad['why'] ];
+		}
+		$d = self::data();
+		if ( empty( $d['at'] ) ) {
+			return [ 'state' => 'warn', 'message' => __( 'Connected, but nothing read yet.', 'dazont-ecom' ) ];
+		}
+		// UNE LECTURE QUI DATE EST UNE LECTURE QUI NE SE FAIT PLUS. Elle tourne
+		// une fois par jour : trois jours sans rien, c est le cron qui ne passe
+		// plus, pas un calme du catalogue.
+		if ( time() - (int) $d['at'] > 3 * DAY_IN_SECONDS ) {
+			return [
+				'state'   => 'warn',
+				/* translators: %s: how long ago */
+				'message' => sprintf( __( 'Last read %s ago — it should read itself once a day.', 'dazont-ecom' ), human_time_diff( (int) $d['at'], time() ) ),
+			];
+		}
+		return [
+			'state'   => 'ok',
+			/* translators: 1: how many targets, 2: how long ago */
+			'message' => sprintf( __( '%1$s pages worth a link, read %2$s ago.', 'dazont-ecom' ), number_format_i18n( count( (array) ( $d['rows'] ?? [] ) ) ), human_time_diff( (int) $d['at'], time() ) ),
+		];
+	}
 	/** Ce que la derniere lecture a trouve. */
 	public const OPT_DATA = 'dze_nl_targets';
 
@@ -53,10 +119,17 @@ final class DZE_Netlinking {
 	private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 	private const API       = 'https://searchconsole.googleapis.com/webmasters/v3';
 
+	/** Les adresses exactes, chez Google, ou chaque etape se fait. */
+	private const GOOGLE_CREDENTIALS = 'https://console.cloud.google.com/apis/credentials';
+	private const GOOGLE_CONSENT     = 'https://console.cloud.google.com/apis/credentials/consent';
+	private const GOOGLE_API         = 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com';
+
 	/** Combien de pages on classe, et combien de requetes on garde par page. */
 	private const MAX_PAGES   = 5000;
 	private const MAX_ROWS    = 25000;
 	private const KEEP        = 60;
+	/** Le plancher par langue : en dessous, on ne travaille pas un catalogue. */
+	private const MIN_PER_LANG = 10;
 	private const KEEP_ANCHOR = 6;
 
 	private static ?self $instance = null;
@@ -70,7 +143,11 @@ final class DZE_Netlinking {
 
 	private function __construct() {
 		// LA LECTURE TOURNE EN CRON, ou rien n est un ecran d administration.
-		add_action( self::HOOK, [ __CLASS__, 'refresh' ] );
+		// LE CRON NE PASSE PAS PAR refresh() DIRECTEMENT : une lecture qui
+		// echoue en cron jetait son exception dans le vide, et l ecran disait
+		// « pas encore lu » — la meme phrase que le premier jour. Un echec
+		// silencieux qui ressemble a un debut est le pire des etats.
+		add_action( self::HOOK, [ __CLASS__, 'cron_refresh' ] );
 		add_filter( 'cron_schedules', [ __CLASS__, 'cron_schedules' ] );
 		if ( ! is_admin() ) {
 			return;
@@ -838,7 +915,65 @@ final class DZE_Netlinking {
 			}
 			return (float) $b['gain'] <=> (float) $a['gain'];
 		} );
-		return array_slice( $out, 0, self::KEEP );
+		return self::share_out( $out );
+	}
+
+	/**
+	 * CHAQUE LANGUE GARDE UNE PLACE DANS LA LISTE.
+	 *
+	 * Mesure sur la boutique : 58 cibles anglaises, une francaise, une
+	 * polonaise. Le plafond etant global, l anglais l absorbait et les quatre
+	 * catalogues traduits disparaissaient — alors qu on repare le maillage
+	 * externe d une langue, pas de la boutique entiere, et qu une langue dont
+	 * on ne voit jamais une page est une langue sur laquelle on ne travaille
+	 * jamais.
+	 *
+	 * Chacune emporte d abord sa part, dans SON ordre ; ce qui reste va aux
+	 * meilleures, quelle que soit la langue. L ordre general est ensuite rendu
+	 * tel quel, pour que la tete de liste reste la tete de liste.
+	 *
+	 * @param array<int,array<string,mixed>> $ranked Deja classees.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function share_out( array $ranked ): array {
+		if ( count( $ranked ) <= self::KEEP ) {
+			return $ranked;
+		}
+		$by = [];
+		foreach ( $ranked as $r ) {
+			$by[ (string) ( $r['lang'] ?? '' ) ][] = $r;
+		}
+		if ( count( $by ) < 2 ) {
+			return array_slice( $ranked, 0, self::KEEP );
+		}
+		// UN PLANCHER, PAS UN PARTAGE EGAL. Diviser le plafond par le nombre de
+		// langues donnait autant de place a un catalogue qui vend presque rien
+		// qu a celui qui porte la boutique — ce qui repousse hors de l ecran du
+		// vrai travail anglais au profit de lignes francaises marginales.
+		//
+		// Chacune est donc SEULEMENT assuree d etre la ; tout le reste se donne
+		// au merite, et l anglais garde naturellement la plus grosse part.
+		$share = self::MIN_PER_LANG;
+		$keep  = [];
+		foreach ( $by as $lang_rows ) {
+			foreach ( array_slice( $lang_rows, 0, $share ) as $one ) {
+				$keep[ (string) $one['url'] ] = true;
+			}
+		}
+		// Ce qui reste va aux meilleures, sans regarder la langue.
+		foreach ( $ranked as $r ) {
+			if ( count( $keep ) >= self::KEEP ) {
+				break;
+			}
+			$keep[ (string) $r['url'] ] = true;
+		}
+		$out = [];
+		foreach ( $ranked as $r ) {
+			if ( isset( $keep[ (string) $r['url'] ] ) ) {
+				$out[] = $r;
+			}
+		}
+		return $out;
 	}
 
 	public static function refresh(): array {
@@ -873,6 +1008,12 @@ final class DZE_Netlinking {
 					'impr'   => (float) ( $r['impressions'] ?? 0 ),
 					'ctr'    => (float) ( $r['ctr'] ?? 0 ),
 					'pos'    => (float) ( $r['position'] ?? 0 ),
+					// D OU ELLE VIENT : la propriete permet de renvoyer vers la
+					// source dans Search Console, la langue de filtrer un catalogue
+					// a la fois — cinq domaines veut dire cinq catalogues, et on
+					// repare le maillage externe d une langue, pas des cinq.
+					'prop'   => $prop,
+					'lang'   => self::lang_of_url( $url ),
 					'terms'  => [],
 				];
 			}
@@ -922,8 +1063,19 @@ final class DZE_Netlinking {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ] );
 		}
 		check_ajax_referer( self::NONCE, 'nonce' );
+		// LA FENETRE SE CHANGE ET SE RELIT DANS LE MEME GESTE : un reglage
+		// enregistre qui ne prend effet qu a la lecture suivante est un reglage
+		// dont on croit qu il n a rien fait.
+		$days = isset( $_POST['days'] ) ? (int) $_POST['days'] : 0;
+		if ( $days > 0 ) {
+			$set = self::settings();
+			$set['days'] = max( 7, min( 90, $days ) );
+			update_option( self::OPT_SET, $set, false );
+		}
 		try {
-			wp_send_json_success( self::refresh() );
+			$done = self::refresh();
+			delete_option( self::OPT_LAST_ERROR );
+			wp_send_json_success( $done );
 		} catch ( Throwable $e ) {
 			// L ADRESSE EST SORTIE DU TEXTE pour pouvoir etre cliquee : une
 			// consigne qui contient un lien qu il faut recopier a la main est une
@@ -933,6 +1085,10 @@ final class DZE_Netlinking {
 			if ( preg_match( '~https?://\S+~', $msg, $m ) ) {
 				$url = rtrim( (string) $m[0], '.,);' );
 				$msg = trim( str_replace( (string) $m[0], '', $msg ), " :\t\n" );
+			}
+			update_option( self::OPT_LAST_ERROR, [ 'at' => time(), 'why' => $e->getMessage() ], false );
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log( 'searchconsole', __( 'Reading Search Console', 'dazont-ecom' ), $e->getMessage() );
 			}
 			wp_send_json_error( [ 'message' => $msg, 'url' => $url ] );
 		}
@@ -998,33 +1154,19 @@ final class DZE_Netlinking {
 		echo '</div>';
 	}
 
+	/**
+	 * CE QUE CET ECRAN EST, EN DEUX LIGNES ET PAS DIX.
+	 *
+	 * « Si un module est bien fait, il n'est pas nécessaire d'ajouter du texte
+	 * partout. » Ce qui doit etre su pour s en servir tient au-dessus ; ce qui
+	 * explique COMMENT les chiffres sont faits est replie sous le tableau, pour
+	 * qui veut le verifier.
+	 */
 	private static function render_intro(): void {
 		echo '<p class="description" style="max-width:900px;">';
-		esc_html_e( 'Which of your pages would gain the most from a link pointing at it from another site, and which words that link should be made of. Read from Search Console once a day. Nothing here is written to the shop, nothing is sent to a model, and nothing is paid for.', 'dazont-ecom' );
-		echo '</p>';
-		echo '<p class="description" style="max-width:900px;">';
-		echo '<strong>' . esc_html__( 'What Search Console does not give.', 'dazont-ecom' ) . '</strong> ';
-		esc_html_e( 'Its API has no backlinks: the Links report exists on screen and nowhere else. So this screen never claims to list the links you already have — it says where a new one would pay.', 'dazont-ecom' );
+		esc_html_e( 'Which of your pages a link from another site would lift, and which words that link should be made of. Read from Search Console once a day; nothing is written to the shop and nothing is paid for.', 'dazont-ecom' );
 		echo '</p>';
 	}
-
-	/** Les adresses exactes, chez Google, ou chaque etape se fait. */
-	private const GOOGLE_CREDENTIALS = 'https://console.cloud.google.com/apis/credentials';
-	private const GOOGLE_CONSENT     = 'https://console.cloud.google.com/apis/credentials/consent';
-	private const GOOGLE_API         = 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com';
-
-	/**
-	 * COMMENT CONNECTER, AVEC LES ADRESSES.
-	 *
-	 * « Il manque des explications. Url là ou il faut aller ? » L encart disait
-	 * « ajoutez cette adresse a l application Google » sans dire ou se trouve
-	 * cette application — une consigne sans adresse est une consigne qu on ne
-	 * peut pas suivre.
-	 *
-	 * Et il manquait une etape entiere : l API Search Console doit etre ACTIVEE
-	 * dans le projet Google, sinon la connexion se fait et la premiere lecture
-	 * echoue sur un refus que rien n annonce.
-	 */
 	private static function render_connect(): void {
 		$me  = self::instance();
 		$o   = self::client();
@@ -1113,46 +1255,214 @@ final class DZE_Netlinking {
 		?>
 		<script>
 		jQuery( function ( $ ) {
-			$( '#dze-nl-refresh' ).on( 'click', function () {
-				var $b = $( this ).prop( 'disabled', true );
+			function read( days ) {
+				var $b = $( '#dze-nl-refresh' ).prop( 'disabled', true );
 				var $s = $( '#dze-nl-state' ).text( <?php echo wp_json_encode( __( 'Reading Search Console…', 'dazont-ecom' ) ); ?> );
-				$.post( ajaxurl, { action: 'dze_nl_refresh', nonce: <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?> } )
+				var data = { action: 'dze_nl_refresh', nonce: <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?> };
+				if ( days ) { data.days = days; }
+				$.post( ajaxurl, data )
 					.done( function ( r ) {
 						if ( !r || !r.success ) {
 							$b.prop( 'disabled', false );
-							var d = ( r && r.data ) ? r.data : {};
-							$s.text( d.message || 'Error' );
-							if ( d.url ) {
-								$s.append( ' ' ).append( $( '<a/>', { href: d.url, text: d.url, target: '_blank', rel: 'noopener' } ) );
+							var e = ( r && r.data ) ? r.data : {};
+							$s.text( e.message || 'Error' );
+							if ( e.url ) {
+								$s.append( ' ' ).append( $( '<a/>', { href: e.url, text: e.url, target: '_blank', rel: 'noopener' } ) );
 							}
 							return;
 						}
 						window.location.reload();
 					} )
 					.fail( function () { $b.prop( 'disabled', false ); $s.text( 'Error' ); } );
-			} );
+			}
+			$( '#dze-nl-refresh' ).on( 'click', function () { read( 0 ); } );
+			// CHANGER LA FENETRE RELIT DANS LA FOULEE : un reglage enregistre qui
+			// ne prend effet qu a la lecture suivante est un reglage dont on
+			// croit qu il n a rien fait.
+			$( '#dze-nl-days' ).on( 'change', function () { read( $( this ).val() ); } );
 		} );
 		</script>
 		<?php
 	}
 
+	/** Une pastille, du meme dessin que celles des autres ecrans. */
+	private static function chip( string $icon, string $text, string $title = '' ): string {
+		return sprintf(
+			'<span class="dze-setup-chip" title="%3$s" style="display:inline-flex;align-items:center;gap:5px;margin-right:6px;padding:2px 9px;border:1px solid #dcdcde;border-radius:11px;font-size:12px;background:#fff;"><span class="dashicons dashicons-%1$s" style="font-size:14px;width:14px;height:14px;"></span>%2$s</span>',
+			esc_attr( $icon ),
+			esc_html( $text ),
+			esc_attr( $title )
+		);
+	}
+
+	/**
+	 * LES CHIFFRES DE TETE : ce qu il y a, sur quoi, et depuis quand.
+	 *
+	 * Une pastille se tait quand elle n a rien a dire — « 0 » se lit comme un
+	 * probleme la ou il n y a qu une absence.
+	 */
+	private static function render_chips( array $d, array $rows ): void {
+		$out = '';
+		if ( $rows ) {
+			$out .= self::chip( 'admin-links', sprintf(
+				/* translators: %s: how many pages */
+				_n( '%s page worth a link', '%s pages worth a link', count( $rows ), 'dazont-ecom' ),
+				number_format_i18n( count( $rows ) )
+			) );
+		}
+		if ( ! empty( $d['seen'] ) ) {
+			$out .= self::chip( 'visibility', sprintf(
+				/* translators: %s: how many pages were read */
+				__( '%s pages read', 'dazont-ecom' ),
+				number_format_i18n( (int) $d['seen'] )
+			), __( 'Every page Search Console knows about, across every property.', 'dazont-ecom' ) );
+		}
+		$props = array_filter( array_map( 'trim', explode( ',', (string) ( $d['property'] ?? '' ) ) ) );
+		if ( $props ) {
+			$out .= self::chip( 'admin-site', sprintf(
+				/* translators: %s: how many Search Console properties */
+				_n( '%s property', '%s properties', count( $props ), 'dazont-ecom' ),
+				number_format_i18n( count( $props ) )
+			), implode( "\n", $props ) );
+		}
+		if ( ! empty( $d['at'] ) ) {
+			$out .= self::chip( 'clock', sprintf(
+				/* translators: %s: how long ago */
+				__( 'read %s ago', 'dazont-ecom' ),
+				human_time_diff( (int) $d['at'], time() )
+			), sprintf(
+				/* translators: 1: first day read, 2: last day read */
+				__( 'Covering %1$s to %2$s.', 'dazont-ecom' ),
+				(string) ( $d['from'] ?? '' ),
+				(string) ( $d['to'] ?? '' )
+			) );
+		}
+		// LA PROCHAINE, parce qu un module qui tourne seul doit dire quand.
+		$next = wp_next_scheduled( self::HOOK );
+		if ( $next ) {
+			$out .= self::chip( 'update', sprintf(
+				/* translators: %s: how long until the next reading */
+				__( 'next in %s', 'dazont-ecom' ),
+				human_time_diff( time(), (int) $next )
+			) );
+		}
+		if ( '' !== $out ) {
+			echo '<p style="margin:10px 0 4px;">' . wp_kses_post( $out ) . '</p>';
+		}
+	}
+
+	/**
+	 * CE QUI A RATE, DIT AVANT LE RESTE.
+	 *
+	 * Une lecture automatique qui echoue laissait l ecran dire « pas encore
+	 * lu » — la meme phrase que le premier jour, donc un echec qui ressemble a
+	 * un debut.
+	 */
+	private static function render_error(): void {
+		$bad = self::last_error();
+		if ( empty( $bad['why'] ) ) {
+			return;
+		}
+		$why = (string) $bad['why'];
+		$url = '';
+		if ( preg_match( '~https?://\S+~', $why, $m ) ) {
+			$url = rtrim( (string) $m[0], '.,);' );
+			$why = trim( str_replace( (string) $m[0], '', $why ), " :\t\n" );
+		}
+		echo '<div class="notice notice-error inline" style="margin:12px 0;"><p><strong>';
+		printf(
+			/* translators: %s: how long ago */
+			esc_html__( 'The last reading failed, %s ago.', 'dazont-ecom' ),
+			esc_html( human_time_diff( (int) ( $bad['at'] ?? time() ), time() ) )
+		);
+		echo '</strong> ' . esc_html( $why );
+		if ( '' !== $url ) {
+			echo ' <a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html__( 'Fix it at Google', 'dazont-ecom' ) . ' ↗</a>';
+		}
+		echo '</p></div>';
+	}
+
+	/**
+	 * UNE LANGUE A LA FOIS, QUAND IL Y EN A PLUSIEURS.
+	 *
+	 * Cinq domaines veut dire cinq catalogues, et un classement qui les melange
+	 * ne se travaille pas : on repare le maillage externe d une langue, pas de
+	 * la boutique entiere. Le filtre est DANS L ADRESSE, donc une vue filtree
+	 * est un signet — la barre des Commentaires de WordPress, en plus petit.
+	 *
+	 * @param array<int,array<string,mixed>> $all
+	 */
+	private static function render_rail( array $all, string $now ): void {
+		$counts = [];
+		foreach ( $all as $r ) {
+			$code = (string) ( $r['lang'] ?? '' );
+			if ( '' !== $code ) {
+				$counts[ $code ] = ( $counts[ $code ] ?? 0 ) + 1;
+			}
+		}
+		if ( count( $counts ) < 2 ) {
+			return; // une langue n est pas un choix.
+		}
+		arsort( $counts );
+		$base = self::page_url();
+		$out  = [ sprintf(
+			'<a href="%1$s"%2$s>%3$s <span class="count">(%4$s)</span></a>',
+			esc_url( $base ),
+			'' === $now ? ' class="current"' : '',
+			esc_html__( 'All', 'dazont-ecom' ),
+			esc_html( number_format_i18n( count( $all ) ) )
+		) ];
+		foreach ( $counts as $code => $n ) {
+			$out[] = sprintf(
+				'<a href="%1$s"%2$s>%3$s <span class="count">(%4$s)</span></a>',
+				esc_url( add_query_arg( 'lang', $code, $base ) ),
+				$now === $code ? ' class="current"' : '',
+				esc_html( strtoupper( (string) $code ) ),
+				esc_html( number_format_i18n( $n ) )
+			);
+		}
+		echo '<ul class="subsubsub" style="float:none;margin:0 0 10px;"><li>' . wp_kses_post( implode( ' |</li><li>', $out ) ) . '</li></ul>';
+	}
+
+	/** Le lien vers cette page DANS Search Console, pour aller voir la source. */
+	private static function gsc_url( string $page_url, string $property ): string {
+		if ( '' === $property ) {
+			return '';
+		}
+		return add_query_arg( [
+			'resource_id' => $property,
+			'page'        => '!' . $page_url,
+		], 'https://search.google.com/search-console/performance/search-analytics' );
+	}
+
 	private static function render_targets(): void {
 		$d    = self::data();
-		$rows = (array) ( $d['rows'] ?? [] );
+		$all  = (array) ( $d['rows'] ?? [] );
 		$me   = self::instance();
 
-		echo '<p class="dze-cb-actions" style="max-width:980px;">';
+		self::render_error();
+		self::render_chips( $d, $all );
+
+		// LA BARRE D ACTIONS : relire, sur quelle duree, et s en aller.
+		echo '<p class="dze-cb-actions" style="max-width:1100px;">';
 		echo '<button type="button" class="button" id="dze-nl-refresh">' . esc_html__( 'Read it again now', 'dazont-ecom' ) . '</button>';
-		echo '<span class="description" id="dze-nl-state">';
-		if ( ! empty( $d['at'] ) ) {
+		echo '<label style="display:inline-flex;align-items:center;gap:6px;"><span class="description">' . esc_html__( 'over', 'dazont-ecom' ) . '</span>';
+		echo '<select id="dze-nl-days">';
+		foreach ( [ 7, 28, 90 ] as $dze_days ) {
 			printf(
-				/* translators: 1: how long ago, 2: the property, 3: how many days */
-				esc_html__( 'Read %1$s ago from %2$s, over %3$s days.', 'dazont-ecom' ),
-				esc_html( human_time_diff( (int) $d['at'], time() ) ),
-				esc_html( (string) ( $d['property'] ?? '' ) ),
-				esc_html( number_format_i18n( (int) ( $d['days'] ?? 0 ) ) )
+				'<option value="%1$d"%2$s>%3$s</option>',
+				(int) $dze_days,
+				selected( $dze_days, self::window(), false ),
+				esc_html( sprintf(
+					/* translators: %s: a number of days */
+					_n( '%s day', '%s days', $dze_days, 'dazont-ecom' ),
+					number_format_i18n( $dze_days )
+				) )
 			);
-		} else {
+		}
+		echo '</select></label>';
+		echo '<span class="description" id="dze-nl-state">';
+		if ( empty( $d['at'] ) ) {
 			esc_html_e( 'Not read yet — it reads itself once a day, or press the button.', 'dazont-ecom' );
 		}
 		echo '</span>';
@@ -1161,34 +1471,66 @@ final class DZE_Netlinking {
 		// AVANT TOUT RETOUR ANTICIPE : le bouton vient d etre dessine.
 		self::render_script();
 
-		if ( ! $rows ) {
-			echo '<p class="description">' . esc_html__( 'Nothing is within reach right now: no page sits between the fourth and the thirtieth place with enough impressions behind it. That is an answer, not a fault.', 'dazont-ecom' ) . '</p>';
+		if ( ! $all ) {
+			echo '<p class="description">' . ( empty( $d['at'] )
+				? esc_html__( 'Nothing read yet.', 'dazont-ecom' )
+				: esc_html__( 'Nothing is within reach right now: no page sits between the fourth and the thirtieth place with enough impressions behind it. That is an answer, not a fault.', 'dazont-ecom' ) ) . '</p>';
+			self::render_notes();
 			return;
 		}
-		echo '<table class="widefat striped" style="max-width:1100px;"><thead><tr>';
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$want = isset( $_GET['lang'] ) ? sanitize_key( wp_unslash( (string) $_GET['lang'] ) ) : '';
+		self::render_rail( $all, $want );
+		$rows = '' === $want
+			? $all
+			: array_values( array_filter( $all, static fn( $r ) => (string) ( $r['lang'] ?? '' ) === $want ) );
+
+		$props = array_filter( array_map( 'trim', explode( ',', (string) ( $d['property'] ?? '' ) ) ) );
+		$multi = count( $props ) > 1;
+
+		echo '<table class="widefat striped" style="max-width:1200px;"><thead><tr>';
 		echo '<th>' . esc_html__( 'Page', 'dazont-ecom' ) . '</th>';
-		echo '<th style="width:110px;">' . esc_html__( 'Position', 'dazont-ecom' ) . '</th>';
-		echo '<th style="width:110px;">' . esc_html__( 'Impressions', 'dazont-ecom' ) . '</th>';
-		echo '<th style="width:110px;">' . esc_html__( 'Clicks', 'dazont-ecom' ) . '</th>';
-		echo '<th style="width:110px;">' . esc_html__( 'Units sold', 'dazont-ecom' ) . '</th>';
-		echo '<th style="width:150px;">' . esc_html__( 'Clicks to gain', 'dazont-ecom' ) . '</th>';
-		echo '<th style="width:110px;">' . esc_html__( 'Priority', 'dazont-ecom' ) . '</th>';
+		if ( $multi ) {
+			echo '<th style="width:70px;">' . esc_html__( 'Lang', 'dazont-ecom' ) . '</th>';
+		}
+		echo '<th style="width:80px;">' . esc_html__( 'Position', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:95px;">' . esc_html__( 'Impressions', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:70px;">' . esc_html__( 'Clicks', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:85px;" title="' . esc_attr__( 'What this category sold over the same window, in this language.', 'dazont-ecom' ) . '">' . esc_html__( 'Units sold', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:105px;" title="' . esc_attr__( 'Estimated: what the page would do at about fifth place, against what it does now.', 'dazont-ecom' ) . '">' . esc_html__( 'Clicks to gain', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:80px;" title="' . esc_attr__( 'No unit, and no prediction: the traffic to gain, weighted by whether the category sells.', 'dazont-ecom' ) . '">' . esc_html__( 'Priority', 'dazont-ecom' ) . '</th>';
 		echo '<th>' . esc_html__( 'Words to link it with', 'dazont-ecom' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $rows as $r ) {
-			$url = (string) ( $r['url'] ?? '' );
+			$url  = (string) ( $r['url'] ?? '' );
+			$lang = (string) ( $r['lang'] ?? '' );
 			echo '<tr>';
-			echo '<td><a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html( self::short( $url ) ) . '</a></td>';
+			echo '<td><a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html( self::short( $url ) ) . '</a>';
+			// LA SOURCE DU CHIFFRE, A UN CLIC : ce tableau resume Search Console,
+			// il ne la remplace pas, et une page qui surprend se va se verifier.
+			$gsc = self::gsc_url( $url, (string) ( $r['prop'] ?? '' ) );
+			if ( '' !== $gsc ) {
+				echo ' <a href="' . esc_url( $gsc ) . '" target="_blank" rel="noopener" class="description" title="'
+					. esc_attr__( 'Open this page in Search Console', 'dazont-ecom' ) . '">↗</a>';
+			}
+			echo '</td>';
+			if ( $multi ) {
+				echo '<td>' . ( '' !== $lang
+					? ( class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'flag_html' )
+						? wp_kses_post( DZE_Wpml::flag_html( $lang ) )
+						: esc_html( strtoupper( $lang ) ) )
+					: '<span class="description">—</span>' ) . '</td>';
+			}
 			echo '<td>' . esc_html( number_format_i18n( (float) ( $r['pos'] ?? 0 ), 1 ) ) . '</td>';
 			echo '<td>' . esc_html( number_format_i18n( (int) ( $r['impr'] ?? 0 ) ) ) . '</td>';
 			echo '<td>' . esc_html( number_format_i18n( (int) ( $r['clicks'] ?? 0 ) ) ) . '</td>';
 			// CE QUE LA CATEGORIE A VENDU. Un tiret, et non un zero, quand la page
 			// n est pas une categorie : un article n a pas vendu zero, il ne vend
 			// pas, et les deux ne se lisent pas pareil.
-			$units = (int) ( $r['units'] ?? 0 );
-			$tid   = (int) ( $r['tid'] ?? 0 );
-			echo '<td>' . ( $tid ? esc_html( number_format_i18n( $units ) ) : '<span class="description">—</span>' ) . '</td>';
-			echo '<td><strong>+' . esc_html( number_format_i18n( (int) round( (float) ( $r['gain'] ?? 0 ) ) ) ) . '</strong> <span class="description">' . esc_html__( 'est.', 'dazont-ecom' ) . '</span></td>';
+			$tid = (int) ( $r['tid'] ?? 0 );
+			echo '<td>' . ( $tid ? esc_html( number_format_i18n( (int) ( $r['units'] ?? 0 ) ) ) : '<span class="description">—</span>' ) . '</td>';
+			echo '<td><strong>+' . esc_html( number_format_i18n( (int) round( (float) ( $r['gain'] ?? 0 ) ) ) ) . '</strong></td>';
 			// UN RANG, PAS UNE PROMESSE : pas de signe +, pas d unite.
 			$worth = (float) ( $r['worth'] ?? 0 );
 			echo '<td>' . ( $worth > 0
@@ -1196,26 +1538,37 @@ final class DZE_Netlinking {
 				: '<span class="description">—</span>' ) . '</td>';
 			echo '<td>';
 			foreach ( (array) ( $r['terms'] ?? [] ) as $t ) {
-				echo '<span class="dze-mesh-chip" style="display:inline-block;margin:0 4px 4px 0;padding:1px 7px;border:1px solid #dcdcde;border-radius:10px;font-size:12px;">' . esc_html( (string) ( $t['q'] ?? '' ) ) . '</span>';
+				echo '<span style="display:inline-block;margin:0 4px 4px 0;padding:1px 7px;border:1px solid #dcdcde;border-radius:10px;font-size:12px;">' . esc_html( (string) ( $t['q'] ?? '' ) ) . '</span>';
 			}
 			echo '</td></tr>';
 		}
 		echo '</tbody></table>';
-		echo '<p class="description" style="max-width:980px;margin-top:10px;">';
-		esc_html_e( 'The impressions and the clicks are what Google measured, and the units are what the category actually sold.', 'dazont-ecom' );
-		echo ' ';
-		esc_html_e( 'Each language counts its OWN sales: the units beside a German page are what the German catalogue sold, not what the English one did. A nought there is the answer, not a gap.', 'dazont-ecom' );
-		echo ' ';
-		esc_html_e( '"Clicks to gain" is an estimate: what the page would do at about fifth place, against what it does now. "Priority" has no unit and predicts nothing — it is that traffic weighted by whether the category sells at all, so a page that earns comes before a page that only draws visitors.', 'dazont-ecom' );
-		echo ' ';
-		esc_html_e( 'It deliberately does not multiply clicks by units-per-click: sales come from every source while the clicks counted here are Google\'s alone, so that sum would have promised 171 units for 17 clicks. Ranking is honest; predicting is not.', 'dazont-ecom' );
-		echo ' ';
-		esc_html_e( 'It counts UNITS and never money: this shop takes orders in eight currencies or more, and the analytics table keeps each order in its own, so adding them would produce a number that means nothing. A unit sold is a unit sold anywhere.', 'dazont-ecom' );
-		echo '</p>';
-		?>
-		<?php
+		self::render_notes();
 	}
 
+	/**
+	 * COMMENT CES CHIFFRES SONT FAITS — replie, pour qui veut verifier.
+	 *
+	 * Cinq phrases sous un tableau sont cinq phrases que personne ne lit et qui
+	 * poussent le travail hors de l ecran. Elles restent, sous un pli.
+	 */
+	private static function render_notes(): void {
+		echo '<details class="dze-set" style="max-width:1100px;margin-top:14px;"><summary>'
+			. esc_html__( 'How these figures are made', 'dazont-ecom' ) . '</summary>';
+		echo '<p class="description">';
+		esc_html_e( 'Impressions, clicks and position are what Google measured. Units are what WooCommerce recorded for that category over the same window.', 'dazont-ecom' );
+		echo '</p><p class="description">';
+		esc_html_e( 'Each language counts its OWN sales, and the language is the one of the product sold — translated products are filed in the original\'s categories here, so counting by the category\'s language would return nought for four languages out of five.', 'dazont-ecom' );
+		echo '</p><p class="description">';
+		esc_html_e( '"Clicks to gain" is an estimate: what the page would do at about fifth place, against what it does now. "Priority" has no unit and predicts nothing — it is that traffic weighted by whether the category sells at all. It deliberately does NOT multiply clicks by units-per-click: sales come from every source while these clicks are Google\'s alone, and that sum promised 171 units for 17 clicks.', 'dazont-ecom' );
+		echo '</p><p class="description">';
+		esc_html_e( 'It counts units and never money: this shop takes orders in eight currencies or more and the analytics table keeps each in its own, so adding them would mean nothing.', 'dazont-ecom' );
+		echo '</p><p class="description"><strong>';
+		esc_html_e( 'What Search Console does not give:', 'dazont-ecom' );
+		echo '</strong> ';
+		esc_html_e( 'its API has no backlinks — the Links report exists on screen and nowhere else. So this screen never claims to list the links you already have; it says where a new one would pay.', 'dazont-ecom' );
+		echo '</p></details>';
+	}
 	/** Une adresse lisible : le chemin, pas le domaine repete cinquante fois. */
 	private static function short( string $url ): string {
 		$p = (string) wp_parse_url( $url, PHP_URL_PATH );
