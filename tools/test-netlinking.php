@@ -298,5 +298,27 @@ ok( 'le script est branche avant le retour anticipe',
 $apres = $pos_vide !== false ? substr( $src4, $pos_vide ) : '';
 ok( 'et plus aucun script ne vit apres lui', false !== strpos( $apres, '<script>' ), false );
 
+echo "\nUN RANG NE SE FAIT PAS PASSER POUR UNE PREVISION\n";
+// Le premier calcul multipliait les clics a gagner par « unites vendues /
+// clics Google ». Mesure : /military-balaclava sortait a +171 unites pour
+// +17 clics — elle a vendu 50 unites sur cinq clics organiques. Le rapport
+// est structurellement faux : les ventes viennent de partout, le
+// denominateur ne compte que Google.
+$maigre = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 5.0, 'impr' => 443.0, 'ctr' => 0.011, 'pos' => 29.5, 'terms' => [] ];
+$r5 = DZE_Netlinking::rank( [ $maigre ], [ 11 => [ 'units' => 50 ] ], $map )[0];
+ok( 'la priorite reste du meme ordre que les clics',
+	$r5['worth'] < $r5['gain'] * 3, true );
+// ET ELLE CLASSE TOUJOURS DANS LE BON SENS : vendre passe devant ne pas vendre.
+$a1 = [ 'url' => 'https://kula-tactical.com/bottes',  'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
+$a2 = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
+$r6 = DZE_Netlinking::rank( [ $a2, $a1 ], [ 11 => [ 'units' => 50 ] ], $map );
+ok( 'celle qui vend passe devant a trafic egal', $r6[0]['url'], $a1['url'] );
+// BEAUCOUP PLUS DE VENTES NE VAUT PAS BEAUCOUP PLUS DE RANG : le logarithme
+// ecrase l ecart entre 50 et 500 sans effacer celui entre 0 et 50.
+$p50  = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 50 ] ], $map )[0]['worth'];
+$p500 = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 500 ] ], $map )[0]['worth'];
+ok( 'dix fois plus de ventes ne fait pas dix fois le rang', $p500 < $p50 * 2, true );
+ok( 'mais il monte quand meme',                          $p500 > $p50, true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

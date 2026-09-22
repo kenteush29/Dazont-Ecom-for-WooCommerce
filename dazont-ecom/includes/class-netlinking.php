@@ -807,17 +807,24 @@ final class DZE_Netlinking {
 			$tid = $slug_map ? self::term_of_url( (string) ( $p['url'] ?? '' ), $slug_map ) : 0;
 			$p['tid']     = $tid;
 			$p['units'] = $tid && isset( $sales[ $tid ] ) ? (int) $sales[ $tid ]['units'] : 0;
-			// EN UNITES, ET JAMAIS EN ARGENT.
+			// UNE PRIORITE, ET SURTOUT PAS UNE PREVISION D UNITES.
 			//
-			// La table de WooCommerce Analytics garde chaque commande dans SA
-			// devise : sur cette boutique, huit monnaies au moins — dollars,
-			// euros, livres, zlotys, livres turques. Les additionner rend un
-			// nombre qui ne veut rien dire, et la premiere mesure l a montre :
-			// 677 120 pour trente unites. Une unite vendue, elle, est une unite
-			// vendue partout.
-			$clicks         = max( 1.0, (float) ( $p['clicks'] ?? 0 ) );
-			$p['per_click'] = $p['units'] > 0 ? $p['units'] / $clicks : 0.0;
-			$p['worth']     = $gain * $p['per_click'];
+			// Le premier calcul multipliait les clics a gagner par « unites
+			// vendues / clics Google ». Mesure sur la boutique :
+			// /military-balaclava sortait a +171 unites pour +17 clics, parce
+			// qu elle a vendu 50 unites sur cinq clics organiques — dix unites
+			// par clic. Le rapport est structurellement faux : les ventes
+			// viennent de PARTOUT (direct, publicite, e-mail) et le
+			// denominateur ne compte que Google.
+			//
+			// On ne peut donc pas annoncer des unites. Ce qu on peut faire
+			// honnetement, c est CLASSER : le trafic a gagner, pondere par le
+			// fait que cette categorie vende — beaucoup, un peu, ou pas. Le
+			// logarithme sert exactement a ca, ecraser l ecart entre 50 et 500
+			// sans effacer l ecart entre 0 et 50.
+			//
+			// Le resultat n a pas d unite et ne pretend rien : c est un rang.
+			$p['worth'] = $p['units'] > 0 ? $gain * ( 1.0 + log10( 1.0 + (float) $p['units'] ) ) : 0.0;
 			$out[]          = $p;
 		}
 		// L ARGENT D ABORD, LE TRAFIC ENSUITE. Une page qui ne vend pas — un
@@ -1165,7 +1172,7 @@ final class DZE_Netlinking {
 		echo '<th style="width:110px;">' . esc_html__( 'Clicks', 'dazont-ecom' ) . '</th>';
 		echo '<th style="width:110px;">' . esc_html__( 'Units sold', 'dazont-ecom' ) . '</th>';
 		echo '<th style="width:150px;">' . esc_html__( 'Clicks to gain', 'dazont-ecom' ) . '</th>';
-		echo '<th style="width:150px;">' . esc_html__( 'Units to gain', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:110px;">' . esc_html__( 'Priority', 'dazont-ecom' ) . '</th>';
 		echo '<th>' . esc_html__( 'Words to link it with', 'dazont-ecom' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $rows as $r ) {
@@ -1182,9 +1189,10 @@ final class DZE_Netlinking {
 			$tid   = (int) ( $r['tid'] ?? 0 );
 			echo '<td>' . ( $tid ? esc_html( number_format_i18n( $units ) ) : '<span class="description">—</span>' ) . '</td>';
 			echo '<td><strong>+' . esc_html( number_format_i18n( (int) round( (float) ( $r['gain'] ?? 0 ) ) ) ) . '</strong> <span class="description">' . esc_html__( 'est.', 'dazont-ecom' ) . '</span></td>';
+			// UN RANG, PAS UNE PROMESSE : pas de signe +, pas d unite.
 			$worth = (float) ( $r['worth'] ?? 0 );
 			echo '<td>' . ( $worth > 0
-				? '<strong>+' . esc_html( number_format_i18n( $worth, $worth < 10 ? 1 : 0 ) ) . '</strong> <span class="description">' . esc_html__( 'est.', 'dazont-ecom' ) . '</span>'
+				? '<strong>' . esc_html( number_format_i18n( (int) round( $worth ) ) ) . '</strong>'
 				: '<span class="description">—</span>' ) . '</td>';
 			echo '<td>';
 			foreach ( (array) ( $r['terms'] ?? [] ) as $t ) {
@@ -1198,7 +1206,9 @@ final class DZE_Netlinking {
 		echo ' ';
 		esc_html_e( 'Each language counts its OWN sales: the units beside a German page are what the German catalogue sold, not what the English one did. A nought there is the answer, not a gap.', 'dazont-ecom' );
 		echo ' ';
-		esc_html_e( '"Clicks to gain" and "Units to gain" are ESTIMATES — the first is what the page would do at about fifth place against what it does now, the second turns that into units at this category\'s own units-per-click, which overstates because sales come from every source and not only from Google. Both are here to RANK the pages against one another, never to promise a figure.', 'dazont-ecom' );
+		esc_html_e( '"Clicks to gain" is an estimate: what the page would do at about fifth place, against what it does now. "Priority" has no unit and predicts nothing — it is that traffic weighted by whether the category sells at all, so a page that earns comes before a page that only draws visitors.', 'dazont-ecom' );
+		echo ' ';
+		esc_html_e( 'It deliberately does not multiply clicks by units-per-click: sales come from every source while the clicks counted here are Google\'s alone, so that sum would have promised 171 units for 17 clicks. Ranking is honest; predicting is not.', 'dazont-ecom' );
 		echo ' ';
 		esc_html_e( 'It counts UNITS and never money: this shop takes orders in eight currencies or more, and the analytics table keeps each order in its own, so adding them would produce a number that means nothing. A unit sold is a unit sold anywhere.', 'dazont-ecom' );
 		echo '</p>';
