@@ -247,6 +247,25 @@ final class DZE_Dashboard {
 				DZE_Screens::label( 'restock' ),
 			];
 		}
+		// LE MAILLAGE EXTERNE A SA LIGNE ICI AUSSI : c est un travail qu on ne
+		// pense a faire que si quelque chose le rappelle, et l accueil est
+		// l endroit ou une boutique regarde ce qui vaut la peine aujourd hui.
+		if ( class_exists( 'DZE_Netlinking' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'netlinking' ) ) ) {
+			$nl = count( (array) ( DZE_Netlinking::data()['rows'] ?? [] ) );
+			// RIEN A DIRE QUAND RIEN N A ETE LU : une ligne « 0 page » sur un
+			// module jamais connecte se lit comme un echec, pas comme une absence.
+			if ( $nl > 0 ) {
+				$said[] = [
+					sprintf(
+						/* translators: %s: how many pages */
+						_n( '%s page would gain from a link pointing at it from another site', '%s pages would gain from a link pointing at them from another site', $nl, 'dazont-ecom' ),
+						number_format_i18n( $nl )
+					),
+					DZE_Screens::url( 'netlinking' ),
+					DZE_Screens::label( 'netlinking' ),
+				];
+			}
+		}
 		$cats = $this->top_categories();
 		if ( $cats ) {
 			$cold = 0;
