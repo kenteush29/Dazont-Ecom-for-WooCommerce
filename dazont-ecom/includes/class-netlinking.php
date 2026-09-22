@@ -1091,6 +1091,44 @@ final class DZE_Netlinking {
 		}
 		echo '</div>';
 	}
+	/**
+	 * LE BOUTON ET SON ECOUTEUR NE SE SEPARENT PAS.
+	 *
+	 * « Il ne se passe rien. » Le script vivait a la FIN de la liste, apres le
+	 * retour anticipe qui sert quand il n y a rien a montrer — donc le jour ou
+	 * la liste etait vide, le bouton etait dessine et plus personne ne
+	 * l ecoutait. Un clic sans effet et sans message, c est-a-dire le pire des
+	 * deux mondes : celui ou l on croit que c est Google qui ne repond pas.
+	 *
+	 * Il est imprime avec le bouton, une fois, quoi qu il y ait dessous.
+	 */
+	private static function render_script(): void {
+		?>
+		<script>
+		jQuery( function ( $ ) {
+			$( '#dze-nl-refresh' ).on( 'click', function () {
+				var $b = $( this ).prop( 'disabled', true );
+				var $s = $( '#dze-nl-state' ).text( <?php echo wp_json_encode( __( 'Reading Search Console…', 'dazont-ecom' ) ); ?> );
+				$.post( ajaxurl, { action: 'dze_nl_refresh', nonce: <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?> } )
+					.done( function ( r ) {
+						if ( !r || !r.success ) {
+							$b.prop( 'disabled', false );
+							var d = ( r && r.data ) ? r.data : {};
+							$s.text( d.message || 'Error' );
+							if ( d.url ) {
+								$s.append( ' ' ).append( $( '<a/>', { href: d.url, text: d.url, target: '_blank', rel: 'noopener' } ) );
+							}
+							return;
+						}
+						window.location.reload();
+					} )
+					.fail( function () { $b.prop( 'disabled', false ); $s.text( 'Error' ); } );
+			} );
+		} );
+		</script>
+		<?php
+	}
+
 	private static function render_targets(): void {
 		$d    = self::data();
 		$rows = (array) ( $d['rows'] ?? [] );
@@ -1113,6 +1151,8 @@ final class DZE_Netlinking {
 		echo '</span>';
 		echo '<a class="button" style="margin-left:auto;" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=dze_nl_disconnect' ), 'dze_nl_disconnect' ) ) . '">' . esc_html__( 'Disconnect', 'dazont-ecom' ) . '</a>';
 		echo '</p>';
+		// AVANT TOUT RETOUR ANTICIPE : le bouton vient d etre dessine.
+		self::render_script();
 
 		if ( ! $rows ) {
 			echo '<p class="description">' . esc_html__( 'Nothing is within reach right now: no page sits between the fourth and the thirtieth place with enough impressions behind it. That is an answer, not a fault.', 'dazont-ecom' ) . '</p>';
@@ -1163,28 +1203,6 @@ final class DZE_Netlinking {
 		esc_html_e( 'It counts UNITS and never money: this shop takes orders in eight currencies or more, and the analytics table keeps each order in its own, so adding them would produce a number that means nothing. A unit sold is a unit sold anywhere.', 'dazont-ecom' );
 		echo '</p>';
 		?>
-		<script>
-		jQuery( function ( $ ) {
-			$( '#dze-nl-refresh' ).on( 'click', function () {
-				var $b = $( this ).prop( 'disabled', true );
-				var $s = $( '#dze-nl-state' ).text( <?php echo wp_json_encode( __( 'Reading Search Console…', 'dazont-ecom' ) ); ?> );
-				$.post( ajaxurl, { action: 'dze_nl_refresh', nonce: <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?> } )
-					.done( function ( r ) {
-						if ( !r || !r.success ) {
-							$b.prop( 'disabled', false );
-							var d = ( r && r.data ) ? r.data : {};
-							$s.text( d.message || 'Error' );
-							if ( d.url ) {
-								$s.append( ' ' ).append( $( '<a/>', { href: d.url, text: d.url, target: '_blank', rel: 'noopener' } ) );
-							}
-							return;
-						}
-						window.location.reload();
-					} )
-					.fail( function () { $b.prop( 'disabled', false ); $s.text( 'Error' ); } );
-			} );
-		} );
-		</script>
 		<?php
 	}
 

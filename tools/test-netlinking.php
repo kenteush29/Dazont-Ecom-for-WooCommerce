@@ -283,5 +283,20 @@ ok( 'un refus de droits parle de droits', false !== strpos( $droits, 'Users and 
 // qu on ne comprend pas empeche de chercher ce qu il veut dire.
 ok( 'un message inconnu passe intact',   DZE_Netlinking::said( 'Backend error 503' ), 'Backend error 503' );
 
+echo "\nUN BOUTON ET SON ECOUTEUR NE SE SEPARENT PAS\n";
+// « Il ne se passe rien. » Le script vivait a la FIN de la liste, apres le
+// retour anticipe qui sert quand il n y a rien a montrer. Liste vide : le
+// bouton dessine, plus personne pour l ecouter, un clic sans effet et sans
+// message — donc on accuse Google.
+$src4 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
+$pos_script = strpos( $src4, 'self::render_script();' );
+$pos_vide   = strpos( $src4, 'if ( ! $rows ) {' );
+ok( 'le script est branche avant le retour anticipe',
+	$pos_script !== false && $pos_vide !== false && $pos_script < $pos_vide, true );
+// ET IL NE RESTE AUCUN <script> APRES CE RETOUR : c est le motif exact qui a
+// casse, et il se reintroduit sans bruit.
+$apres = $pos_vide !== false ? substr( $src4, $pos_vide ) : '';
+ok( 'et plus aucun script ne vit apres lui', false !== strpos( $apres, '<script>' ), false );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
