@@ -1559,7 +1559,10 @@ PROMPT;
 			if ( class_exists( 'DZE_Queue' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'category_content' ) && DZE_Modules::enabled( 'queue' ) ) {
 				$asked = DZE_Queue::add( 'cat_desc', [ $term_id ] );
 			}
-			throw new RuntimeException( $asked
+			// CONCLUSION AUSSI : il n y avait pas de texte ou poser des liens, et
+			// on a lance l ecriture de ce texte. C est un enchainement normal,
+			// pas une panne — et le ranger en echec faisait croire le contraire.
+			throw new DZE_Nothing_To_Do( $asked
 				? __( 'This category had no description to link inside, so writing one has been queued. The links go in once the text is there — start this pass again after you have accepted it.', 'dazont-ecom' )
 				: __( 'This category has no description to work on yet, and the module that writes one is switched off.', 'dazont-ecom' )
 			);
@@ -1620,7 +1623,11 @@ PROMPT;
 			if ( $mend ) {
 				return self::mended( $html );
 			}
-			throw new RuntimeException( $keys
+			// UNE CONCLUSION, PAS UNE PANNE. « Pas un seul échec ne devrait
+			// arriver. » Celui-ci en etait un a tort : rien a poser parce que
+			// tout est deja pose est un travail FINI, pas un travail rate. Trois
+			// lignes rouges sur cette boutique disaient le contraire.
+			throw new DZE_Nothing_To_Do( $keys
 				? __( 'The pages you picked are already linked in this text.', 'dazont-ecom' )
 				: __( 'Every page this category can link to is already linked.', 'dazont-ecom' ) );
 		}

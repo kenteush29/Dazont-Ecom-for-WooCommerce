@@ -161,6 +161,7 @@ class DZE_Modules { public static function enabled( $id ) { return ! in_array( $
 class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
 /** The module that hosts the Content tabs — present unless a test says not. */
 class DZE_Diagnostic { const MENU_SLUG = 'dazont-ecom-diagnostic'; }
+function clean_term_cache( $ids, $tax = '' ) { $GLOBALS['cache_vide'][] = $tax; }
 function get_current_user_id() { return (int) ( $GLOBALS['uid'] ?? 0 ); }
 function get_userdata( $id ) {
 	$who = $GLOBALS['users'][ (int) $id ] ?? '';
@@ -729,23 +730,38 @@ ok( 'the reader asks for both columns',
 
 $GLOBALS['uid'] = 7;
 $GLOBALS['wpdb']->sent = [];
+/**
+ * Qui a decide, dans la liste des ecritures — quel que soit leur ordre.
+ *
+ * L acceptation ecrit maintenant DEUX fois : la description en colonne, puis
+ * la decision. Chercher la premiere ligne revenait a lire la mauvaise.
+ */
+function dze_qui_a_decide(): int {
+	foreach ( (array) ( $GLOBALS['wpdb']->updates ?? [] ) as $u ) {
+		if ( array_key_exists( 'decided_by', (array) ( $u['data'] ?? [] ) ) ) {
+			return (int) $u['data']['decided_by'];
+		}
+	}
+	return -1;
+}
+
 $GLOBALS['wpdb']->updates = [];
 $GLOBALS['rows'] = [ [ 'id' => 5, 'kind' => 'cat_desc', 'object_id' => 3, 'status' => 'review', 'result' => '<p>x</p>', 'payload' => '' ] ];
 $_POST = [ 'id' => 5, 'accept' => 0 ];
 try { DZE_Queue::instance()->ajax_decide(); } catch ( DZE_Json_Sent $e ) { /* it answers by exiting */ }
-ok( 'refusing writes who refused',      (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
+ok( 'refusing writes who refused',      dze_qui_a_decide(), 7 );
 $GLOBALS['wpdb']->updates = [];
 $_POST = [ 'id' => 5, 'accept' => 1 ];
 try { DZE_Queue::instance()->ajax_decide(); } catch ( DZE_Json_Sent $e ) { /* the same */ }
-ok( 'accepting writes who accepted',    (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
+ok( 'accepting writes who accepted',    dze_qui_a_decide(), 7 );
 $GLOBALS['wpdb']->updates = [];
 $_POST = [ 'do' => 'discard', 'ids' => [ 5 ] ];
 try { DZE_Queue::instance()->ajax_bulk(); } catch ( DZE_Json_Sent $e ) { /* the same */ }
-ok( 'and so does a bulk refusal',       (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
+ok( 'and so does a bulk refusal',       dze_qui_a_decide(), 7 );
 $GLOBALS['wpdb']->updates = [];
 $_POST = [ 'do' => 'accept', 'ids' => [ 5 ] ];
 try { DZE_Queue::instance()->ajax_bulk(); } catch ( DZE_Json_Sent $e ) { /* the same */ }
-ok( 'and a bulk acceptance',            (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
+ok( 'and a bulk acceptance',            dze_qui_a_decide(), 7 );
 $_POST = [];
 $GLOBALS['uid'] = 0;
 
@@ -1315,5 +1331,45 @@ ok( 'made_by est bien dans la requete',
 	false !== stripos( implode( ' ', $GLOBALS['wpdb']->sent ), 'object_id, status, made_by' ), true );
 $GLOBALS['uid'] = $dze_uid_avant;
 dze_empty_queue();
+echo "\nPAS UN SEUL ECHEC MUET\n";
+// « Pas un seul échec ne devrait arriver. 1 échec ça veut dire : plugin mal
+// codé. » Sur cette boutique, sept lignes etaient en echec avec la case
+// raison VIDE — ce qui est pire que l echec : on ne peut meme pas commencer
+// a chercher. apply() rendait false par sept chemins et un seul notait le
+// motif.
+$dze_q = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-queue.php' );
+// Chaque refus passe par no(), qui ecrit le motif et rend false.
+ok( 'un refus porte toujours son motif',
+	false !== strpos( $dze_q, 'private static function no( string $why ): bool' ), true );
+// Et dans apply(), plus aucun « return false » nu : soit no(), soit un
+// commentaire disant que le motif est deja ecrit ailleurs.
+$dze_apply = substr( $dze_q, strpos( $dze_q, 'public static function apply(' ) );
+$dze_apply = substr( $dze_apply, 0, strpos( $dze_apply, 'private static function no(' ) );
+ok( 'aucun retour muet dans apply()',
+	(bool) preg_match( '~return false;\s*$~m', $dze_apply ), false );
+// LE FILET : meme si un chemin oubliait de parler, la ligne ne peut pas
+// partir en echec sans phrase.
+ok( 'et la ligne ne peut pas etre enregistree muette',
+	false !== strpos( $dze_q, 'this is a fault of the plugin' ), true );
+
+echo "\nUNE CONCLUSION N EST PAS UNE PANNE\n";
+// « Les pages choisies sont deja liees » et « il n y avait pas de texte, on
+// en a mis un en file » sont des travaux FINIS, pas rates. Trois lignes
+// rouges disaient le contraire.
+$dze_cc = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-category-content.php' );
+ok( 'deja liees est une conclusion',
+	false !== strpos( $dze_cc, 'throw new DZE_Nothing_To_Do( $keys' ), true );
+ok( 'et la description mise en file aussi',
+	false !== strpos( $dze_cc, 'throw new DZE_Nothing_To_Do( $asked' ), true );
+
+echo "\nET LA DESCRIPTION S ECRIT EN COLONNE\n";
+// wp_update_term() relit par get_term(), que WPML filtre sur la langue
+// courante : il rend l AUTRE terme du groupe et reecrit l original par-dessus
+// la traduction. Quarante-huit termes ont ete abimes ainsi.
+ok( 'la description ne passe plus par wp_update_term',
+	false !== strpos( $dze_q, "wp_update_term( \$object_id, 'product_cat'" ), false );
+ok( 'elle est ecrite colonne par colonne',
+	false !== strpos( $dze_q, 'function write_description' ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
