@@ -412,7 +412,13 @@ final class DZE_Queue {
 				'payload' => wp_json_encode( $payload ),
 				// A pass that runs with nobody watching is the one that most
 				// needs to say why it stopped.
-				'error'   => ( ! empty( $job['auto_apply'] ) && ! $applied ) ? ( self::refusal() ?: null ) : null,
+				// UN ECHEC MUET EST INTERDIT. Le motif venait de `refusal()`, qui
+				// pouvait etre vide : la ligne partait alors en echec avec une case
+				// raison nulle, et il ne restait rien pour chercher. Une phrase de
+				// repli vaut mieux que le silence, meme si elle est generale.
+				'error'   => ( ! empty( $job['auto_apply'] ) && ! $applied )
+					? ( self::refusal() ?: __( 'The write was refused, and nothing said why — this is a fault of the plugin, not of the shop.', 'dazont-ecom' ) )
+					: null,
 				'updated' => current_time( 'mysql' ),
 			], [ 'id' => $id ] );
 		} else {
@@ -795,11 +801,11 @@ final class DZE_Queue {
 	public static function apply( string $kind, int $object_id, string $html, array $payload = [] ): bool {
 		self::$refused = '';
 		if ( '' === trim( $html ) ) {
-			return false;
+			return self::no( __( 'Nothing came back to write.', 'dazont-ecom' ) );
 		}
 		if ( 'product_shot' === $kind ) {
 			if ( ! class_exists( 'DZE_Content' ) ) {
-				return false;
+				return self::no( __( 'The module that files photographs is switched off.', 'dazont-ecom' ) );
 			}
 			// Added to the product, never over anything: a photograph the shop
 			// already has is not this pass's to replace.
@@ -810,7 +816,7 @@ final class DZE_Queue {
 				(string) ( $payload['recipe'] ?? '' ),
 				true
 			);
-			return $att > 0;
+			return $att > 0 ? true : self::no( __( 'The photograph could not be filed in the media library.', 'dazont-ecom' ) );
 		}
 		if ( 'post_links' === $kind ) {
 			// THE LAST THING THE WRITE DOES IS LOOK. Three articles on this
@@ -822,13 +828,17 @@ final class DZE_Queue {
 			// reading is asked again here — the one place every path writes
 			// through, including the ones built next year.
 			if ( ! self::writable( $kind, $object_id, $html ) ) {
-				return false;
+				return false; // writable() a deja ecrit le motif exact.
 			}
 			// Only the links changed: the title, the status, the dates and
 			// everything else about the post are none of our business.
 			$done = wp_update_post( [ 'ID' => $object_id, 'post_content' => wp_kses_post( $html ) ], true );
 			if ( is_wp_error( $done ) ) {
-				return false;
+				return self::no( sprintf(
+					/* translators: %s: what WordPress said */
+					__( 'WordPress refused to save the article: %s', 'dazont-ecom' ),
+					$done->get_error_message()
+				) );
 			}
 			delete_transient( 'dze_pl_census' );
 			return true;
@@ -838,20 +848,76 @@ final class DZE_Queue {
 			// carries no block delimiters and answers "nothing to protect",
 			// which costs one regular expression and leaves no path unasked.
 			if ( ! self::writable( $kind, $object_id, $html ) ) {
-				return false;
+				return false; // writable() a deja ecrit le motif exact.
 			}
-			$res = wp_update_term( $object_id, 'product_cat', [ 'description' => wp_kses_post( $html ) ] );
-			if ( is_wp_error( $res ) ) {
-				return false;
+			// COLONNE PAR COLONNE, JAMAIS wp_update_term().
+			//
+			// Celui-ci relit le terme par get_term(), que WPML filtre sur la
+			// langue courante : il rend alors l AUTRE terme du groupe, et le
+			// merge reecrit le nom et le slug de l original par-dessus la
+			// traduction. Quarante-huit termes ont ete abimes ainsi.
+			if ( ! self::write_description( $object_id, wp_kses_post( $html ) ) ) {
+				return self::no( __( 'The category description could not be written.', 'dazont-ecom' ) );
 			}
 			if ( class_exists( 'DZE_Category_Content' ) ) {
 				update_term_meta( $object_id, DZE_Category_Content::GEN_META, 1 );
 			}
 			return true;
 		}
+		return self::no( sprintf(
+			/* translators: %s: the internal name of the kind of work */
+			__( 'Nothing here knows how to save work of the kind « %s ».', 'dazont-ecom' ),
+			$kind
+		) );
+	}
+
+	/**
+	 * UN REFUS QUI PORTE SON MOTIF.
+	 *
+	 * « Pas un seul échec ne devrait arriver. 1 échec ça veut dire : plugin mal
+	 * codé. » Sept chemins de cette fonction rendaient `false` sans rien dire,
+	 * et la ligne partait en echec avec une case « raison » VIDE — ce qui est
+	 * pire que l echec : on ne peut meme pas commencer a chercher.
+	 *
+	 * Rend toujours false, pour s ecrire sur une seule ligne a l endroit du
+	 * refus.
+	 */
+	private static function no( string $why ): bool {
+		self::$refused = $why;
 		return false;
 	}
 
+	/**
+	 * LA DESCRIPTION D UNE CATEGORIE, ECRITE EN COLONNE.
+	 *
+	 * `wp_update_term()` relit le terme par `get_term()` avant d ecrire, et
+	 * WPML filtre `get_term()` sur la langue courante : il rend alors l AUTRE
+	 * terme du groupe. Le merge qui suit reecrit donc le nom et le slug de
+	 * l original par-dessus la traduction. Quarante-huit termes de cette
+	 * boutique ont ete abimes ainsi avant qu on comprenne.
+	 *
+	 * On ecrit donc la seule colonne concernee, a l identifiant demande, et on
+	 * vide le cache du terme a la main.
+	 */
+	private static function write_description( int $term_id, string $html ): bool {
+		global $wpdb;
+		if ( $term_id < 1 ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- voir le bloc ci-dessus.
+		$ok = $wpdb->update(
+			$wpdb->term_taxonomy,
+			[ 'description' => $html ],
+			[ 'term_id' => $term_id, 'taxonomy' => 'product_cat' ],
+			[ '%s' ],
+			[ '%d', '%s' ]
+		);
+		if ( false === $ok ) {
+			return false;
+		}
+		clean_term_cache( [ $term_id ], 'product_cat' );
+		return true;
+	}
 	/**
 	 * WHY THE LAST WRITE WAS REFUSED, in words a person reads on the row.
 	 *
