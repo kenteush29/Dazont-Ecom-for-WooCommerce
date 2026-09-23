@@ -1922,3 +1922,40 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-tr-peeklang { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #50575e; }
 .dze-tr-peeklang:first-child { margin-top: 0; }
 .dze-tr-peektable td { vertical-align: top; font-size: 12px; line-height: 1.5; }
+
+/* ==========================================================================
+   Netlinking — where a link from outside would pay.
+   Same idiom as the internal-linking table beside it: one table, figures on
+   the right, the words that matter on the left.
+   ========================================================================== */
+.dze-nl-table td { vertical-align: middle; }
+.dze-nl-table .dze-nl-fig  { width: 92px; text-align: right; white-space: nowrap; }
+.dze-nl-table .dze-nl-lang { width: 66px; }
+.dze-nl-table .dze-nl-kind { width: 96px; }
+/* THE LAST COLUMN GETS WHAT IS LEFT: the anchors are the only column of
+   words that can run long, so the figures keep their known widths. */
+.dze-nl-table .dze-nl-anchors { width: auto; }
+.dze-nl-anchor {
+	display: inline-block; margin: 0 4px 4px 0; padding: 1px 7px;
+	border: 1px solid #dcdcde; border-radius: 10px; font-size: 12px;
+}
+.dze-nl-chips { margin: 10px 0 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.dze-nl-chip {
+	display: inline-flex; align-items: center; gap: 5px;
+	padding: 2px 9px; border: 1px solid #dcdcde; border-radius: 11px;
+	font-size: 12px; background: #fff;
+}
+.dze-nl-chip .dashicons { font-size: 14px; width: 14px; height: 14px; }
+.dze-nl-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 6px; }
+.dze-nl-bar .dze-nl-state { min-height: 1em; }
+/* THE SORTED COLUMN SAYS SO, the way WordPress's own list tables do. */
+.dze-nl-table th a { text-decoration: none; }
+.dze-nl-table th.is-sorted a { font-weight: 700; }
+.dze-nl-table th.is-sorted .dashicons { font-size: 13px; width: 13px; height: 13px; vertical-align: middle; }
+.dze-nl-props { margin-top: 16px; }
+.dze-nl-props > summary { font-weight: 600; }
+.dze-nl-props table { margin-top: 8px; max-width: 620px; }
+.dze-nl-copy {
+	user-select: all; display: inline-block; padding: 3px 7px;
+	background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px; font-size: 12px;
+}
