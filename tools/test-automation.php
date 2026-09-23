@@ -2435,5 +2435,47 @@ ok( 'et le planning y est toujours',
 $dze_sch = DZE_Automation::cron_schedules( [] );
 ok( 'dix minutes veut dire dix minutes',
 	(int) ( $dze_sch['dze_ten_minutes']['interval'] ?? 0 ), 600 );
+echo "\nCHERCHER MOINS PARCE QU ON DEMANDE MOINS\n";
+// « Le module maillage interne est ENCORE bugé. Tu règles le problème UNE
+// BONNE FOIS POUR TOUTE. » Le plafond de recherche valait max( 60, n*30 ) :
+// demander UNE page cherchait donc moins loin que d en demander trois. La
+// passe automatique demande toujours une page. Mesure sur la boutique :
+// shortlist(1) rendait 0 pendant que shortlist(3) rendait 3, avec 92 pages
+// en repos a franchir.
+$dze_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-automation.php' );
+// LE COMMENTAIRE QUI RACONTE LE BUG GARDE LA FORMULE : on cherche donc une
+// AFFECTATION, pas la chaine, sinon le test punit l explication.
+ok( 'le plafond ne depend plus de la demande',
+	// Ce qui etait fautif : un plafond calcule A PARTIR DE LA DEMANDE. Un
+	// autre $cap existe dans le rattrapage, borne par une constante, et lui
+	// est juste.
+	(bool) preg_match( '~\$cap\s*=[^;]*\$n\b~', $dze_src ), false );
+ok( 'il est fixe et nomme',
+	false !== strpos( $dze_src, 'const LOOK_DEEP' ), true );
+ok( 'et les deux phases s en servent',
+	2, substr_count( $dze_src, 'self::LOOK_DEEP ] as $pool' ) );
+
+echo "\nUNE PASSE QUI NE TROUVE RIEN LE DIT\n";
+// Le vrai defaut n etait pas le plafond : c etait le SILENCE. Une passe qui
+// ne trouve rien ne laissait aucune trace, donc un module casse et un module
+// au repos se ressemblaient trait pour trait — on l a decouvert vingt-sept
+// heures plus tard, par hasard.
+ok( 'la passe a vide laisse une trace',
+	false !== strpos( $dze_src, 'function note_nothing' ), true );
+ok( 'qui garde ce qui a ete ecarte',
+	false !== strpos( $dze_src, "\$s['idle'][ \$id ]" ), true );
+ok( 'et l ecran sait la lire',
+	false !== strpos( $dze_src, 'function idle_said' ), true );
+// UNE TACHE QUI A TRAVAILLE DEPUIS EFFACE LA PLAINTE : sinon l ecran garde un
+// vieux « rien trouve » au-dessus d un travail bien reel.
+ok( 'une production plus recente efface la plainte',
+	false !== strpos( $dze_src, '$last > (int) ( $one[\'at\'] ?? 0 )' ), true );
+// ET LE JOURNAL DE SANTE LE VOIT SANS OUVRIR L ECRAN.
+$dze_h = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-health.php' );
+ok( 'la sante surveille les taches muettes',
+	false !== strpos( $dze_h, 'function check_automation' ), true );
+ok( 'et dit ou aller les reparer',
+	false !== strpos( $dze_h, "case 'automation'" ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
