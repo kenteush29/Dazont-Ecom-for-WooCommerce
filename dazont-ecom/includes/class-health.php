@@ -363,6 +363,7 @@ final class DZE_Health {
 			'klaviyo'   => __( 'Klaviyo (the campaigns)', 'dazont-ecom' ),
 			'gmc'       => __( 'Google Merchant Center', 'dazont-ecom' ),
 			'searchconsole' => __( 'Search Console (Netlinking)', 'dazont-ecom' ),
+			'automation'    => __( 'Work that runs by itself', 'dazont-ecom' ),
 			'analytics' => __( 'WooCommerce analytics', 'dazont-ecom' ),
 			'jobs'      => __( 'Scheduled work', 'dazont-ecom' ),
 			'plugin'    => __( 'This plugin', 'dazont-ecom' ),
@@ -395,6 +396,8 @@ final class DZE_Health {
 				return [ 'url' => DZE_Screens::url( 'marketing', 'gmc' ), 'do' => __( 'Reconnect Google', 'dazont-ecom' ) ];
 			case 'searchconsole':
 				return [ 'url' => DZE_Screens::url( 'netlinking' ), 'do' => __( 'Open Netlinking', 'dazont-ecom' ) ];
+			case 'automation':
+				return [ 'url' => DZE_Screens::url( 'automation' ), 'do' => __( 'Open Automation', 'dazont-ecom' ) ];
 			case 'analytics':
 				return [ 'url' => admin_url( 'admin.php?page=wc-admin&path=/analytics/settings' ), 'do' => __( 'Open WooCommerce Analytics', 'dazont-ecom' ) ];
 			case 'jobs':
@@ -566,6 +569,56 @@ final class DZE_Health {
 			return [ 'state' => 'off', 'message' => __( 'Module off.', 'dazont-ecom' ) ];
 		}
 		return DZE_Netlinking::health();
+	}
+
+	/**
+	 * UNE TACHE ALLUMEE QUI NE PRODUIT PLUS EST UNE PANNE, PAS UN REPOS.
+	 *
+	 * « Le module maillage interne est ENCORE bugé. » Il l etait, et rien ne
+	 * le disait : la passe revenait toutes les dix minutes, ne trouvait rien,
+	 * et repartait sans laisser de trace. Vingt-sept heures de silence qui
+	 * ressemblaient a un fonctionnement normal.
+	 *
+	 * Ce controle ne juge pas le travail : il regarde la DATE du dernier. Une
+	 * tache qui revient toutes les dix minutes et n a rien fait depuis un jour
+	 * a quelque chose de casse, quoi qu elle en dise.
+	 */
+	private static function check_automation(): array {
+		if ( ! class_exists( 'DZE_Automation' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'automation' ) ) ) {
+			return [ 'state' => 'off', 'message' => __( 'Module off.', 'dazont-ecom' ) ];
+		}
+		$muettes = [];
+		$vivantes = 0;
+		foreach ( DZE_Automation::tasks() as $id => $task ) {
+			$conf = DZE_Automation::conf( (string) $id );
+			if ( empty( $conf['on'] ) || 'month' === ( $conf['cadence'] ?? '' ) ) {
+				continue;
+			}
+			$vivantes++;
+			$last = DZE_Automation::last_run( (string) $id );
+			if ( $last < 1 ) {
+				continue; // jamais partie : ce n est pas une panne, c est un debut.
+			}
+			$gap = max( 600, DZE_Automation::gap( (string) $id ) );
+			if ( time() - $last > max( 6 * HOUR_IN_SECONDS, $gap * 24 ) ) {
+				$muettes[] = sprintf( '%s (%s)', (string) $task['label'], human_time_diff( $last, time() ) );
+			}
+		}
+		if ( ! $vivantes ) {
+			return [ 'state' => 'off', 'message' => __( 'No task is switched on.', 'dazont-ecom' ) ];
+		}
+		if ( $muettes ) {
+			return [
+				'state'   => 'warn',
+				/* translators: %s: the tasks and how long they have been silent */
+				'message' => sprintf( __( 'Switched on but producing nothing: %s.', 'dazont-ecom' ), implode( ', ', $muettes ) ),
+			];
+		}
+		return [
+			'state'   => 'ok',
+			/* translators: %s: how many tasks */
+			'message' => sprintf( _n( '%s task running and producing.', '%s tasks running and producing.', $vivantes, 'dazont-ecom' ), number_format_i18n( $vivantes ) ),
+		];
 	}
 
 	private static function check_analytics(): array {

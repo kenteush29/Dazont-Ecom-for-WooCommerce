@@ -71,6 +71,15 @@ final class DZE_Automation {
 
 	/** How many candidates are looked at closely before giving up on a task. */
 	private const LOOK = 25;
+	/**
+	 * JUSQU OU CHERCHER QUAND TOUT CE QU ON VOIT EST RETENU.
+	 *
+	 * Independant de ce qu on demande : une passe qui veut UNE page doit
+	 * chercher aussi loin qu une qui en veut dix, sinon elle s arrete avant le
+	 * travail disponible. Assez large pour passer par-dessus une centaine de
+	 * pages en repos, assez etroit pour ne pas relire le site entier.
+	 */
+	private const LOOK_DEEP = 250;
 
 	/**
 	 * How long nothing may move before the screen calls the run stopped.
@@ -964,9 +973,23 @@ final class DZE_Automation {
 		// et s arrete des que la liste ne rend plus rien de neuf ou que le
 		// plafond est atteint : chercher sans fin coute autant que ne pas
 		// chercher du tout.
-		$pool = max( 1, $n ) * 3;
-		$cap  = max( 60, $n * 30 );
-		while ( 'out' !== $only ) {
+		// LE PLAFOND NE DEPEND PLUS DE CE QU ON DEMANDE.
+		//
+		// Il valait `max( 60, $n * 30 )` : demander UNE page cherchait donc
+		// moins loin que d en demander trois — l inverse du bon sens, et la
+		// raison pour laquelle la passe automatique, qui demande toujours une
+		// page, ne trouvait rien pendant que shortlist(3) rendait trois lignes.
+		// Mesure sur la boutique : 92 pages en repos, donc les exploitables
+		// commencent au-dela de la soixantieme.
+		//
+		// DEUX TENTATIVES ET PAS UNE CROISSANCE : chaque appel a plan() rejuge
+		// les cibles qu il n a pas encore en cache, donc multiplier les appels
+		// multiplie la depense. On tente petit — ce qui suffit presque toujours
+		// — puis une seule fois large.
+		foreach ( [ max( 1, $n ) * 3, self::LOOK_DEEP ] as $pool ) {
+			if ( 'out' === $only ) {
+				break;
+			}
 			$rows = DZE_Mesh::plan( $pool, $judge );
 			foreach ( $rows as $row ) {
 				$take( [
@@ -981,11 +1004,11 @@ final class DZE_Automation {
 					return $out;
 				}
 			}
-			// La liste a rendu moins qu on lui demandait : elle n a plus rien.
-			if ( count( $rows ) < $pool || $pool >= $cap ) {
+			// La liste a rendu moins qu on lui demandait : elle n a plus rien a
+			// offrir, et une seconde tentative plus large ne rendrait pas plus.
+			if ( count( $rows ) < $pool ) {
 				break;
 			}
-			$pool = min( $cap, $pool * 3 );
 		}
 
 		// PHASE TWO — the work that used to be done by hand: the pages under
@@ -995,8 +1018,10 @@ final class DZE_Automation {
 		// MEME PIEGE, MEME REMEDE : la deuxieme liste se demandait elle aussi
 		// trois fois la demande, et se retrouvait vide des que ses premieres
 		// lignes etaient deja au travail.
-		$pool = max( 1, $n ) * 3;
-		while ( 'in' !== $only ) {
+		foreach ( [ max( 1, $n ) * 3, self::LOOK_DEEP ] as $pool ) {
+			if ( 'in' === $only ) {
+				break;
+			}
 			$rows = DZE_Mesh::thin( $pool );
 			foreach ( $rows as $row ) {
 				$take( [
@@ -1011,10 +1036,9 @@ final class DZE_Automation {
 					return $out;
 				}
 			}
-			if ( count( $rows ) < $pool || $pool >= $cap ) {
+			if ( count( $rows ) < $pool ) {
 				break;
 			}
-			$pool = min( $cap, $pool * 3 );
 		}
 		return $out;
 	}
@@ -1819,11 +1843,28 @@ final class DZE_Automation {
 			}
 			$why = self::why_not( $id, $forced );
 			if ( '' !== $why ) {
+				// « off » et « early » sont des etats normaux et attendus : les
+				// ecrire a chaque passe remplirait le journal de bruit. Les autres
+				// — budget depasse, module eteint, copie de boutique — sont des
+				// empechements qu il faut pouvoir lire.
+				if ( ! in_array( $why, [ 'off', 'early' ], true ) ) {
+					self::note_nothing( $id, $why );
+				}
 				$reason = $why;
 				continue;
 			}
 			$pick = self::shortlist( $id, 1 );
 			if ( ! $pick ) {
+				// RIEN TROUVE N EST PAS RIEN A DIRE.
+				//
+				// C est le defaut qui a coute le plus cher : une passe qui ne
+				// trouve rien ne laissait AUCUNE trace, donc un module casse et un
+				// module au repos se ressemblaient trait pour trait. On decouvrait
+				// la panne vingt-sept heures plus tard, par hasard.
+				//
+				// Ce qui a ete regarde et pourquoi ca a ete ecarte est ecrit ici,
+				// une fois par passe, et l ecran le dit.
+				self::note_nothing( $id, 'none' );
 				$reason = 'none';
 				continue;
 			}
@@ -1841,6 +1882,90 @@ final class DZE_Automation {
 		return [ 'queued' => 0, 'task' => $only, 'reason' => $reason ];
 	}
 
+	/**
+	 * CE QUE LA DERNIERE PASSE N A PAS TROUVE, ET POURQUOI.
+	 *
+	 * Ecrit dans l etat, une ligne par tache, ecrasee a chaque fois : ce n est
+	 * pas un journal, c est un dernier etat connu. Assez pour que l ecran
+	 * puisse dire « la derniere passe a regarde et n a rien retenu, voici ce
+	 * qui l a retenue » au lieu de ne rien dire du tout.
+	 */
+	private static function note_nothing( string $id, string $why ): void {
+		$s = self::state();
+		$s['idle'] = (array) ( $s['idle'] ?? [] );
+		$s['idle'][ $id ] = [
+			'at'   => time(),
+			'why'  => $why,
+			'held' => array_filter( (array) self::held_now() ),
+		];
+		self::save_state( $s );
+	}
+
+	/** Le dernier passage a vide d une tache, ou [] si elle a travaille depuis. */
+	public static function idle_of( string $id ): array {
+		$s = self::state();
+		$one = (array) ( ( $s['idle'] ?? [] )[ $id ] ?? [] );
+		// Une passe qui a PRODUIT depuis efface la plainte : sinon l ecran
+		// garderait un vieux « rien trouve » au-dessus d un travail bien reel.
+		$last = (int) ( ( $s['last'] ?? [] )[ $id ] ?? 0 );
+		return ( $one && $last > (int) ( $one['at'] ?? 0 ) ) ? [] : $one;
+	}
+
+	/**
+	 * CE QUE LA TACHE DIRAIT SI ON LUI DEMANDAIT POURQUOI ELLE NE FAIT RIEN.
+	 *
+	 * '' quand elle travaille normalement.
+	 */
+	public static function idle_said( string $id ): string {
+		$one = self::idle_of( $id );
+		if ( ! $one ) {
+			return '';
+		}
+		$mots = [
+			'budget'  => __( 'the monthly AI budget is spent', 'dazont-ecom' ),
+			'copy'    => __( 'this is a copy of the shop, so nothing runs on its own', 'dazont-ecom' ),
+			'modules' => __( 'a module it needs is switched off', 'dazont-ecom' ),
+		];
+		$why = (string) ( $one['why'] ?? '' );
+		if ( isset( $mots[ $why ] ) ) {
+			return sprintf(
+				/* translators: 1: how long ago, 2: the reason */
+				__( 'Nothing done for %1$s: %2$s.', 'dazont-ecom' ),
+				human_time_diff( (int) $one['at'], time() ),
+				$mots[ $why ]
+			);
+		}
+		// RIEN TROUVE : on dit ce qui a ete ECARTE, qui est la seule chose
+		// utile — « rien a faire » et « tout est en attente de votre relecture »
+		// demandent deux gestes opposes.
+		$held  = (array) ( $one['held'] ?? [] );
+		$bouts = [];
+		$noms  = [
+			'queued'  => __( '%s already waiting in the writing queue', 'dazont-ecom' ),
+			'recent'  => __( '%s done recently and resting', 'dazont-ecom' ),
+			'waiting' => __( '%s waiting for your yes or no', 'dazont-ecom' ),
+			'unread'  => __( 'the site has not been read yet', 'dazont-ecom' ),
+		];
+		foreach ( $noms as $k => $forme ) {
+			$n = (int) ( $held[ $k ] ?? 0 );
+			if ( $n < 1 ) {
+				continue;
+			}
+			$bouts[] = 'unread' === $k ? $forme : sprintf( $forme, number_format_i18n( $n ) );
+		}
+		return $bouts
+			? sprintf(
+				/* translators: 1: how long ago, 2: a list of reasons */
+				__( 'Nothing found for %1$s — %2$s.', 'dazont-ecom' ),
+				human_time_diff( (int) $one['at'], time() ),
+				implode( ', ', $bouts )
+			)
+			: sprintf(
+				/* translators: %s: how long ago */
+				__( 'Nothing left to do since %s.', 'dazont-ecom' ),
+				human_time_diff( (int) $one['at'], time() )
+			);
+	}
 	/** Sets one piece of work going, whatever kind of work it is. */
 	public static function run( string $id, int $oid, array $row = [] ): array {
 		$task = self::task( $id );
@@ -3060,6 +3185,36 @@ final class DZE_Automation {
 	 */
 	public static function render_state( string $id ): void {
 		$conf = self::conf( $id );
+
+		// DEPUIS COMBIEN DE TEMPS ELLE N A RIEN PRODUIT, dit avant tout le reste.
+		//
+		// « Le module maillage interne est ENCORE bugé. » Il l etait, et rien
+		// sur cet ecran ne permettait de s en apercevoir : une tache cassee et
+		// une tache au repos s y ressemblaient trait pour trait. On l a decouvert
+		// vingt-sept heures plus tard, par hasard.
+		//
+		// Une tache allumee qui revient toutes les dix minutes et n a rien fait
+		// depuis six heures n est pas au repos : elle est en panne, et c est ce
+		// que cette ligne dit.
+		if ( ! empty( $conf['on'] ) && 'month' !== ( $conf['cadence'] ?? '' ) ) {
+			$last = (int) ( ( self::state()['last'] ?? [] )[ $id ] ?? 0 );
+			$gap  = max( 600, self::gap( $id ) );
+			if ( $last > 0 && time() - $last > max( 6 * HOUR_IN_SECONDS, $gap * 24 ) ) {
+				printf(
+					'<p class="dze-auto-stale" style="margin:0 0 8px;padding:6px 10px;border-left:4px solid #b32d2e;background:#fcf0f1;"><strong>%s</strong>%s</p>',
+					esc_html( sprintf(
+						/* translators: %s: how long ago */
+						__( 'Nothing produced for %s, although it is switched on.', 'dazont-ecom' ),
+						human_time_diff( $last, time() )
+					) ),
+					esc_html( ( $dze_said = self::idle_said( $id ) ) ? ' ' . $dze_said : '' )
+				);
+			} elseif ( '' !== ( $dze_said = self::idle_said( $id ) ) ) {
+				// AU REPOS, ET ELLE DIT POURQUOI. « Rien trouve » et « tout attend
+				// votre relecture » demandent deux gestes opposes.
+				echo '<p class="description">' . esc_html( $dze_said ) . '</p>';
+			}
+		}
 
 
 		// The whole tool rests on this list, so it is shown, not described —
