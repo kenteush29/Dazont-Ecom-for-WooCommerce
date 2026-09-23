@@ -251,8 +251,16 @@ ok( 'et ne recupere pas les ventes anglaises', (int) $one2['units'], 0 );
 // devise, et cette boutique en encaisse huit. La premiere mesure a rendu
 // 677 120 pour trente unites — un melange de dollars et de livres turques.
 $src2 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
-ok( 'la recette n est jamais additionnee', false !== strpos( $src2, 'product_net_revenue' ), false );
-ok( 'et le tableau ne montre aucune devise', false !== strpos( $src2, 'get_woocommerce_currency_symbol' ), false );
+// LA REGLE A CHANGE PARCE QU ON A TROUVE LE TAUX. WooPayments ecrit sur
+// chaque commande le taux REEL du jour de l achat, donc la recette se compte
+// — mais JAMAIS sans cette conversion, sinon on additionne des dollars et des
+// livres turques comme la premiere fois.
+ok( 'la recette est toujours convertie',
+	false !== strpos( $src2, '_wcpay_multi_currency_stripe_exchange_rate' ), true );
+ok( 'et jamais sommee sans son taux',
+	1, substr_count( $src2, 'SUM( l.product_net_revenue' ) );
+ok( 'la somme porte bien le taux',
+	false !== strpos( $src2, 'SUM( l.product_net_revenue * COALESCE' ), true );
 
 echo "\nUNE CONSIGNE SANS ADRESSE EST UNE CONSIGNE QU ON NE PEUT PAS SUIVRE\n";
 // « Il manque des explications. Url là ou il faut aller ? » L encart disait
@@ -359,6 +367,27 @@ $src5 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-n
 ok( 'le cron passe par une enveloppe',   false !== strpos( $src5, 'function cron_refresh' ), true );
 ok( 'qui retient ce qui a rate',         false !== strpos( $src5, 'OPT_LAST_ERROR' ), true );
 ok( 'et le dit au journal de sante',     false !== strpos( $src5, 'DZE_Health::log' ), true );
+
+echo "\nLES PRODUITS COMPTENT AUSSI, ET L ARGENT SE CONVERTIT\n";
+// « Le module recroise-t-il la data des urls produits aussi ? » Il ne le
+// faisait pas : une fiche produit en douzieme position n avait aucun chiffre
+// en face d elle, alors que c est la cible de lien la plus sure — ce sont SES
+// ventes, pas celles d un rayon entier.
+$src6 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
+ok( 'les ventes par produit sont lues',   false !== strpos( $src6, 'function sales_by_product' ), true );
+ok( 'et resolues en une seule requete',   false !== strpos( $src6, 'function warm_products' ), true );
+ok( 'chaque ligne dit ce qu elle est',    false !== strpos( $src6, "\$p['kind']" ), true );
+// LA VALEUR DU CLIC. « Manque comptage de la valeur de chaque clic. »
+ok( 'la valeur du clic est calculee',     false !== strpos( $src6, "\$p['per_click']" ), true );
+// LE TRI PAR EN-TETE. « Manque fonction de tri par header. »
+ok( 'les en-tetes trient',                false !== strpos( $src6, 'function sort_now' ), true );
+ok( 'et le tri voyage dans l adresse',    false !== strpos( $src6, "\$_GET['by']" ), true );
+// OU LE SITE EST RELIE. « Ou je vois a quelle Search console le site est lie ? »
+ok( 'les proprietes sont montrees',       false !== strpos( $src6, 'function render_props' ), true );
+ok( 'et un domaine non couvert est nomme', false !== strpos( $src6, 'Not read:' ), true );
+// LE CSS EST SORTI DES STYLES EN LIGNE, comme celui du maillage.
+$css = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/css/content.css' );
+ok( 'le module a sa feuille de style',    false !== strpos( $css, '.dze-nl-table' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
