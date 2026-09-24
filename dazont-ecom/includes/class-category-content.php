@@ -4151,9 +4151,11 @@ PROMPT;
 		if ( ! $tid || '' === trim( $html ) ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing to apply.', 'dazont-ecom' ) ] );
 		}
-		$res = wp_update_term( $tid, 'product_cat', [ 'description' => $html ] );
-		if ( is_wp_error( $res ) ) {
-			wp_send_json_error( [ 'message' => $res->get_error_message() ] );
+		// COLONNE PAR COLONNE, JAMAIS wp_update_term() : voir DZE_Queue.
+		// Accepter un texte a la main passait encore par le noyau, donc par
+		// get_term(), donc par la langue courante de WPML.
+		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Queue::write_description( $tid, $html ) ) {
+			wp_send_json_error( [ 'message' => __( 'The category description could not be written.', 'dazont-ecom' ) ] );
 		}
 		update_term_meta( $tid, self::GEN_META, 1 );
 		if ( class_exists( 'DZE_Queue' ) ) {
