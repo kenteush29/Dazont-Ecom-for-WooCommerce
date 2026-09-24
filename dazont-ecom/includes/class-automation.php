@@ -3957,9 +3957,40 @@ final class DZE_Automation {
 				continue;
 			}
 			$seen[ untrailingslashit( $url ) ] = true;
-			$out['rows'][] = [ 'anchor' => '', 'url' => $url, 'state' => 'missed' ];
+			// DEUX RAISONS, PAS UNE. Ou bien le texte ne nomme jamais cette
+			// page — et alors elle a ete ecartee AVANT meme d etre proposee au
+			// redacteur, faute de mots ou accrocher — ou bien il la nomme et le
+			// redacteur n a trouve aucune place naturelle. On relit le texte
+			// d aujourd hui pour le dire, plutot que de laisser un « pas pose »
+			// qui se lit comme une panne.
+			$out['rows'][] = [
+				'anchor' => '',
+				'url'    => $url,
+				'state'  => self::names_it( self::text_now( $kind, $object_id ), $url ) ? 'missed' : 'unmet',
+			];
 		}
 		return $out;
+	}
+
+	/**
+	 * CE TEXTE NOMME-T-IL LA PAGE QUE CETTE ADRESSE DESIGNE ?
+	 *
+	 * C est la regle que la passe applique avant de proposer quoi que ce
+	 * soit : l ancre doit etre des mots deja ecrits, donc une page dont le
+	 * sujet est absent du texte n est pas une cible. On pose la meme question
+	 * ici, avec la meme fonction — jamais une seconde regle a cote.
+	 *
+	 * Le libelle est tire de l adresse : c est ce qu on a sous la main pour
+	 * une cible qui n a justement pas ete posee.
+	 */
+	private static function names_it( string $html, string $url ): bool {
+		if ( '' === $html || ! class_exists( 'DZE_Category_Content' ) ) {
+			return true; // sans texte ni module, on n accuse rien.
+		}
+		$bout = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+		$bout = (string) substr( strrchr( '/' . $bout, '/' ), 1 );
+		$mots = trim( str_replace( [ '-', '_' ], ' ', $bout ) );
+		return '' === $mots || DZE_Category_Content::mentions( $html, $mots );
 	}
 
 	/** Les mots qui portent un lien dans le texte d aujourd hui. */
@@ -4115,7 +4146,15 @@ final class DZE_Automation {
 					'kept'         => [ '#646970', '&#8226;', __( 'already there', 'dazont-ecom' ) ],
 					'dropped'      => [ '#b32d2e', '&#10007;', __( 'was there, taken out', 'dazont-ecom' ) ],
 					'since'        => [ '#646970', '&#8226;', __( 'added since', 'dazont-ecom' ) ],
-					'missed'       => [ '#996800', '&#33;', __( 'asked for, not placed', 'dazont-ecom' ) ],
+					// UNE CIBLE NON POSEE N EST PAS UN ECHEC. « Pourquoi c'est pas
+					// place ? Ca devrait pas etre un probleme. » En effet : la passe
+					// PROPOSE des cibles, elle n en impose aucune — l ancre doit etre
+					// des mots deja presents dans le texte, et forcer un lien la ou il
+					// n y a pas de place donne un mauvais lien. Le libelle disait
+					// « asked for, not placed », qui se lit comme une panne. Il dit
+					// maintenant la RAISON, et les deux raisons ne sont pas la meme.
+					'unmet'        => [ '#646970', '&#8213;', __( 'the text never names this page', 'dazont-ecom' ) ],
+					'missed'       => [ '#646970', '&#8213;', __( 'no natural place for it in this text', 'dazont-ecom' ) ],
 					'unknown'      => [ '#646970', '&#8226;', __( 'on the page', 'dazont-ecom' ) ],
 					'unknown_gone' => [ '#b32d2e', '&#10007;', __( 'gone since', 'dazont-ecom' ) ],
 				];
@@ -4138,7 +4177,24 @@ final class DZE_Automation {
 					);
 				}
 				echo '</ul>';
-			}			echo '</td>';
+				// ET CE QUE CA VEUT DIRE, une fois, sous la liste qui le montre.
+				$dehors = 0;
+				foreach ( $fait['rows'] as $un ) {
+					if ( in_array( $un['state'], [ 'missed', 'unmet' ], true ) ) { $dehors++; }
+				}
+				if ( $dehors ) {
+					printf(
+						'<p class="description" style="margin:4px 0 0;">%s</p>',
+						esc_html( _n(
+							'The pass offers targets, it does not force them: an anchor has to be words already in the text, so one page was left out rather than given a link that reads wrong. Nothing failed.',
+							'The pass offers targets, it does not force them: an anchor has to be words already in the text, so those pages were left out rather than given a link that reads wrong. Nothing failed.',
+							$dehors,
+							'dazont-ecom'
+						) )
+					);
+				}
+			}
+			echo '</td>';
 			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::started_by( (int) $row['from'] ) : '' ) . '</td>';
 			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::decided_by( (int) $row['by'] ) : '' ) . '</td>';
 			echo '<td class="dze-auto-when">' . esc_html( date_i18n( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), (int) $row['when'] ) ) . '</td>';
