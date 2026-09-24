@@ -2242,8 +2242,16 @@ final class DZE_Automation {
 			if ( is_wp_error( $done ) ) {
 				return false;
 			}
-		} elseif ( is_wp_error( wp_update_term( $oid, 'product_cat', [ 'description' => wp_kses_post( $prev ) ] ) ) ) {
-			return false;
+		} else {
+			// COLONNE PAR COLONNE, JAMAIS wp_update_term(). Celui-ci relit le
+			// terme par get_term(), que WPML filtre sur la langue courante : il
+			// rend alors l AUTRE terme du groupe, et le merge reecrit le nom et
+			// le slug de l original par-dessus la traduction. Quarante-huit
+			// termes ont ete abimes ainsi, et le bouton d annulation etait le
+			// dernier chemin a passer encore par la.
+			if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Queue::write_description( $oid, wp_kses_post( $prev ) ) ) {
+				return false;
+			}
 		}
 		self::drop_copy( $oid, $type );
 		$s   = self::state();
@@ -3858,35 +3866,109 @@ final class DZE_Automation {
 	 * @return array{posed:array<int,array{anchor:string,url:string,live:bool}>,live:int,lost:int}
 	 */
 	public static function what_it_did( int $job_id, string $kind, int $object_id ): array {
-		$vide = [ 'posed' => [], 'live' => 0, 'lost' => 0 ];
+		$vide = [ 'rows' => [], 'added' => 0, 'kept' => 0, 'lost' => 0, 'total' => 0, 'sure' => false ];
 		global $wpdb;
 		if ( $job_id < 1 || ! $wpdb || ! class_exists( 'DZE_Queue' ) ) {
 			return $vide;
 		}
-		$res = (string) $wpdb->get_var( $wpdb->prepare(
+		$row = $wpdb->get_row( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			'SELECT result FROM ' . DZE_Queue::table() . ' WHERE id = %d',
+			'SELECT result, payload FROM ' . DZE_Queue::table() . ' WHERE id = %d',
 			$job_id
-		) );
-		if ( '' === $res || ! preg_match_all( '#<a [^>]*href="([^"]+)"[^>]*>(.*?)</a>#is', $res, $m, PREG_SET_ORDER ) ) {
+		), ARRAY_A );
+		if ( ! $row ) {
 			return $vide;
 		}
-		$now = self::text_now( $kind, $object_id );
+		$res  = (string) ( $row['result'] ?? '' );
+		$load = $row['payload'] ? (array) json_decode( (string) $row['payload'], true ) : [];
+
+		// LE TEXTE D AUJOURD HUI fait foi pour « combien la page en porte ».
+		// Rien n est stocke de ce cote : la comparaison se fait a la lecture,
+		// donc elle ne peut pas vieillir.
+		$now  = DZE_Queue::hrefs_in( self::text_now( $kind, $object_id ) );
+		$in   = static fn( string $u, array $set ): bool => in_array( untrailingslashit( $u ), array_map( 'untrailingslashit', $set ), true );
+
+		// QUI A POSE QUOI. Trois sources, de la plus sure a la moins sure.
+		//
+		// 1. Le releve pris par la passe elle-meme juste avant d ecrire : il
+		//    dit exactement ce que la page portait, donc exactement ce qu elle
+		//    n a PAS pose. Les lignes ecrites depuis 4.471.0 le portent.
+		// 2. A defaut, les cibles demandees : le module ne vise jamais une page
+		//    deja liee, donc une adresse de cette liste est forcement neuve.
+		// 3. Sans ni l un ni l autre — de vieilles lignes — on ne sait pas, et
+		//    on le DIT au lieu d inventer un partage.
+		$was  = isset( $load[ DZE_Queue::WAS_LINKED ] ) ? (array) $load[ DZE_Queue::WAS_LINKED ] : null;
+		$aims = array_values( array_filter( array_map( 'strval', (array) ( $load['urls'] ?? [] ) ) ) );
+		$sure = ( null !== $was ) || (bool) $aims;
+
 		$out = $vide;
-		foreach ( $m as $one ) {
-			$url  = html_entity_decode( (string) $one[1] );
-			// LE LIEN EST-IL ENCORE LÀ ? On cherche l'ADRESSE, pas le fragment
-			// de balisage : le thème, un autre module ou une retouche à la main
-			// peuvent avoir changé ce qu'il y a autour sans toucher au lien.
-			$live = '' !== $now && false !== strpos( $now, $url );
-			$out['posed'][] = [
-				'anchor' => trim( wp_strip_all_tags( (string) $one[2] ) ),
-				'url'    => $url,
-				'live'   => $live,
-			];
-			$live ? $out['live']++ : $out['lost']++;
+		$out['sure']  = $sure;
+		$out['total'] = count( $now );
+
+		$seen = [];
+		if ( preg_match_all( '#<a [^>]*href="([^"]+)"[^>]*>(.*?)</a>#is', $res, $m, PREG_SET_ORDER ) ) {
+			foreach ( $m as $one ) {
+				$url = html_entity_decode( (string) $one[1], ENT_QUOTES, 'UTF-8' );
+				if ( isset( $seen[ untrailingslashit( $url ) ] ) ) {
+					continue; // le meme lien deux fois dans le texte reste UN lien.
+				}
+				$seen[ untrailingslashit( $url ) ] = true;
+				$live = $in( $url, $now );
+				if ( null !== $was ) {
+					$neuf = ! $in( $url, $was );
+				} elseif ( $aims ) {
+					$neuf = $in( $url, $aims );
+				} else {
+					$neuf = null;
+				}
+				if ( null === $neuf ) {
+					$etat = $live ? 'unknown' : 'unknown_gone';
+				} elseif ( $neuf ) {
+					$etat = $live ? 'new' : 'lost';
+					$live ? $out['added']++ : $out['lost']++;
+				} else {
+					$etat = $live ? 'kept' : 'dropped';
+					if ( $live ) { $out['kept']++; }
+				}
+				$out['rows'][] = [
+					'anchor' => trim( wp_strip_all_tags( (string) $one[2] ) ),
+					'url'    => $url,
+					'state'  => $etat,
+				];
+			}
+		}
+
+		// CE QUE LA PAGE PORTE ET QUE CETTE PASSE N A PAS ECRIT. Sans eux la
+		// liste ne fait pas le compte annonce, et une liste qui contredit son
+		// propre total est exactement le defaut qu on repare ici.
+		foreach ( $now as $url ) {
+			if ( isset( $seen[ untrailingslashit( $url ) ] ) ) {
+				continue;
+			}
+			$seen[ untrailingslashit( $url ) ] = true;
+			$out['rows'][] = [ 'anchor' => self::anchor_of( $kind, $object_id, $url ), 'url' => $url, 'state' => 'since' ];
+		}
+
+		// UNE CIBLE DEMANDEE ET JAMAIS POSEE. La ligne disait « will link to 3
+		// pages » et n en montrait que ce qui avait marche : la troisieme
+		// disparaissait sans un mot.
+		foreach ( $aims as $url ) {
+			if ( isset( $seen[ untrailingslashit( $url ) ] ) ) {
+				continue;
+			}
+			$seen[ untrailingslashit( $url ) ] = true;
+			$out['rows'][] = [ 'anchor' => '', 'url' => $url, 'state' => 'missed' ];
 		}
 		return $out;
+	}
+
+	/** Les mots qui portent un lien dans le texte d aujourd hui. */
+	private static function anchor_of( string $kind, int $object_id, string $url ): string {
+		$html = self::text_now( $kind, $object_id );
+		if ( '' === $html || ! preg_match( '#<a [^>]*href="' . preg_quote( $url, '#' ) . '"[^>]*>(.*?)</a>#is', $html, $m ) ) {
+			return '';
+		}
+		return trim( wp_strip_all_tags( (string) $m[1] ) );
 	}
 
 	/** Le texte d'un objet tel qu'il est maintenant, lu dans les tables. */
@@ -3980,35 +4062,83 @@ final class DZE_Automation {
 			if ( '' !== (string) ( $row['why'] ?? '' ) ) {
 				echo '<div class="description" style="margin:0 0 4px;">' . esc_html( (string) $row['why'] ) . '</div>';
 			}
-			if ( ! $fait['posed'] ) {
-				// RIEN À MONTRER N'EST PAS RIEN À DIRE : un travail d'avant que
-				// ce journal ne gardait pas, ou une passe qui a nettoyé sans
+			if ( ! $fait['rows'] ) {
+				// RIEN A MONTRER N EST PAS RIEN A DIRE : un travail d avant que
+				// ce journal ne gardait pas, ou une passe qui a nettoye sans
 				// rien ajouter. Inventer « 0 lien » serait pire.
 				echo '<span class="description">' . esc_html__( 'not recorded', 'dazont-ecom' ) . '</span>';
 			} else {
-				printf(
-					'<strong>%s</strong>',
-					esc_html( sprintf(
-						/* translators: 1: links placed, 2: links still there */
-						_n( '%1$s link placed, %2$s still there', '%1$s links placed, %2$s still there', count( $fait['posed'] ), 'dazont-ecom' ),
-						number_format_i18n( count( $fait['posed'] ) ),
-						number_format_i18n( $fait['live'] )
-					) )
-				);
-				echo '<ul style="margin:4px 0 0;font-size:12px;">';
-				foreach ( $fait['posed'] as $un ) {
+				// DEUX NOMBRES QUI DISENT DEUX CHOSES.
+				//
+				// « 3 links placed, 3 still there. Ca veut dire quoi ? Le meme
+				// chiffre. C est buge ou quoi ? » Non : le second comptait ceux
+				// des trois qui tenaient encore, donc il les repetait des que
+				// rien n avait bouge — et la coche verte devant chaque lien le
+				// disait deja. Le premier, lui, etait FAUX : il comptait les
+				// liens du texte produit, y compris ceux que la page portait
+				// avant la passe.
+				//
+				// On annonce donc ce qu on ajoute et ce que la page porte.
+				if ( $fait['sure'] ) {
+					$phrase = sprintf(
+						/* translators: 1: links this pass added, 2: links on the page today */
+						_n( '%1$s new link, %2$s on the page now', '%1$s new links, %2$s on the page now', $fait['added'], 'dazont-ecom' ),
+						number_format_i18n( $fait['added'] ),
+						number_format_i18n( $fait['total'] )
+					);
+				} else {
+					// Une ligne d avant 4.471.0 : elle ne sait pas ce qu elle a
+					// ajoute, et le dire vaut mieux que de l inventer.
+					$phrase = sprintf(
+						/* translators: %s: links on the page today */
+						_n( '%s link on the page now', '%s links on the page now', $fait['total'], 'dazont-ecom' ),
+						number_format_i18n( $fait['total'] )
+					);
+				}
+				printf( '<strong>%s</strong>', esc_html( $phrase ) );
+				if ( $fait['lost'] ) {
 					printf(
-						'<li style="margin:0;color:%1$s;">%2$s <a href="%3$s" target="_blank" rel="noopener">%4$s</a> → %5$s</li>',
-						$un['live'] ? '#0a7040' : '#b32d2e',
-						$un['live'] ? '&#10003;' : '&#10007;',
-						esc_url( $un['url'] ),
-						esc_html( $un['anchor'] ),
-						esc_html( (string) wp_parse_url( $un['url'], PHP_URL_PATH ) )
+						' <span style="color:#b32d2e;">%s</span>',
+						esc_html( sprintf(
+							/* translators: %s: how many links this pass placed that are gone */
+							_n( '— %s has gone since', '— %s have gone since', $fait['lost'], 'dazont-ecom' ),
+							number_format_i18n( $fait['lost'] )
+						) )
+					);
+				}
+				// CHAQUE LIEN AVEC SON ORIGINE, EN TOUTES LETTRES. « Montrer
+				// quels liens etaient deja la avant et montrer les nouveaux
+				// aussi. » Une couleur seule n est pas une etiquette.
+				$dit = [
+					'new'          => [ '#0a7040', '&#43;', __( 'new', 'dazont-ecom' ) ],
+					'lost'         => [ '#b32d2e', '&#10007;', __( 'placed by this pass, gone since', 'dazont-ecom' ) ],
+					'kept'         => [ '#646970', '&#8226;', __( 'already there', 'dazont-ecom' ) ],
+					'dropped'      => [ '#b32d2e', '&#10007;', __( 'was there, taken out', 'dazont-ecom' ) ],
+					'since'        => [ '#646970', '&#8226;', __( 'added since', 'dazont-ecom' ) ],
+					'missed'       => [ '#996800', '&#33;', __( 'asked for, not placed', 'dazont-ecom' ) ],
+					'unknown'      => [ '#646970', '&#8226;', __( 'on the page', 'dazont-ecom' ) ],
+					'unknown_gone' => [ '#b32d2e', '&#10007;', __( 'gone since', 'dazont-ecom' ) ],
+				];
+				echo '<ul style="margin:4px 0 0;font-size:12px;">';
+				foreach ( $fait['rows'] as $un ) {
+					$say = $dit[ $un['state'] ] ?? $dit['unknown'];
+					printf(
+						'<li style="margin:0;color:%1$s;">%2$s %3$s%4$s <span class="description">(%5$s)</span></li>',
+						esc_attr( $say[0] ),
+						$say[1], // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- une entite HTML litterale.
+						'' !== $un['anchor']
+							? sprintf(
+								'<a href="%1$s" target="_blank" rel="noopener">%2$s</a> &rarr; ',
+								esc_url( $un['url'] ),
+								esc_html( $un['anchor'] )
+							)
+							: '',
+						esc_html( (string) wp_parse_url( $un['url'], PHP_URL_PATH ) ),
+						esc_html( $say[2] )
 					);
 				}
 				echo '</ul>';
-			}
-			echo '</td>';
+			}			echo '</td>';
 			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::started_by( (int) $row['from'] ) : '' ) . '</td>';
 			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::decided_by( (int) $row['by'] ) : '' ) . '</td>';
 			echo '<td class="dze-auto-when">' . esc_html( date_i18n( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), (int) $row['when'] ) ) . '</td>';

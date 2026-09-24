@@ -268,6 +268,11 @@ class DZE_Auto_Wpdb {
 	// get_term(), que WPML filtre sur la langue courante : $GLOBALS['terms']
 	// tient lieu de wp_terms + wp_term_taxonomy pour ces epreuves.
 	public function get_row( $q, $output = ARRAY_A ) {
+		// LA LIGNE DE LA FILE, telle que what_it_did() la demande.
+		if ( preg_match( '/FROM wp_dze_queue WHERE id = (\d+)/is', (string) $q, $m ) ) {
+			$r = $GLOBALS['queue_rows'][ (int) $m[1] ] ?? null;
+			return $r ? [ 'result' => (string) ( $r['result'] ?? '' ), 'payload' => (string) ( $r['payload'] ?? '' ) ] : null;
+		}
 		if ( preg_match( '/FROM .*terms .*term_id = (\d+)/is', (string) $q, $m ) ) {
 			$t = $GLOBALS['terms'][ (int) $m[1] ] ?? null;
 			if ( ! $t ) { return null; }
@@ -338,6 +343,23 @@ $wpdb            = $GLOBALS['wpdb'];
 /** The writing queue: what was asked of it, and nothing done. */
 class DZE_Queue {
 	public const NONCE = 'dze_queue';
+	/** La cle sous laquelle une ligne garde ce que la page portait avant. */
+	public const WAS_LINKED = 'links_before';
+	public static function table(): string { return 'wp_dze_queue'; }
+	/** EN COLONNE, jamais par wp_update_term() : voir la vraie classe. */
+	public static function write_description( int $term_id, string $html ): bool {
+		if ( ! isset( $GLOBALS['terms'][ $term_id ] ) ) { return false; }
+		$GLOBALS['terms'][ $term_id ]['description'] = $html;
+		return true;
+	}
+	/** Meme lecture que la vraie : les deux comparent les memes adresses. */
+	public static function hrefs_in( string $html ): array {
+		preg_match_all( '/<a\s[^>]*href=["\']([^"\']+)["\']/i', $html, $m );
+		return array_values( array_unique( array_map(
+			static fn( string $u ): string => html_entity_decode( $u, ENT_QUOTES, 'UTF-8' ),
+			(array) ( $m[1] ?? [] )
+		) ) );
+	}
 	/**
 	 * OU CE TRAVAIL SE RELIT. L ecran central a disparu — « on supprime le
 	 * menu to review, on simplifie plutot que de complexifier » — et c est
@@ -2476,6 +2498,122 @@ ok( 'la sante surveille les taches muettes',
 	false !== strpos( $dze_h, 'function check_automation' ), true );
 ok( 'et dit ou aller les reparer',
 	false !== strpos( $dze_h, "case 'automation'" ), true );
+
+echo "\nCE QU UNE PASSE A AJOUTE, ET CE QUE LA PAGE PORTE\n";
+// « 3 links placed, 3 still there. Ca veut dire quoi ? C'est pareil partout,
+// x placed, x still there, le meme chiffre. C'est buge ou quoi ? Ca devrait
+// dire plutot x new links, y links total ? Et montrer quels liens etaient
+// deja la avant et montrer les nouveaux aussi ? »
+//
+// Deux defauts, pas un. Le second nombre comptait ceux des liens du texte
+// produit qui tenaient encore : il repetait donc le premier des que rien
+// n avait bouge, et la coche verte devant chaque lien le disait deja. Le
+// premier, lui, etait FAUX — il comptait TOUS les liens du texte produit, y
+// compris ceux que la page portait avant la passe. Sur « Tactical hatchets »
+// il annoncait trois liens poses la ou la passe en avait ajoute DEUX.
+fresh( $ON );
+$GLOBALS['names'][501] = 'How snipers work';
+$dze_a  = '<a href="https://kula.test/tactical-knives">tactical knives</a>';
+$dze_b  = '<a href="https://kula.test/tactical-tomahawks">tactical tomahawks</a>';
+$dze_c  = '<a href="https://kula.test/military-clothing">tactical clothing</a>';
+$GLOBALS['posts'][501] = [ 'type' => 'post', 'title' => 'How snipers work', 'content' => "<p>$dze_a $dze_b $dze_c</p>" ];
+$GLOBALS['queue_rows'] = [
+	900 => [
+		'result'  => "<p>$dze_a $dze_b $dze_c</p>",
+		// La passe a releve, avant d ecrire, que « military-clothing » etait
+		// deja la. Les trois cibles demandees comptaient « tactical-blades »,
+		// qui n a jamais trouve sa place.
+		'payload' => json_encode( [
+			'urls' => [ 'https://kula.test/tactical-tomahawks', 'https://kula.test/tactical-blades', 'https://kula.test/tactical-knives' ],
+			DZE_Queue::WAS_LINKED => [ 'https://kula.test/military-clothing' ],
+		] ),
+	],
+];
+$dze_f = DZE_Automation::what_it_did( 900, 'post_links', 501 );
+ok( 'elle a ajoute deux liens, pas trois', $dze_f['added'], 2 );
+ok( 'un lien etait deja la',               $dze_f['kept'], 1 );
+ok( 'et la page en porte trois',           $dze_f['total'], 3 );
+ok( 'aucun n a disparu depuis',            $dze_f['lost'], 0 );
+ok( 'le partage est SU, pas devine',       $dze_f['sure'], true );
+$dze_st = array_column( $dze_f['rows'], 'state', 'url' );
+ok( 'le premier lien est neuf',            $dze_st['https://kula.test/tactical-knives'] ?? '', 'new' );
+ok( 'le troisieme etait deja la',          $dze_st['https://kula.test/military-clothing'] ?? '', 'kept' );
+// UNE CIBLE DEMANDEE ET JAMAIS POSEE DISPARAISSAIT SANS UN MOT. La ligne
+// annoncait « will link to 3 pages » et n en montrait que deux.
+ok( 'la cible manquee est dite',           $dze_st['https://kula.test/tactical-blades'] ?? '', 'missed' );
+
+// LA PHRASE ELLE-MEME. Deux nombres qui disent deux choses.
+$GLOBALS['applied_rows'] = [ [ 'id' => 900, 'kind' => 'post_links', 'object_id' => 501, 'when' => time(), 'by' => 0, 'from' => 0 ] ];
+ob_start(); DZE_Automation::render_past(); $dze_ph = (string) ob_get_clean();
+ok( 'elle annonce le neuf et le total',    false !== strpos( $dze_ph, '2 new links, 3 on the page now' ), true );
+ok( 'et ne repete plus le meme chiffre',   false !== strpos( $dze_ph, 'links placed' ), false );
+ok( 'chaque lien neuf est marque',         substr_count( $dze_ph, '(new)' ), 2 );
+ok( 'celui d avant aussi, en toutes lettres', false !== strpos( $dze_ph, 'already there' ), true );
+ok( 'et la cible manquee se voit',         false !== strpos( $dze_ph, 'asked for, not placed' ), true );
+
+// UN LIEN RETIRE A LA MAIN DEPUIS. C est le cas qui a fait ecrire ce bloc au
+// depart : /desert-tan-combat-boots portait un lien pose par une passe, la
+// description avait ete retouchee, et la page n en portait plus aucun.
+$GLOBALS['posts'][501]['content'] = "<p>$dze_a</p>";
+$dze_f2 = DZE_Automation::what_it_did( 900, 'post_links', 501 );
+ok( 'un des liens poses a disparu',        $dze_f2['lost'], 1 );
+ok( 'la page n en porte plus qu un',       $dze_f2['total'], 1 );
+ob_start(); DZE_Automation::render_past(); $dze_ph2 = (string) ob_get_clean();
+ok( 'et la ligne le dit',                  false !== strpos( $dze_ph2, 'has gone since' ), true );
+
+// UN LIEN AJOUTE A LA MAIN DEPUIS compte dans le total, et il est nomme pour
+// ce qu il est : une liste qui contredit son propre total est exactement le
+// defaut qu on repare ici.
+$GLOBALS['posts'][501]['content'] = "<p>$dze_a $dze_b $dze_c <a href=\"https://kula.test/ghillie-suits\">ghillie suits</a></p>";
+$dze_f3 = DZE_Automation::what_it_did( 900, 'post_links', 501 );
+ok( 'le total suit la page',               $dze_f3['total'], 4 );
+ok( 'et ce lien-la vient d ailleurs',
+	( array_column( $dze_f3['rows'], 'state', 'url' )['https://kula.test/ghillie-suits'] ?? '' ), 'since' );
+ok( 'la liste fait le compte annonce',     count( $dze_f3['rows'] ), 5 ); // 4 sur la page + la cible manquee.
+
+// UNE LIGNE D AVANT CE RELEVE : les cibles demandees suffisent, car le module
+// ne vise jamais une page deja liee.
+$GLOBALS['posts'][501]['content'] = "<p>$dze_a $dze_b $dze_c</p>";
+$GLOBALS['queue_rows'][901] = [
+	'result'  => "<p>$dze_a $dze_b $dze_c</p>",
+	'payload' => json_encode( [ 'urls' => [ 'https://kula.test/tactical-tomahawks', 'https://kula.test/tactical-knives' ] ] ),
+];
+$dze_f4 = DZE_Automation::what_it_did( 901, 'post_links', 501 );
+ok( 'les cibles suffisent a partager',     $dze_f4['added'], 2 );
+ok( 'le reste etait deja la',              $dze_f4['kept'], 1 );
+
+// ET UNE LIGNE QUI NE SAIT NI L UN NI L AUTRE LE DIT, au lieu d inventer.
+$GLOBALS['queue_rows'][902] = [ 'result' => "<p>$dze_a $dze_b $dze_c</p>", 'payload' => '' ];
+$dze_f5 = DZE_Automation::what_it_did( 902, 'post_links', 501 );
+ok( 'sans releve, aucun partage annonce',  $dze_f5['sure'], false );
+ok( 'mais le total reste vrai',            $dze_f5['total'], 3 );
+$GLOBALS['applied_rows'] = [ [ 'id' => 902, 'kind' => 'post_links', 'object_id' => 501, 'when' => time(), 'by' => 0, 'from' => 0 ] ];
+ob_start(); DZE_Automation::render_past(); $dze_ph3 = (string) ob_get_clean();
+ok( 'la ligne ancienne ne compte que la page',
+	false !== strpos( $dze_ph3, '3 links on the page now' ), true );
+ok( 'et ne pretend aucun lien neuf',       false !== strpos( $dze_ph3, 'new link' ), false );
+$GLOBALS['queue_rows'] = [];
+unset( $GLOBALS['posts'][501] );
+
+echo "\nL ANNULATION N ECRIT PLUS PAR LE NOYAU\n";
+// Le bouton « Undo » de ce meme ecran passait encore par wp_update_term(),
+// qui relit le terme par get_term() — que WPML filtre sur la langue courante.
+// Quarante-huit termes ont ete abimes par ce chemin ailleurs dans le plugin ;
+// celui-ci etait le dernier a l emprunter.
+$dze_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-automation.php' );
+ok( 'l annulation ecrit en colonne',
+	false !== strpos( $dze_src, 'DZE_Queue::write_description( $oid' ), true );
+ok( 'et plus par wp_update_term()',
+	false !== strpos( $dze_src, "wp_update_term( \$oid, 'product_cat'" ), false );
+$dze_cc = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-category-content.php' );
+ok( 'accepter a la main non plus',
+	false !== strpos( $dze_cc, "wp_update_term( \$tid, 'product_cat'" ), false );
+// ET LE RELEVE EST PRIS AVANT D ECRIRE, la ou les deux textes existent encore.
+$dze_q = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-queue.php' );
+ok( 'la file releve ce qui etait deja la',
+	false !== strpos( $dze_q, 'self::$split = self::hrefs_in( self::text_of(' ), true );
+ok( 'et le garde avec la ligne',
+	2, substr_count( $dze_q, 'self::with_split(' ) );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

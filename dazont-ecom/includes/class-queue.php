@@ -406,6 +406,10 @@ final class DZE_Queue {
 				DZE_Ai_Usage::finished( (string) $job['kind'] );
 			}
 			$applied = ! empty( $job['auto_apply'] ) && self::apply( (string) $job['kind'], (int) $job['object_id'], $result, $payload );
+			// CE QUE LA PAGE PORTAIT AVANT, garde avec la ligne. Sans lui le
+			// journal ne peut plus distinguer un lien pose d un lien qui etait
+			// deja la, et il les compte tous comme poses. Voir with_split().
+			$payload = self::with_split( $payload );
 			$wpdb->update( $table, [
 				'status'  => ! empty( $job['auto_apply'] ) ? ( $applied ? 'applied' : 'failed' ) : 'review',
 				'result'  => $result,
@@ -800,8 +804,16 @@ final class DZE_Queue {
 	/** Saves an accepted result onto the shop. */
 	public static function apply( string $kind, int $object_id, string $html, array $payload = [] ): bool {
 		self::$refused = '';
+		self::$split   = [];
 		if ( '' === trim( $html ) ) {
 			return self::no( __( 'Nothing came back to write.', 'dazont-ecom' ) );
+		}
+		// CE QUE LA PAGE PORTAIT AVANT. Releve ICI, avant la moindre ecriture :
+		// une seconde plus tard le texte d avant n existe plus nulle part, et le
+		// journal ne peut plus que compter des liens sans savoir lesquels la
+		// passe a reellement poses. Voir $split.
+		if ( in_array( $kind, [ 'post_links', 'cat_desc', 'cat_links' ], true ) ) {
+			self::$split = self::hrefs_in( self::text_of( $kind, $object_id ) );
 		}
 		if ( 'product_shot' === $kind ) {
 			if ( ! class_exists( 'DZE_Content' ) ) {
@@ -872,6 +884,66 @@ final class DZE_Queue {
 	}
 
 	/**
+	 * CE QUE LA PAGE PORTAIT DEJA AVANT QUE LA PASSE N ECRIVE.
+	 *
+	 * « 3 links placed, 3 still there. Ca veut dire quoi ? C'est pareil
+	 * partout, le meme chiffre. » Le journal comptait les liens PRESENTS DANS
+	 * LE TEXTE PRODUIT — donc aussi ceux que la page portait avant la passe.
+	 * Sur la categorie « Tactical hatchets » il annoncait trois liens poses la
+	 * ou la passe en avait ajoute DEUX : le troisieme, « tactical clothing »,
+	 * etait la depuis toujours.
+	 *
+	 * Le seul endroit qui connaisse les deux textes est celui qui ecrit. On y
+	 * releve donc les adresses deja liees, une fois, et la ligne du journal n a
+	 * plus rien a deviner.
+	 *
+	 * @var array<int,string>
+	 */
+	private static array $split = [];
+
+	/** La cle sous laquelle ce releve voyage avec la ligne. */
+	public const WAS_LINKED = 'links_before';
+
+	/**
+	 * Le releve ci-dessus, pose dans la charge utile de la ligne.
+	 *
+	 * Appelee par les deux seuls endroits qui reecrivent `payload` apres un
+	 * `apply()`. Une passe qui n a rien releve laisse la charge utile intacte :
+	 * mieux vaut une ligne ancienne qui dit « je ne sais pas » qu une ligne qui
+	 * invente un partage.
+	 *
+	 * @param array<string,mixed> $payload
+	 * @return array<string,mixed>
+	 */
+	private static function with_split( array $payload ): array {
+		if ( self::$split ) {
+			$payload[ self::WAS_LINKED ] = array_values( self::$split );
+		}
+		return $payload;
+	}
+
+	/** Les adresses liees dans un texte, telles qu elles y sont ecrites. */
+	public static function hrefs_in( string $html ): array {
+		preg_match_all( '/<a\s[^>]*href=["\']([^"\']+)["\']/i', $html, $m );
+		return array_values( array_unique( array_map(
+			static fn( string $u ): string => html_entity_decode( $u, ENT_QUOTES, 'UTF-8' ),
+			(array) ( $m[1] ?? [] )
+		) ) );
+	}
+
+	/** Le texte d un objet tel qu il est MAINTENANT, lu en table. */
+	public static function text_of( string $kind, int $object_id ): string {
+		if ( 'post_links' === $kind || 'post' === $kind ) {
+			$p = get_post( $object_id );
+			return $p ? (string) $p->post_content : '';
+		}
+		// Par les tables : WPML filtre get_term() sur la langue courante et
+		// rendrait le texte de la traduction. Meme piege que partout ailleurs.
+		$row = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::term_row( $object_id ) : null;
+		return (string) ( $row['description'] ?? '' );
+	}
+
+	/**
 	 * UN REFUS QUI PORTE SON MOTIF.
 	 *
 	 * « Pas un seul échec ne devrait arriver. 1 échec ça veut dire : plugin mal
@@ -899,7 +971,7 @@ final class DZE_Queue {
 	 * On ecrit donc la seule colonne concernee, a l identifiant demande, et on
 	 * vide le cache du terme a la main.
 	 */
-	private static function write_description( int $term_id, string $html ): bool {
+	public static function write_description( int $term_id, string $html ): bool {
 		global $wpdb;
 		if ( $term_id < 1 ) {
 			return false;
@@ -2264,6 +2336,11 @@ font:400 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica 
 		$wpdb->update( self::table(), [
 			'status'     => $ok ? 'applied' : 'failed',
 			'result'     => $html,
+			// Meme releve que sur le chemin automatique : un texte accepte a la
+			// main a lui aussi un avant, et le journal le lira pareil.
+			'payload'    => wp_json_encode( self::with_split(
+				$job['payload'] ? (array) json_decode( (string) $job['payload'], true ) : []
+			) ),
 			'error'      => $ok ? null : ( self::refusal() ?: __( 'Saving failed.', 'dazont-ecom' ) ),
 			'decided_by' => self::decider(),
 			'updated'    => current_time( 'mysql' ),
