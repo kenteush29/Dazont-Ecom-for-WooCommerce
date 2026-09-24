@@ -2541,6 +2541,30 @@ ok( 'le troisieme etait deja la',          $dze_st['https://kula.test/military-c
 // UNE CIBLE DEMANDEE ET JAMAIS POSEE DISPARAISSAIT SANS UN MOT. La ligne
 // annoncait « will link to 3 pages » et n en montrait que deux.
 ok( 'la cible manquee est dite',           $dze_st['https://kula.test/tactical-blades'] ?? '', 'missed' );
+// ET ELLE DIT POURQUOI. « Pourquoi c'est pas place ? Ca devrait pas etre un
+// probleme. » En effet : la passe PROPOSE des cibles. L ancre doit etre des
+// mots deja presents, donc une page que le texte ne nomme jamais est ecartee
+// avant meme d etre proposee, et une page qu il nomme peut n avoir aucune
+// place naturelle. « asked for, not placed » melangeait les deux et se lisait
+// comme une panne.
+$GLOBALS['applied_rows'] = [ [ 'id' => 900, 'kind' => 'post_links', 'object_id' => 501, 'when' => time(), 'by' => 0, 'from' => 0 ] ];
+ob_start(); DZE_Automation::render_past(); $dze_pq = (string) ob_get_clean();
+ok( 'la raison est dite, pas l echec',
+	false !== strpos( $dze_pq, 'asked for, not placed' ), false );
+ok( 'le texte nomme la cible : pas de place',
+	false !== strpos( $dze_pq, 'no natural place for it' ), true );
+ok( 'et la regle est rappelee sous la liste',
+	false !== strpos( $dze_pq, 'offers targets, it does not force them' ), true );
+// UNE CIBLE QUE LE TEXTE NE NOMME NULLE PART, c est l autre raison.
+$GLOBALS['queue_rows'][903] = [
+	'result'  => "<p>$dze_a</p>",
+	'payload' => json_encode( [ 'urls' => [ 'https://kula.test/ghillie-suits' ], DZE_Queue::WAS_LINKED => [] ] ),
+];
+$GLOBALS['posts'][501]['content'] = "<p>$dze_a</p>";
+$dze_f6 = DZE_Automation::what_it_did( 903, 'post_links', 501 );
+ok( 'un sujet absent du texte est dit comme tel',
+	( array_column( $dze_f6['rows'], 'state', 'url' )['https://kula.test/ghillie-suits'] ?? '' ), 'unmet' );
+$GLOBALS['posts'][501]['content'] = "<p>$dze_a $dze_b $dze_c</p>";
 
 // LA PHRASE ELLE-MEME. Deux nombres qui disent deux choses.
 $GLOBALS['applied_rows'] = [ [ 'id' => 900, 'kind' => 'post_links', 'object_id' => 501, 'when' => time(), 'by' => 0, 'from' => 0 ] ];
@@ -2549,7 +2573,7 @@ ok( 'elle annonce le neuf et le total',    false !== strpos( $dze_ph, '2 new lin
 ok( 'et ne repete plus le meme chiffre',   false !== strpos( $dze_ph, 'links placed' ), false );
 ok( 'chaque lien neuf est marque',         substr_count( $dze_ph, '(new)' ), 2 );
 ok( 'celui d avant aussi, en toutes lettres', false !== strpos( $dze_ph, 'already there' ), true );
-ok( 'et la cible manquee se voit',         false !== strpos( $dze_ph, 'asked for, not placed' ), true );
+ok( 'et la cible manquee se voit',         false !== strpos( $dze_ph, 'no natural place for it' ), true );
 
 // UN LIEN RETIRE A LA MAIN DEPUIS. C est le cas qui a fait ecrire ce bloc au
 // depart : /desert-tan-combat-boots portait un lien pose par une passe, la
