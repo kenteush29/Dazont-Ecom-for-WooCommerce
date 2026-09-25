@@ -123,6 +123,8 @@ final class DZE_Translate {
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
 		add_action( 'wp_ajax_dze_tr_accept_all', [ $this, 'ajax_accept_all' ] );
 		add_action( 'wp_ajax_dze_tr_peek', [ $this, 'ajax_peek' ] );
+		// LES CHAINES DE WPML, traduites par notre moteur et ecrites chez lui.
+		add_action( 'wp_ajax_dze_tr_strings', [ $this, 'ajax_strings' ] );
 		// WPML'S OWN BUTTONS, doing this module's work. The + and the pencil in
 		// the Languages column are where a shop already goes to translate one
 		// thing; a second button somewhere else is a second habit to learn.
@@ -2501,6 +2503,288 @@ final class DZE_Translate {
 		return $out;
 	}
 
+	/** Combien de chaines par appel. Elles sont courtes ; c est le nombre qui coute. */
+	public const STRINGS_BATCH = 50;
+
+	/**
+	 * LES CONTEXTES QUE LE VISITEUR LIT. Tout le reste passe apres — pas
+	 * jamais, APRES : c est un ordre de priorite, pas une exclusion.
+	 */
+	public const FRONT = [
+		'default', 'woocommerce', 'astra', 'astra-addon', 'funnel-builder',
+		'woofunnels', 'woofunnels-aero-checkout', 'woocommerce-multilingual',
+		'seo-by-rank-math', 'rank-math', 'easy-table-of-contents',
+		'woocommerce-photo-reviews', 'wc-hide-shipping-methods',
+	];
+
+	/**
+	 * LES CHAINES QU UNE AUTRE LANGUE A DEJA, ET PAS CELLE-CI.
+	 *
+	 * Meme definition que strings_gap(), mais on rend les chaines plutot que
+	 * de les compter : ce que la boutique a juge digne d etre traduit, et qui
+	 * manque ici. Les avis produits restent dehors — onze mille lignes que
+	 * personne ne traduit a la main.
+	 *
+	 * @return array<int,array{id:int,value:string,name:string,context:string}>
+	 */
+	public static function strings_todo( string $lang, int $limit = 0 ): array {
+		global $wpdb;
+		if ( ! $wpdb || '' === $lang ) {
+			return [];
+		}
+		$st = $wpdb->prefix . 'icl_string_translations';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- tables de WPML.
+		if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$st}'" ) ) {
+			return [];
+		}
+		$strings = $wpdb->prefix . 'icl_strings';
+		// L ARGENT VA D ABORD OU CA SE VOIT.
+		//
+		// La file commencait par « ACF Fields » et « action started via %s » :
+		// des libelles d administration qu aucun client ne lira jamais, payes
+		// au meme prix qu un bouton « Ajouter au panier ». On classe donc les
+		// contextes : le theme, la boutique et les pages d abord, l outillage
+		// ensuite. Rien n est exclu — une boutique qui veut tout traduire y
+		// arrive en continuant — mais le premier euro sert le visiteur.
+		$devant = implode( "','", array_map( 'esc_sql', self::FRONT ) );
+		$sql = "SELECT s.id, s.value, s.name, s.context,
+				       CASE WHEN s.context IN ('{$devant}') THEN 0
+				            WHEN s.context LIKE 'admin_texts_%%' THEN 0
+				            WHEN s.context LIKE 'elementor%%' THEN 0
+				            WHEN s.context LIKE 'gutenberg-%%' THEN 0
+				            ELSE 1 END AS rang
+				FROM {$strings} s
+				WHERE s.context NOT LIKE 'wcml-reviews%%'
+				  AND s.value <> ''
+				  AND EXISTS ( SELECT 1 FROM {$st} a WHERE a.string_id = s.id AND a.language <> %s AND a.value <> '' )
+				  AND NOT EXISTS ( SELECT 1 FROM {$st} b WHERE b.string_id = s.id AND b.language = %s AND b.value <> '' )
+				ORDER BY rang, s.context, s.id";
+		if ( $limit > 0 ) {
+			$sql .= ' LIMIT ' . (int) $limit;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- tables de WPML.
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $lang, $lang ), ARRAY_A );
+		$out  = [];
+		foreach ( (array) $rows as $r ) {
+			$out[] = [
+				'id'      => (int) $r['id'],
+				'value'   => (string) $r['value'],
+				'name'    => (string) $r['name'],
+				'context' => (string) $r['context'],
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * CE QU UNE TRADUCTION DOIT RENDRE INTACT.
+	 *
+	 * Une chaine d interface n est presque jamais que des mots : elle porte des
+	 * trous que le code remplira — « Livraison gratuite a partir de
+	 * [free_shipping_threshold] », « %1$s sur %2$s », « {customer_name} » — et
+	 * des balises qui la mettent en forme. Un modele qui traduit « %s » en
+	 * « %s » va bien ; un modele qui le traduit en « %д », qui le deplace ou
+	 * qui l oublie casse la page SANS que rien ne le dise.
+	 *
+	 * On releve donc ces marqueurs avant et apres, et une traduction qui n a
+	 * pas exactement les memes est REFUSEE. Mieux vaut une chaine en anglais
+	 * qu une chaine cassee : l anglais se voit, le trou manquant non.
+	 *
+	 * @return array<int,string> tries, pour se comparer sans dependre de l ordre.
+	 */
+	public static function markers( string $text ): array {
+		$out = [];
+		$motifs = [
+			'/%[0-9]+\$[sd]/',          // %1$s — les arguments numerotes.
+			'/%[sd]/',                  // %s, %d.
+			'/\[[^\]\s][^\]]*\]/',      // [shortcode], [placeholder].
+			'/\{[^}\s][^}]*\}/',        // {customer_name}.
+			'/&[a-z]+;|&#[0-9]+;/i',    // &euro; &#36;
+		];
+		foreach ( $motifs as $m ) {
+			if ( preg_match_all( $m, $text, $found ) ) {
+				$out = array_merge( $out, $found[0] );
+			}
+		}
+		// LES BALISES, PAR LEUR NOM SEUL : un modele a le droit de passer
+		// <strong> avant ou apres un mot, pas de le faire disparaitre.
+		if ( preg_match_all( '#</?([a-z][a-z0-9]*)\b[^>]*>#i', $text, $tags ) ) {
+			foreach ( $tags[1] as $i => $name ) {
+				$out[] = ( '/' === substr( $tags[0][ $i ], 1, 1 ) ? '/' : '' ) . strtolower( $name );
+			}
+		}
+		sort( $out );
+		return $out;
+	}
+
+	/**
+	 * TRADUIT LES CHAINES DE WPML AVEC NOTRE MOTEUR, ET LES ECRIT CHEZ LUI.
+	 *
+	 * « J aime ce plugin, il est efficace et agreable. Malheureusement le prix
+	 * des traductions est trop eleve. » L interface de WPML reste donc la
+	 * sienne — c est `icl_add_string_translation()` qui ecrit, dans ses tables,
+	 * avec son statut « termine » — et seul le moteur change. Aucun credit
+	 * WPML n est consomme.
+	 *
+	 * Ce qui ne se traduit pas n est pas envoye : une adresse, un nombre, un
+	 * fragment de code n ont pas de version russe, et les faire passer devant
+	 * un modele coute autant qu une phrase pour ne rien rendre.
+	 *
+	 * @param bool $write false pour chiffrer sans rien ecrire.
+	 * @return array{todo:int,done:int,refused:int,skipped:int,cost:float,notes:array<int,string>}
+	 */
+	public static function translate_strings( string $lang, int $limit = 0, bool $write = true ): array {
+		$bilan = [ 'todo' => 0, 'done' => 0, 'refused' => 0, 'skipped' => 0, 'cost' => 0.0, 'notes' => [] ];
+		if ( ! function_exists( 'icl_add_string_translation' ) ) {
+			$bilan['notes'][] = __( 'WPML String Translation is not installed: there is nowhere to write.', 'dazont-ecom' );
+			return $bilan;
+		}
+		$rows = self::strings_todo( $lang, $limit );
+		$bilan['todo'] = count( $rows );
+		if ( ! $rows ) {
+			return $bilan;
+		}
+		$nom = self::language_name( $lang );
+		foreach ( array_chunk( $rows, self::STRINGS_BATCH ) as $lot ) {
+			$textes = [];
+			$garde  = [];
+			foreach ( $lot as $r ) {
+				// RIEN A TRADUIRE : une adresse, un nombre, un fragment sans
+				// une seule lettre. On les laisse tels quels sans les envoyer.
+				if ( ! preg_match( '/\p{L}{2,}/u', $r['value'] ) || preg_match( '#^https?://#i', trim( $r['value'] ) ) ) {
+					$bilan['skipped']++;
+					continue;
+				}
+				$textes[ (string) $r['id'] ] = $r['value'];
+				$garde[ (string) $r['id'] ]  = $r;
+			}
+			if ( ! $textes ) {
+				continue;
+			}
+			try {
+				$rendu = self::ask_strings( $textes, $garde, $lang, $nom );
+			} catch ( \Throwable $e ) {
+				$bilan['notes'][] = $e->getMessage();
+				continue;
+			}
+			foreach ( $textes as $id => $source ) {
+				$v = (string) ( $rendu[ $id ] ?? '' );
+				if ( '' === trim( $v ) ) {
+					$bilan['refused']++;
+					continue;
+				}
+				// LE GARDE-FOU : memes trous, memes balises, ou rien.
+				if ( self::markers( $source ) !== self::markers( $v ) ) {
+					$bilan['refused']++;
+					$bilan['notes'][] = sprintf(
+						/* translators: %s: the string that came back changed */
+						__( 'Left in English, its placeholders came back different: « %s »', 'dazont-ecom' ),
+						mb_substr( $source, 0, 60 )
+					);
+					continue;
+				}
+				if ( $write ) {
+					icl_add_string_translation( (int) $id, $lang, $v, ICL_TM_COMPLETE );
+				}
+				$bilan['done']++;
+			}
+		}
+		if ( $write && $bilan['done'] ) {
+			delete_transient( 'dze_strings_gap' );
+			$bilan['notes'][] = sprintf(
+				/* translators: %d: how many translation files were rebuilt */
+				__( '%d translation files rebuilt.', 'dazont-ecom' ),
+				self::rebuild_mo()
+			);
+		}
+		return $bilan;
+	}
+
+	/**
+	 * UN LOT DE CHAINES, DEVANT LE MODELE.
+	 *
+	 * Sa propre consigne, et non celle du contenu : une etiquette de bouton ne
+	 * se reecrit pas, ne gagne pas de ponctuation et garde ses espaces de bord
+	 * — le theme colle souvent deux chaines l une contre l autre.
+	 *
+	 * @param array<string,string> $textes
+	 * @param array<string,array{id:int,value:string,name:string,context:string}> $garde
+	 * @return array<string,string>
+	 */
+	private static function ask_strings( array $textes, array $garde, string $lang, string $nom ): array {
+		$lignes = [];
+		foreach ( $textes as $id => $v ) {
+			$ou = (string) ( $garde[ $id ]['context'] ?? '' );
+			$lignes[] = '### ' . $id . ( '' !== $ou ? ' (' . $ou . ')' : '' ) . "\n" . $v;
+		}
+		$system = 'You translate INTERFACE WORDING for a WooCommerce shop into ' . $nom . ".\n"
+			. "These are not sentences from an article: they are buttons, labels, notices and headings a visitor reads while shopping.\n\n"
+			. "RULES\n"
+			. "- Keep every placeholder EXACTLY as it is: %s, %d, %1\$s, [anything_in_brackets], {anything_in_braces}, &euro;, &#36;. Do not translate them, do not reorder them away, do not drop them.\n"
+			. "- Keep every HTML tag, with the same tags in the same order.\n"
+			. "- Keep leading and trailing spaces exactly: the theme glues these strings together.\n"
+			. "- Do not add or remove punctuation, and do not add a full stop that is not there.\n"
+			. "- Match the register of a shop interface: short, plain, and the wording a native shopper expects — not a literal word-for-word rendering.\n"
+			. "- A string with nothing to translate (a brand name, a code, a number) comes back UNCHANGED.\n"
+			// LA SOURCE N EST PAS TOUJOURS EN ANGLAIS : cette boutique a
+			// enregistre des chaines deja en francais — « Passer a la commande » —
+			// parce qu elles ont ete saisies ainsi dans les reglages du theme. Les
+			// annoncer comme anglaises ferait rendre au modele la traduction de ce
+			// qu il croit lire plutot que de ce qui est ecrit.
+			. "- The source strings are not all in the same language: some are English, some are already in another language. Translate whatever you are given into the target language.\n\n"
+			. 'Answer with STRICT JSON only: an object whose keys are the ids given to you and whose values are the translated strings. No commentary, no code fence.';
+		$user = "Translate every string below.\n\n" . implode( "\n\n", $lignes );
+		$max  = (int) min( 8000, max( 1000, ( mb_strlen( implode( '', $textes ) ) * 2 ) + 800 ) );
+
+		DZE_Ai_Usage::unit( 'translate' );
+		try {
+			$raw = DZE_Marketing_Ai::complete( $system, $user, self::model(), $max, 180 );
+		} finally {
+			DZE_Ai_Usage::unit();
+		}
+		$by  = self::decode_map( (string) $raw );
+		$out = [];
+		foreach ( $textes as $id => $_ ) {
+			if ( isset( $by[ (string) $id ] ) ) {
+				$out[ (string) $id ] = (string) $by[ (string) $id ];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * REGENERE LES FICHIERS QUE WPML SERT REELLEMENT.
+	 *
+	 * ECRIRE EN BASE NE SUFFIT PAS. WPML ne lit pas ses tables a chaque mot de
+	 * la page : il compile des fichiers dans wp-content/languages/wpml et c est
+	 * EUX que WordPress charge. Le russe de cette boutique avait dix mille
+	 * chaines en base et zero fichier : le site servait l anglais sans qu une
+	 * seule ligne ne s en plaigne. Meme panne que le polonais ailleurs.
+	 *
+	 * @return int le nombre de fichiers presents apres coup.
+	 */
+	public static function rebuild_mo(): int {
+		if ( ! class_exists( '\WPML\Container\Container' ) || ! function_exists( '\WPML\Container\make' ) ) {
+			return 0;
+		}
+		try {
+			$manager = \WPML\Container\make( \WPML\ST\MO\File\Manager::class );
+			$manager->maybeCreateSubdir();
+			if ( class_exists( '\WPML\ST\MO\Scan\UI\Factory' ) ) {
+				\WPML\ST\MO\Scan\UI\Factory::clearIgnoreWpmlVersion();
+			}
+			$process = \WPML\Container\make( \WPML\ST\MO\Generate\Process\ProcessFactory::class )->create();
+			$tours   = 0;
+			do {
+				$reste = $process->runPage();
+				$tours++;
+			} while ( $reste && $tours < 2000 );
+		} catch ( \Throwable $e ) {
+			return 0;
+		}
+		$dir = WP_CONTENT_DIR . '/languages/wpml';
+		return is_dir( $dir ) ? count( (array) glob( $dir . '/*.mo' ) ) : 0;
+	}
 	/** Ou WPML traduit ces chaines-la. */
 	public static function strings_url(): string {
 		return admin_url( 'admin.php?page=wpml-string-translation/menu/string-translation.php' );
@@ -2562,9 +2846,25 @@ final class DZE_Translate {
 						<?php endforeach; ?>
 					</ul>
 					<p style="margin:0 0 8px;">
+						<?php // NOTRE MOTEUR, SES TABLES. Aucun credit WPML consomme. ?>
+						<?php foreach ( $dze_due as $dze_code => $dze_n ) : ?>
+							<button type="button" class="button button-primary dze-tr-strings" data-lang="<?php echo esc_attr( (string) $dze_code ); ?>">
+								<?php
+								printf(
+									/* translators: %s: the language code */
+									esc_html__( 'Translate them here — %s', 'dazont-ecom' ),
+									esc_html( strtoupper( (string) $dze_code ) )
+								);
+								?>
+							</button>
+						<?php endforeach; ?>
 						<a class="button button-secondary" href="<?php echo esc_url( self::strings_url() ); ?>">
 							<?php esc_html_e( 'Open WPML → String Translation', 'dazont-ecom' ); ?>
 						</a>
+						<span class="dze-tr-strings-msg description" style="margin-left:8px;"></span>
+					</p>
+					<p class="description" style="margin:0 0 8px;">
+						<?php esc_html_e( 'Translating them here uses this plugin\'s own model and writes into WPML\'s tables: its screen shows them as translated, and no WPML credit is spent. One press does a hundred; press again for the next hundred.', 'dazont-ecom' ); ?>
 					</p>
 				<?php elseif ( $dze_gap ) : ?>
 					<p class="description" style="margin:0 0 8px;">
@@ -2727,6 +3027,29 @@ final class DZE_Translate {
 				return window.dzeDefaultFor ? window.dzeDefaultFor( id, shipped ) : shipped;
 			}
 			$( '#dze-tr-prompt-restore' ).on( 'click', function () { $( '#dze-tr-prompt' ).val( dzeDef( 'translate', <?php echo wp_json_encode( self::default_prompt() ); ?> ) ); } );
+
+			// LES CHAINES DE WPML, une tranche par pression.
+			//
+			// Le bouton ne part pas en boucle tout seul : chaque tranche coute, et
+			// une boutique doit pouvoir regarder le resultat avant d en demander
+			// une autre. Ce qui est ecrit l est definitivement — s arreter ici ne
+			// perd rien.
+			$( '.dze-tr-strings' ).on( 'click', function () {
+				var b = $( this ), msg = $( '.dze-tr-strings-msg' );
+				if ( b.prop( 'disabled' ) ) { return; }
+				b.prop( 'disabled', true );
+				msg.text( <?php echo wp_json_encode( __( 'Translating…', 'dazont-ecom' ) ); ?> );
+				$.post( ajaxurl, {
+					action: 'dze_tr_strings',
+					lang: b.data( 'lang' ),
+					nonce: <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?>
+				} ).done( function ( r ) {
+					msg.text( ( r && r.data && r.data.message ) ? r.data.message : '' );
+					if ( r && r.data && 0 === r.data.left ) { b.remove(); }
+				} ).fail( function () {
+					msg.text( <?php echo wp_json_encode( __( 'The call did not come back. Nothing was lost; press again.', 'dazont-ecom' ) ); ?> );
+				} ).always( function () { b.prop( 'disabled', false ); } );
+			} );
 		} );
 		</script>
 		<?php
@@ -3883,6 +4206,52 @@ final class DZE_Translate {
 	 * @param array<string,string> $names
 	 * @return array<string,string>
 	 */
+	/**
+	 * LA REPONSE DU MODELE, LUE COMME UNE TABLE — deux pieges, une seule fois.
+	 *
+	 *   - UNE PHRASE AVANT L OBJET N EST PAS UN ECHEC. Le modele encadre parfois
+	 *     son JSON d une cloture de code ou d une politesse ; on prend ce qui
+	 *     est entre la premiere accolade et la derniere.
+	 *   - LA CLE EST L IDENTIFIANT, QUELLE QUE SOIT SA FORME. Chaque champ part
+	 *     en « ### post:content (Corps de l article) » — l identifiant pour
+	 *     nous, le nom pour le modele — et il revient de temps en temps avec la
+	 *     LIGNE ENTIERE comme cle, parenthese comprise. Un article de mille six
+	 *     cents mots est deja parti en quatre morceaux dont trois ont ete
+	 *     gardes et le quatrieme jete pour une cle que le modele ne pouvait pas
+	 *     savoir fausse. On garde donc les deux formes.
+	 *
+	 * @param int|null $nb Combien de lignes le modele a REELLEMENT rendues —
+	 *                     pas la taille de la table, qui porte deux entrees par
+	 *                     ligne quand la cle est venue habillee.
+	 * @return array<string,string>
+	 */
+	private static function decode_map( string $raw, ?int &$nb = null ): array {
+		$json = trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', $raw ) );
+		$rows = json_decode( $json, true );
+		if ( ! is_array( $rows ) ) {
+			$a = strpos( $json, '{' );
+			$b = strrpos( $json, '}' );
+			if ( false !== $a && false !== $b && $b > $a ) {
+				$rows = json_decode( substr( $json, $a, $b - $a + 1 ), true );
+			}
+		}
+		if ( ! is_array( $rows ) ) {
+			throw new RuntimeException( __( 'The model did not answer with the expected format.', 'dazont-ecom' ) );
+		}
+		$nb = count( $rows );
+		$by = [];
+		foreach ( $rows as $k => $v ) {
+			if ( ! is_string( $v ) ) {
+				continue;
+			}
+			$by[ (string) $k ] = $v;
+			$bare = trim( (string) preg_replace( '/\s*\(.*$/s', '', (string) $k ) );
+			if ( '' !== $bare && ! isset( $by[ $bare ] ) ) {
+				$by[ $bare ] = $v;
+			}
+		}
+		return $by;
+	}
 	private static function translate_batch( array $texts, string $lang_code, array $names ): array {
 		if ( ! $texts ) {
 			return [];
@@ -3924,44 +4293,14 @@ final class DZE_Translate {
 			DZE_Ai_Usage::unit();
 		}
 
-		$json = trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', $raw ) );
-		$rows = json_decode( $json, true );
-		if ( ! is_array( $rows ) ) {
-			// A sentence before the object, or after it, is not a failed call.
-			$a = strpos( $json, '{' );
-			$b = strrpos( $json, '}' );
-			if ( false !== $a && false !== $b && $b > $a ) {
-				$rows = json_decode( substr( $json, $a, $b - $a + 1 ), true );
-			}
-		}
-		if ( ! is_array( $rows ) ) {
-			throw new RuntimeException( __( 'The model did not answer with the expected format.', 'dazont-ecom' ) );
-		}
-		// THE KEY IS THE FIELD ID, WHATEVER SHAPE IT COMES BACK IN.
-		//
-		// Each field travels as `### post:content (Article body)` — the id for
-		// us, the name for the model. Handed that, a model answers now and
-		// again with the WHOLE line as the key, parenthesis and all, and every
-		// word it translated was thrown away for a mismatch it could not know
-		// it had made: a 1,600-word article came back in four pieces, three
-		// matched, one did not, and the field was dropped whole.
-		$by = [];
-		foreach ( (array) $rows as $k => $v ) {
-			if ( ! is_string( $v ) ) {
-				continue;
-			}
-			$by[ (string) $k ] = $v;
-			$bare = trim( (string) preg_replace( '/\s*\(.*$/s', '', (string) $k ) );
-			if ( '' !== $bare && ! isset( $by[ $bare ] ) ) {
-				$by[ $bare ] = $v;
-			}
-		}
+		$nb = 0;
+		$by = self::decode_map( (string) $raw, $nb );
 		$out = [];
 		foreach ( $texts as $fid => $_ ) {
 			$v = isset( $by[ $fid ] ) ? (string) $by[ $fid ] : '';
 			// One field asked for, one text back: there is nothing to confuse
 			// it with, whatever the key says.
-			if ( '' === trim( $v ) && 1 === count( $texts ) && 1 === count( (array) $rows ) ) {
+			if ( '' === trim( $v ) && 1 === count( $texts ) && 1 === $nb ) {
 				$v = (string) reset( $by );
 			}
 			if ( '' !== trim( $v ) ) {
@@ -4379,6 +4718,35 @@ final class DZE_Translate {
 	 * Read-only: accepting is still a decision taken on a button, and a
 	 * preview that could also write would be a second editor to keep in step.
 	 */
+	/**
+	 * UNE TRANCHE DE CHAINES, A LA DEMANDE.
+	 *
+	 * Bornee : le navigateur attend, et une boutique de sept mille chaines ne
+	 * se traduit pas dans une requete. L ecran rappelle le bouton tant qu il
+	 * reste du travail, et chaque tranche est deja ecrite — s arreter en
+	 * chemin ne perd rien.
+	 */
+	public function ajax_strings(): void {
+		$this->screen_guard();
+		$lang = isset( $_POST['lang'] ) ? sanitize_key( wp_unslash( $_POST['lang'] ) ) : '';
+		if ( '' === $lang ) {
+			wp_send_json_error( [ 'message' => __( 'No language was asked for.', 'dazont-ecom' ) ] );
+		}
+		$bilan = self::translate_strings( $lang, self::STRINGS_BATCH * 2, true );
+		$reste = count( self::strings_todo( $lang ) );
+		wp_send_json_success( [
+			'done'    => (int) $bilan['done'],
+			'refused' => (int) $bilan['refused'],
+			'left'    => $reste,
+			'message' => sprintf(
+				/* translators: 1: strings written, 2: strings still waiting */
+				__( '%1$s written, %2$s still waiting.', 'dazont-ecom' ),
+				number_format_i18n( (int) $bilan['done'] ),
+				number_format_i18n( $reste )
+			),
+		] );
+	}
+
 	public function ajax_peek(): void {
 		$this->screen_guard();
 		$o = self::from_ref( isset( $_POST['ref'] ) ? sanitize_text_field( wp_unslash( $_POST['ref'] ) ) : '' );
