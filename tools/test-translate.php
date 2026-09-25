@@ -2494,6 +2494,30 @@ $GLOBALS['st_gap'] = [ 'fr' => 999, 'de' => 999 ];
 ok( 'le chiffre est garde une heure',      DZE_Translate::strings_gap()['de'] ?? null, 7496 );
 delete_transient( 'dze_strings_gap' );
 
+echo "\nLES CHAINES DE WPML, TRADUITES PAR NOTRE MOTEUR ET ECRITES CHEZ LUI\n";
+// « On ne pourrait pas simplement integrer notre outil de traduction dans WPML
+// directement ? J aime ce plugin... malheureusement le prix des traductions est
+// trop eleve. » L interface reste la sienne, le moteur devient le notre.
+
+// LE GARDE-FOU : memes trous, memes balises, ou rien. Une chaine d interface
+// n est presque jamais que des mots — « Livraison gratuite a partir de
+// [free_shipping_threshold] » — et un marqueur perdu casse la page SANS que
+// rien ne s en plaigne.
+ok( 'un texte nu na pas de marqueur',    DZE_Translate::markers( 'Mon compte' ), [] );
+ok( 'un pourcentage compte',             DZE_Translate::markers( 'Voir %s articles' ), [ '%s' ] );
+ok( 'un argument numerote aussi',        DZE_Translate::markers( '%1$s sur %2$s' ), [ '%1$s', '%2$s' ] );
+ok( 'un code court aussi',               DZE_Translate::markers( 'A partir de [seuil]' ), [ '[seuil]' ] );
+ok( 'une accolade aussi',                DZE_Translate::markers( 'Bonjour {nom}' ), [ '{nom}' ] );
+ok( 'une entite aussi',                  DZE_Translate::markers( 'Prix en &euro;' ), [ '&euro;' ] );
+// LES BALISES PAR LEUR NOM : le modele a le droit de deplacer <strong> autour
+// d un mot, pas de le faire disparaitre.
+ok( 'une balise compte par son nom',     DZE_Translate::markers( '<strong>Soldes</strong>' ), [ '/strong', 'strong' ] );
+ok( 'la meme balise deplacee est egale',
+	DZE_Translate::markers( '<strong>Big</strong> sale' ), DZE_Translate::markers( 'Grosse <strong>promo</strong>' ) );
+// ET LE CAS QUI COMPTE : une traduction qui perd son trou n est PAS acceptable.
+ok( 'un trou perdu se voit',
+	DZE_Translate::markers( 'Livraison gratuite des [seuil]' ) === DZE_Translate::markers( 'Free delivery' ), false );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 
