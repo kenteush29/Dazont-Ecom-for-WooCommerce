@@ -2441,6 +2441,71 @@ final class DZE_Translate {
 	// Settings screen (a tab of the shared Settings page, never its own menu)
 	// =========================================================================
 
+	/**
+	 * CE QUE CE MODULE NE TRADUIT PAS, ET QUI ATTEND DANS WPML.
+	 *
+	 * « La traduction de la base du site se fait sur WPML. » Deux chantiers
+	 * portent le meme nom et ne sont pas le meme travail :
+	 *
+	 *   - LE CONTENU — produits, pages, articles, taxonomies — c est ici, et
+	 *     c est ce que fait ce module, en continu, a chaque nouveau texte ;
+	 *   - LES CHAINES — l en-tete, le pied de page, les boutons, le bandeau
+	 *     de livraison, tout ce qu un theme ou une extension ecrit en dur —
+	 *     c est WPML → Traduction de chaines, et c est une fois pour toutes.
+	 *
+	 * Une phrase seule se lit et s oublie. On compte donc, pour chaque langue,
+	 * les chaines qu UNE AUTRE langue du site a deja traduites et que celle-ci
+	 * n a pas : c est exactement ce que la boutique a juge digne d etre
+	 * traduit, et ce qui manque ici. Sur cette boutique le russe en accusait
+	 * six mille six cent cinquante quand le site paraissait pourtant pret.
+	 *
+	 * Les avis produits sont ecartes : WCML en enregistre onze mille, personne
+	 * ne les traduit a la main, et les compter noierait le chiffre utile.
+	 *
+	 * @return array<string,int> code de langue => nombre de chaines manquantes.
+	 */
+	public static function strings_gap(): array {
+		$cache = get_transient( 'dze_strings_gap' );
+		if ( is_array( $cache ) ) {
+			return $cache;
+		}
+		global $wpdb;
+		$out = [];
+		if ( ! $wpdb || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return $out;
+		}
+		$st = $wpdb->prefix . 'icl_string_translations';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- tables de WPML.
+		if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$st}'" ) ) {
+			return $out; // String Translation n est pas installe : rien a dire.
+		}
+		$strings = $wpdb->prefix . 'icl_strings';
+		foreach ( DZE_Wpml::get_active_languages() as $l ) {
+			$code = (string) ( $l['code'] ?? '' );
+			if ( '' === $code || $code === DZE_Wpml::default_language() ) {
+				continue;
+			}
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- tables de WPML.
+			$out[ $code ] = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$strings} s
+				 WHERE s.context NOT LIKE 'wcml-reviews%%'
+				   AND EXISTS ( SELECT 1 FROM {$st} a WHERE a.string_id = s.id AND a.language <> %s AND a.value <> '' )
+				   AND NOT EXISTS ( SELECT 1 FROM {$st} b WHERE b.string_id = s.id AND b.language = %s AND b.value <> '' )",
+				$code,
+				$code
+			) );
+		}
+		// Une heure : le chiffre bouge quand on traduit, pas d une seconde a
+		// l autre, et la requete traverse des dizaines de milliers de lignes.
+		set_transient( 'dze_strings_gap', $out, HOUR_IN_SECONDS );
+		return $out;
+	}
+
+	/** Ou WPML traduit ces chaines-la. */
+	public static function strings_url(): string {
+		return admin_url( 'admin.php?page=wpml-string-translation/menu/string-translation.php' );
+	}
+
 	public static function render_settings(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
@@ -2467,6 +2532,47 @@ final class DZE_Translate {
 			);
 			?>
 		</p>
+		<?php
+		// LA MOITIE DU TRAVAIL QUI N EST PAS ICI. Voir strings_gap().
+		$dze_gap = $wpml ? self::strings_gap() : [];
+		$dze_due = array_filter( $dze_gap );
+		if ( $wpml ) :
+			?>
+			<div class="notice notice-info inline" style="margin:12px 0;max-width:900px;">
+				<p style="margin:8px 0 6px;"><strong><?php esc_html_e( 'The rest of the site is translated in WPML, not here.', 'dazont-ecom' ); ?></strong></p>
+				<p class="description" style="margin:0 0 8px;">
+					<?php esc_html_e( 'This module translates what the shop writes: products, articles, pages and taxonomies. The wording built into the theme and the plugins — the header, the footer, the buttons, the shipping banner — belongs to WPML → String Translation, and it is done once.', 'dazont-ecom' ); ?>
+				</p>
+				<?php if ( $dze_due ) : ?>
+					<p style="margin:0 0 6px;">
+						<?php esc_html_e( 'Wording another language of this site already has, and these do not:', 'dazont-ecom' ); ?>
+					</p>
+					<ul style="margin:0 0 8px 18px;list-style:disc;">
+						<?php foreach ( $dze_due as $dze_code => $dze_n ) : ?>
+							<li>
+								<strong><?php echo esc_html( strtoupper( (string) $dze_code ) ); ?></strong> —
+								<?php
+								printf(
+									/* translators: %s: how many strings are missing */
+									esc_html( _n( '%s string missing', '%s strings missing', $dze_n, 'dazont-ecom' ) ),
+									esc_html( number_format_i18n( $dze_n ) )
+								);
+								?>
+							</li>
+						<?php endforeach; ?>
+					</ul>
+					<p style="margin:0 0 8px;">
+						<a class="button button-secondary" href="<?php echo esc_url( self::strings_url() ); ?>">
+							<?php esc_html_e( 'Open WPML → String Translation', 'dazont-ecom' ); ?>
+						</a>
+					</p>
+				<?php elseif ( $dze_gap ) : ?>
+					<p class="description" style="margin:0 0 8px;">
+						<?php esc_html_e( 'Every language of this site has the same wording as the others. Nothing is waiting there.', 'dazont-ecom' ); ?>
+					</p>
+				<?php endif; ?>
+			</div>
+		<?php endif; ?>
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_translate_options' ); ?>
 			<table class="form-table" role="presentation">

@@ -205,6 +205,16 @@ class DZE_Tr_Test_Wpdb {
 	}
 	public function get_var( $q ) {
 		$sql = (string) $q;
+		// LES CHAINES DE WPML, pour strings_gap(). La table existe-t-elle, et
+		// combien de chaines manquent a cette langue-la.
+		if ( false !== stripos( $sql, 'SHOW TABLES LIKE' ) && false !== stripos( $sql, 'icl_string_translations' ) ) {
+			return empty( $GLOBALS['st_absent'] ) ? 'wp_icl_string_translations' : null;
+		}
+		if ( false !== stripos( $sql, 'icl_strings' ) && false !== stripos( $sql, 'wcml-reviews' ) ) {
+			preg_match_all( "/'([a-z]{2})'/", $sql, $m );
+			$code = (string) ( $m[1][0] ?? '' );
+			return (int) ( $GLOBALS['st_gap'][ $code ] ?? 0 );
+		}
 		// LA TAXONOMIE D UN TERME, lue en table. obj() la demande ainsi quand
 		// l appelant ne la donne pas : passer par get_term() rendrait le terme
 		// de la langue courante, ce que tout ce module cherche a eviter.
@@ -2439,6 +2449,50 @@ ok( 'une valeur inventee est ramenee',   ( $dze_tr->sanitize( [ 'when' => 'pirat
 $GLOBALS['opts']['dze_translate_settings'] = [ 'when' => 'update' ];
 ok( 'un autre formulaire ne l efface pas', ( $dze_tr->sanitize( [ 'model' => 'x' ] )['when'] ?? '' ), 'update' );
 $GLOBALS['opts']['dze_translate_settings'] = [];
+
+echo "\nCE QUE CE MODULE NE TRADUIT PAS, ET QUI ATTEND DANS WPML\n";
+// « On peut laisser ces types de contenu pour WPML a traduire avec leur outil
+// interne, c est a faire une seule fois. Il faudrait une mention quelque part
+// dans notre plugin. »
+//
+// Une phrase seule se lit et s oublie. Sur Kula le site paraissait pret et le
+// russe accusait sept mille quatre cent quatre-vingt-seize chaines de retard —
+// en-tete, pied de page, bandeau de livraison, tout en anglais. On COMPTE donc,
+// et le compte est ce qu une autre langue du site a deja traduit et que
+// celle-ci n a pas.
+$GLOBALS['st_gap'] = [ 'fr' => 0, 'de' => 7496 ];
+delete_transient( 'dze_strings_gap' );
+$dze_g = DZE_Translate::strings_gap();
+ok( 'une langue a jour ne doit rien',      $dze_g['fr'] ?? null, 0 );
+ok( 'une langue en retard est chiffree',   $dze_g['de'] ?? null, 7496 );
+ok( 'la langue par defaut nest pas comptee', array_key_exists( 'en', $dze_g ), false );
+
+// LE PANNEAU LE DIT, et nomme WPML plutot que de laisser deviner.
+ob_start(); DZE_Translate::render_settings(); $dze_ec = (string) ob_get_clean();
+ok( 'lecran renvoie vers WPML',
+	false !== strpos( $dze_ec, 'The rest of the site is translated in WPML, not here' ), true );
+ok( 'avec le chiffre de la langue en retard',
+	false !== strpos( $dze_ec, '7,496' ) || false !== strpos( $dze_ec, '7496' ), true );
+ok( 'et un lien vers son ecran',
+	false !== strpos( $dze_ec, 'wpml-string-translation' ), true );
+// UNE LANGUE A JOUR N EST PAS UNE LIGNE VIDE : on ne la nomme pas du tout.
+ok( 'la langue a jour nest pas listee',
+	1 === preg_match( '/FR<\/strong>/', $dze_ec ), false );
+
+// SANS String Translation, ON SE TAIT : annoncer un manque chez un module qui
+// n est pas installe enverrait la boutique chercher un ecran inexistant.
+$GLOBALS['st_absent'] = true;
+delete_transient( 'dze_strings_gap' );
+ok( 'sans String Translation, aucun chiffre', DZE_Translate::strings_gap(), [] );
+$GLOBALS['st_absent'] = false;
+delete_transient( 'dze_strings_gap' );
+
+// ET LE CHIFFRE EST MIS EN CACHE : la requete traverse des dizaines de
+// milliers de lignes et l ecran se rouvre souvent.
+DZE_Translate::strings_gap();
+$GLOBALS['st_gap'] = [ 'fr' => 999, 'de' => 999 ];
+ok( 'le chiffre est garde une heure',      DZE_Translate::strings_gap()['de'] ?? null, 7496 );
+delete_transient( 'dze_strings_gap' );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
