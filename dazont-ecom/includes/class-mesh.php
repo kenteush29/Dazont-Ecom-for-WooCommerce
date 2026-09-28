@@ -1172,6 +1172,46 @@ final class DZE_Mesh {
 		if ( ! $judge ) {
 			return [ 'how' => 'unjudged', 'rows' => $plain ];
 		}
+		// LE TEST GRATUIT AVANT LE TEST PAYANT.
+		//
+		// « Des appels plusieurs fois a la minute, et rien produit. J ai peur
+		// que tu me bouffes du budget IA avec du code sale. »
+		//
+		// Il avait raison. Le modele etait interroge pour CHAQUE page cible du
+		// plan — une rafale d un appel par seconde — et ce n est qu APRES que
+		// `mentions()` rejetait les paires impossibles. Or une ancre doit etre
+		// des mots deja presents dans le texte : une page qui ne nomme jamais
+		// sa cible ne peut pas la lier, ce test ne coute rien, et il repond
+		// non bien plus souvent qu il ne repond oui. Cinq cent cinquante-deux
+		// appels ce mois-la pour zero travail produit.
+		//
+		// On filtre donc d abord, et on ne paie que pour departager ce qui
+		// reste. Plus rien a departager : plus d appel du tout.
+		$titre = (string) ( $to['title'] ?? '' );
+		if ( '' !== $titre && class_exists( 'DZE_Category_Content' ) ) {
+			$tient = [];
+			foreach ( $short as $row ) {
+				$corps = self::body_of( (string) $row['kind'], (int) ( $row['id'] ?? 0 ) );
+				if ( '' === $corps || DZE_Category_Content::mentions( $corps, $titre ) ) {
+					$tient[] = $row;
+				}
+			}
+			if ( ! $tient ) {
+				// Aucune page ne nomme cette cible : il n y a pas de travail ici,
+				// et c est une reponse, pas une panne.
+				set_transient( $stamp, [], self::PICK_TTL );
+				return [ 'how' => 'none', 'rows' => [] ];
+			}
+			$short = $tient;
+			$plain = [];
+			foreach ( array_slice( $short, 0, $limit ) as $row ) {
+				$plain[] = [ 'key' => $row['key'], 'title' => $row['title'], 'url' => $row['url'], 'kind' => $row['kind'], 'why' => '' ];
+			}
+		}
+		// ON NE COUPE PAS LE JUGEMENT QUAND IL RESTE PEU DE CANDIDATS : le
+		// modele ne fait pas que classer, il ECARTE — « une page qui ne partage
+		// que du vocabulaire avec elle ». Filtrer d abord fait l economie des
+		// appels inutiles ; sauter le jugement ferait l economie de la qualite.
 		$lines = [];
 		foreach ( $short as $i => $row ) {
 			$lines[] = ( $i + 1 ) . '. ' . $row['title'] . ' (' . self::kind_word( $row['kind'] ) . ')';
