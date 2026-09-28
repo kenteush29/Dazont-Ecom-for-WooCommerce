@@ -863,6 +863,22 @@ final class DZE_Discounts {
 		// the saving shows as a real promo-code line in the cart and checkout.
 		$has_bulk = ! empty( $this->rules_of_type( 'bulk' ) ) || ! empty( $this->rules_of_type( 'bulk_order' ) );
 
+		// UN SOLDE AU-DESSUS DU PRIX NORMAL N EST PAS UN SOLDE.
+		//
+		// « Module des soldes bugue : solde superieur au prix de vente du
+		// produit ! » Il avait raison, et l ecriture n y etait pour rien :
+		// set_row_sale() refuse deja un solde qui depasse. Le defaut est
+		// APRES — le prix normal baisse ensuite, une synchronisation
+		// fournisseur ou une correction a la main, et notre solde reste ou il
+		// etait. Mille sept cent soixante-seize lignes affichaient « 125,90 »
+		// barre et « 419,90 » a payer.
+		//
+		// Ce garde-fou ne repare pas la donnee : il refuse de la SERVIR. Il est
+		// pose SANS CONDITION, meme sans regle de solde active, parce qu une
+		// incoherence laissee par une regle eteinte est toujours affichee.
+		add_filter( 'woocommerce_product_get_sale_price', [ $this, 'sane_sale' ], 99, 2 );
+		add_filter( 'woocommerce_product_variation_get_sale_price', [ $this, 'sane_sale' ], 99, 2 );
+
 		// Catalog price filters power both scheduled sales and the best-seller
 		// boost — a struck-through price on the affected products.
 		if ( $has_sale || $has_autobest ) {
@@ -1343,6 +1359,31 @@ final class DZE_Discounts {
 	// =========================================================================
 	// Price filters (sale)
 	// =========================================================================
+
+	/**
+	 * LE SOLDE SERVI, OU RIEN.
+	 *
+	 * Un prix de solde superieur ou egal au prix normal est une donnee
+	 * fausse : WooCommerce l afficherait barre et ferait payer le plus cher.
+	 * On rend une chaine vide — « pas de solde » — ce que WooCommerce sait
+	 * deja traiter partout : vitrine, panier, commande, flux.
+	 *
+	 * Le prix normal est lu EN META et non par le getter : les filtres de ce
+	 * module s appliquent aux getters, et se lire soi-meme tourne en rond.
+	 *
+	 * @param string|float $sale
+	 * @return string|float
+	 */
+	public function sane_sale( $sale, $product ) {
+		if ( '' === $sale || null === $sale || ! ( $product instanceof \WC_Product ) ) {
+			return $sale;
+		}
+		$regular = (float) get_post_meta( $product->get_id(), '_regular_price', true );
+		if ( $regular <= 0 ) {
+			return $sale; // sans prix normal il n y a rien a comparer.
+		}
+		return ( (float) $sale >= $regular ) ? '' : $sale;
+	}
 
 	public function filter_price( $price, $product ) {
 		if ( ! $product instanceof \WC_Product ) {
