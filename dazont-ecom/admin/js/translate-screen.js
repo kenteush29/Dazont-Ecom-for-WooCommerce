@@ -38,33 +38,109 @@
 	// The batch
 	// =====================================================================
 
+	// LA SÉLECTION SURVIT AU CHANGEMENT DE PAGE.
+	//
+	// « Changer de page annule la sélection. Sur WPML ça change de page en
+	// ajax, la sélection reste active. »
+	//
+	// On garde les lignes cochées par leur référence, dans le stockage de
+	// l'onglet : la page se recharge, les cases se retrouvent, et une
+	// sélection commencée page une part toujours quand on l'envoie depuis la
+	// page trois. Le stockage est celui de l'ONGLET — il disparaît quand on le
+	// ferme — parce qu'une sélection oubliée depuis hier est un envoi qu'on ne
+	// voulait plus.
+	var KEPT = 'dze-tr-picked:' + (cfg.scope || '');
+	function readKept() {
+		try {
+			var raw = window.sessionStorage.getItem(KEPT);
+			return raw ? JSON.parse(raw) : {};
+		} catch (e) { return {}; }
+	}
+	function writeKept(map) {
+		try { window.sessionStorage.setItem(KEPT, JSON.stringify(map)); } catch (e) { /* privé : tant pis */ }
+	}
+	function remember() {
+		var map = readKept();
+		$('.dze-tr-row').each(function () {
+			var ref = String($(this).data('ref'));
+			if ($(this).find('.dze-tr-pickone').prop('checked')) { map[ref] = 1; }
+			else { delete map[ref]; }
+		});
+		writeKept(map);
+	}
+	function restore() {
+		var map = readKept(), n = 0;
+		$('.dze-tr-row').each(function () {
+			if (map[String($(this).data('ref'))]) {
+				$(this).find('.dze-tr-pickone').prop('checked', true);
+				n++;
+			}
+		});
+		return n;
+	}
+	$(document).on('click', '#dze-tr-clearkept', function () {
+		writeKept({});
+		$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
+		remember();
+		bill();
+	});
+
 	$(document).on('change', '#dze-tr-all', function () {
 		$('.dze-tr-pickone').prop('checked', this.checked);
+		remember();
 		bill();
 	});
 	$(document).on('click', '#dze-tr-selall', function () {
 		$('.dze-tr-pickone, #dze-tr-all').prop('checked', true);
+		remember();
 		bill();
 	});
 	$(document).on('click', '#dze-tr-selnone', function () {
 		$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
+		remember();
 		bill();
 	});
-	$(document).on('change', '.dze-tr-pickone, .dze-tr-lang', bill);
+	$(document).on('change', '.dze-tr-pickone, .dze-tr-lang', function () { remember(); bill(); });
 
 	// WHAT THE PRESS IS ABOUT TO DO, BESIDE THE PRESS. Every figure was already
 	// on the screen — the ticked rows, the ticked languages — and they had
 	// never been multiplied: a button reading "Translate" over forty rows and
 	// five languages is two hundred calls nobody counted.
 	function bill() {
-		var rows = $('.dze-tr-pickone:checked').length;
+		// COMBIEN EN TOUT, pas combien sur cette page : la selection franchit
+		// les pages, et un chiffre qui ne compte que ce qu on voit ferait
+		// partir plus de lignes qu annonce.
+		var rows = Object.keys(readKept()).length;
 		var langs = $('.dze-tr-lang:checked').length;
 		var $b = $('#dze-tr-bill');
 		if (!$b.length) { return; }
 		$('#dze-tr-selcount').text(sprintf(i18n.nSelected, rows));
-		$b.text(rows && langs ? sprintf(i18n.bill, rows, langs, rows * langs) : i18n.billNone);
+		// CE QUI SERA RÉELLEMENT TRADUIT, ET PAYÉ.
+		//
+		// « Sur WPML, quand un objet est déjà traduit dans 3 langues mais une
+		// langue manque, l'outil demande : retraduire ? Évidemment que non, je
+		// choisis toujours de conserver les traductions existantes. »
+		//
+		// Le moteur le fait déjà : une langue à jour ne coûte pas un appel.
+		// Mais le bandeau annonçait « lignes × langues » — quarante lignes et
+		// cinq langues promettaient deux cents traductions là où douze étaient
+		// dues. On compte donc les drapeaux qui doivent vraiment quelque
+		// chose, parmi les lignes cochées et les langues cochées.
+		var picked = {};
+		$('.dze-tr-lang:checked').each(function () { picked[String($(this).val())] = true; });
+		var owed = 0;
+		$('.dze-tr-pickone:checked').closest('.dze-tr-row').find('.dze-tr-chip').each(function () {
+			var $c = $(this), st = String($c.data('state') || '');
+			if (!picked[String($c.data('lang') || '')]) { return; }
+			if (st === 'missing' || st === 'stale' || st === 'noise') { owed++; }
+		});
+		$b.text(rows && langs ? sprintf(i18n.bill, rows, langs, owed) : i18n.billNone);
 	}
-	$(bill);
+	// À L OUVERTURE : ce qui avait été coché revient, PUIS le devis se
+	// calcule dessus. Dans cet ordre, et une fois le tableau posé — appelé
+	// au chargement du script, restore() cherchait des lignes qui n existaient
+	// pas encore.
+	$(function () { restore(); bill(); });
 
 	// WPML'S OWN GESTURE, ONE LANGUAGE AT A TIME: the plus makes the missing
 	// translation, the arrows bring an out-of-date one back. It runs the SAME
@@ -98,9 +174,10 @@
 	$(document).on('click', '#dze-tr-send', function () {
 		var $btn = $(this);
 		var langs = $('.dze-tr-lang:checked').map(function () { return $(this).val(); }).get();
-		var refs = $('.dze-tr-pickone:checked').map(function () {
-			return $(this).closest('.dze-tr-row').data('ref');
-		}).get();
+		// CE QUI A ETE COCHE, SUR TOUTES LES PAGES. La liste du DOM ne
+		// connait que la page affichee ; la memoire, elle, garde le reste.
+		remember();
+		var refs = Object.keys(readKept());
 		if (!langs.length) { window.alert(i18n.langFirst); return; }
 		if (!refs.length) { window.alert(i18n.tickFirst); return; }
 

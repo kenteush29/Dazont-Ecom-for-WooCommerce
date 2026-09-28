@@ -4777,6 +4777,11 @@ final class DZE_Translate {
 			'nonce'   => wp_create_nonce( self::NONCE ),
 			// THE WAY TO WHAT CAME BACK, not the name of the tab it is on.
 			'reviewUrl' => self::url( [ 'tab' => 'review' ] ),
+			// LE PERIMETRE COURANT : la selection gardee entre deux pages est
+			// rangee sous lui, sinon des produits coches ressortiraient coches
+			// sur la liste des articles.
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- lecture de navigation.
+			'scope'     => isset( $_GET['scope'] ) ? sanitize_text_field( wp_unslash( $_GET['scope'] ) ) : '',
 			'doneIcon'  => self::state_icon( 'done' ),
 			'i18n'    => [
 				'tickFirst'  => __( 'Tick what you want translated first.', 'dazont-ecom' ),
@@ -4854,7 +4859,11 @@ final class DZE_Translate {
 				// WHAT THE PRESS IS ABOUT TO DO, beside the press: rows times
 				// languages, which is the figure nobody had ever multiplied.
 				/* translators: 1: rows, 2: languages, 3: jobs */
-				'bill'       => __( '%1$s ticked × %2$s language(s) = up to %3$s translations to make — only words that moved are paid for', 'dazont-ecom' ),
+				// CE QUI SERA REELLEMENT FAIT, pas une multiplication. Voir le
+				// calcul dans translate-screen.js : quarante lignes et cinq
+				// langues promettaient deux cents traductions la ou douze
+				// etaient dues, et une langue deja a jour ne coute rien.
+				'bill'       => __( '%1$s ticked × %2$s language(s) — %3$s translations are actually owed. What is already up to date is left alone.', 'dazont-ecom' ),
 				'billNone'   => __( 'Nothing ticked.', 'dazont-ecom' ),
 				'stopped'    => __( 'Stopped.', 'dazont-ecom' ),
 			],

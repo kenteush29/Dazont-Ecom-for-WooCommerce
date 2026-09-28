@@ -30,6 +30,9 @@ trait DZE_Translate_Screen {
 
 	public const MENU_SLUG = 'dazont-ecom-translations';
 
+	/** Les tailles de page offertes à la liste. */
+	public const PER_PAGE = [ 10, 25, 50, 100, 200 ];
+
 	/** The entry, under the plugin's own menu, with what waits beside it. */
 	public function register_menu(): void {
 		if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'translate' ) ) {
@@ -939,7 +942,32 @@ trait DZE_Translate_Screen {
 		$all_rows = ! empty( $_GET['all'] );
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$only  = isset( $_GET['only'] ) ? self::from_ref( sanitize_text_field( wp_unslash( $_GET['only'] ) ) ) : [];
-		$per   = 25;
+		// COMBIEN PAR PAGE. « Pas de choix sur l'écran WPML batch de la
+		// quantité de posts qu'on peut voir à l'écran. Très inconfortable. »
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$per = isset( $_GET['per_page'] ) ? absint( $_GET['per_page'] ) : 25;
+		if ( ! in_array( $per, self::PER_PAGE, true ) ) {
+			$per = 25;
+		}
+		// ET LES DEUX FILTRES DE WPML : une langue, un état.
+		//
+		// « Il manque les filtres comme sur WPML : filtrer par langue, filtrer
+		// par statut (need update / create translation / up to date). »
+		//
+		// Ils narrowissent ce qui est MONTRÉ, jamais ce qui est envoyé : une
+		// ligne filtrée hors de l'écran n'est pas cochée, donc elle ne part
+		// pas — c'est la même règle que partout, ce qu'on voit est ce qu'on
+		// décide.
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$f_lang = isset( $_GET['flang'] ) ? sanitize_key( wp_unslash( $_GET['flang'] ) ) : '';
+		$f_state = isset( $_GET['fstate'] ) ? sanitize_key( wp_unslash( $_GET['fstate'] ) ) : '';
+		// phpcs:enable
+		if ( ! isset( $langs[ $f_lang ] ) ) {
+			$f_lang = '';
+		}
+		if ( ! in_array( $f_state, [ 'missing', 'stale', 'ok' ], true ) ) {
+			$f_state = '';
+		}
 
 		// ---- 1. WHAT THIS KIND HOLDS TODAY, in one line, with the figures ----
 		$counts  = self::counts_for( $scope );
@@ -954,6 +982,29 @@ trait DZE_Translate_Screen {
 				<select name="scope" onchange="this.form.submit();">
 					<?php foreach ( $all as $k => $one ) : ?>
 						<option value="<?php echo esc_attr( $k ); ?>" <?php selected( $k, $key ); ?>><?php echo esc_html( $one['label'] ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</label>
+			<label style="margin-left:10px;"><?php esc_html_e( 'Language', 'dazont-ecom' ); ?>
+				<select name="flang" onchange="this.form.submit();">
+					<option value=""><?php esc_html_e( 'Any', 'dazont-ecom' ); ?></option>
+					<?php foreach ( $langs as $dze_c => $dze_l ) : ?>
+						<option value="<?php echo esc_attr( (string) $dze_c ); ?>" <?php selected( $f_lang, (string) $dze_c ); ?>><?php echo esc_html( strtoupper( (string) $dze_c ) ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</label>
+			<label style="margin-left:10px;"><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?>
+				<select name="fstate" onchange="this.form.submit();">
+					<option value=""><?php esc_html_e( 'Any', 'dazont-ecom' ); ?></option>
+					<option value="missing" <?php selected( $f_state, 'missing' ); ?>><?php esc_html_e( 'No translation yet', 'dazont-ecom' ); ?></option>
+					<option value="stale" <?php selected( $f_state, 'stale' ); ?>><?php esc_html_e( 'Out of date', 'dazont-ecom' ); ?></option>
+					<option value="ok" <?php selected( $f_state, 'ok' ); ?>><?php esc_html_e( 'Up to date', 'dazont-ecom' ); ?></option>
+				</select>
+			</label>
+			<label style="margin-left:10px;"><?php esc_html_e( 'Show', 'dazont-ecom' ); ?>
+				<select name="per_page" onchange="this.form.submit();">
+					<?php foreach ( self::PER_PAGE as $dze_n ) : ?>
+						<option value="<?php echo esc_attr( (string) $dze_n ); ?>" <?php selected( $per, $dze_n ); ?>><?php echo esc_html( number_format_i18n( $dze_n ) ); ?></option>
 					<?php endforeach; ?>
 				</select>
 			</label>
@@ -1044,7 +1095,7 @@ trait DZE_Translate_Screen {
 		</div>
 		<?php
 		// ---- 4. THE LIST ----
-		self::pick_body( $key, $scope, $langs, $src, $paged, $per, $all_rows, $only );
+		self::pick_body( $key, $scope, $langs, $src, $paged, $per, $all_rows, $only, $f_lang, $f_state );
 	}
 
 	/**
@@ -1062,7 +1113,7 @@ trait DZE_Translate_Screen {
 	 * Cancel. What varies between the two screens is WHAT the blocks are, never
 	 * the shape around them.
 	 */
-	public static function pick_body( string $key, array $scope, array $langs, string $src, int $paged = 1, int $per = 25, bool $all = false, array $only = [] ): void {
+	public static function pick_body( string $key, array $scope, array $langs, string $src, int $paged = 1, int $per = 25, bool $all = false, array $only = [], string $f_lang = '', string $f_state = '' ): void {
 		// THE NARROWING HAPPENS IN THE QUERY THAT PAGES. Filtered after the
 		// paging, the pager counted the whole catalogue and the page showed
 		// two rows.
@@ -1093,6 +1144,11 @@ trait DZE_Translate_Screen {
 			<span id="dze-tr-selcount" class="description"></span>
 			<button type="button" class="button button-small" id="dze-tr-selall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
 			<button type="button" class="button button-small" id="dze-tr-selnone"><?php esc_html_e( 'Unselect all', 'dazont-ecom' ); ?></button>
+			<?php // LA SELECTION GARDEE ENTRE DEUX PAGES SE VIDE D UN GESTE.
+			// « Unselect all » ne decoche que la page affichee — ce qui est juste
+			// — donc il faut une porte de sortie pour tout ce qui a ete coche
+			// ailleurs, sinon un envoi part sur des lignes qu on ne voit plus. ?>
+			<button type="button" class="button button-small" id="dze-tr-clearkept" title="<?php esc_attr_e( 'Forget what was ticked on the other pages too', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Clear the whole selection', 'dazont-ecom' ); ?></button>
 			<span class="dze-cb-barsep"></span>
 			<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'review' ] ) ); ?>" title="<?php esc_attr_e( 'Everything that has come back and is waiting for a yes or a no, whatever kind of thing it is', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Read what came back', 'dazont-ecom' ); ?></a>
 		</p>
@@ -1101,7 +1157,7 @@ trait DZE_Translate_Screen {
 				<td class="check-column"><input type="checkbox" id="dze-tr-all" title="<?php esc_attr_e( 'Select every row on this page', 'dazont-ecom' ); ?>" /></td>
 				<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
 				<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
-				<th style="width:340px;" title="<?php esc_attr_e( 'A flag that is owed is a button: the plus makes the missing translation, the arrows bring an out-of-date one back.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
+				<th style="width:150px;" title="<?php esc_attr_e( 'One flag per language: green is up to date, a flag you can press is owed. Hover a flag to read where it stands.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
 				<th style="width:120px;"></th>
 			</tr></thead>
 			<tbody>
@@ -1120,6 +1176,25 @@ trait DZE_Translate_Screen {
 			<?php foreach ( $objects as $o ) : ?>
 				<?php
 				$state   = self::state_of( $o, array_keys( $langs ), $marks );
+				// LES DEUX FILTRES, appliques a la ligne. Une langue demandee
+				// regarde SON etat a elle ; sans langue, il suffit qu une seule
+				// soit dans cet etat pour que la ligne compte.
+				if ( '' !== $f_lang || '' !== $f_state ) {
+					$dze_keep = false;
+					foreach ( $state as $dze_code => $dze_said ) {
+						if ( '' !== $f_lang && (string) $dze_code !== $f_lang ) {
+							continue;
+						}
+						if ( '' === $f_state ) { $dze_keep = true; break; }
+						// « a jour » couvre tout ce qui ne doit rien : WPML en a
+						// plusieurs mots, le lecteur n en a qu un.
+						$dze_du = in_array( $dze_said, [ 'missing', 'stale', 'noise' ], true );
+						if ( 'ok' === $f_state ? ! $dze_du : ( $dze_said === $f_state || ( 'stale' === $f_state && 'noise' === $dze_said ) ) ) {
+							$dze_keep = true; break;
+						}
+					}
+					if ( ! $dze_keep ) { continue; }
+				}
 				$dze_ref = self::ref( $o );
 				$dze_has = ! empty( $held[ $dze_ref ] );
 				?>
@@ -1144,6 +1219,7 @@ trait DZE_Translate_Screen {
 							<?php if ( $dze_act ) : ?>
 								<button type="button" class="dze-tr-chip is-<?php echo esc_attr( $said ); ?> dze-tr-one"
 									data-lang="<?php echo esc_attr( (string) $code ); ?>"
+									data-state="<?php echo esc_attr( $said ); ?>"
 									title="<?php echo esc_attr( sprintf(
 										/* translators: %s: the language */
 										'missing' === $said
@@ -1153,13 +1229,21 @@ trait DZE_Translate_Screen {
 									) ); ?>">
 									<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
 									<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
-									<?php echo esc_html( self::state_said( $said ) ); ?>
+									<span class="screen-reader-text"><?php echo esc_html( self::state_said( $said ) ); ?></span>
 								</button>
 							<?php else : ?>
-								<span class="dze-tr-chip is-<?php echo esc_attr( $said ); ?>" title="<?php echo esc_attr( self::state_said( $said ) ); ?>">
+								<span class="dze-tr-chip is-<?php echo esc_attr( $said ); ?>"
+									data-lang="<?php echo esc_attr( (string) $code ); ?>"
+									data-state="<?php echo esc_attr( $said ); ?>"
+									title="<?php echo esc_attr( sprintf(
+										/* translators: 1: the language, 2: where that language stands */
+										__( '%1$s — %2$s', 'dazont-ecom' ),
+										strtoupper( (string) $code ),
+										self::state_said( $said )
+									) ); ?>">
 									<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
 									<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
-									<?php echo esc_html( self::state_said( $said ) ); ?>
+									<span class="screen-reader-text"><?php echo esc_html( self::state_said( $said ) ); ?></span>
 								</span>
 							<?php endif; ?>
 						<?php endforeach; ?>
@@ -1204,9 +1288,14 @@ trait DZE_Translate_Screen {
 			<p class="tablenav-pages" style="margin:10px 0;">
 				<?php
 				echo wp_kses_post( paginate_links( [
+					// LES CHOIX VOYAGENT AVEC LA PAGE : un filtre ou une taille
+					// perdue en changeant de page est un reglage que personne ne
+					// repose deux fois.
 					'base'    => esc_url_raw( self::url( array_merge(
-						[ 'tab' => 'batch', 'scope' => $key, 'paged' => '%#%' ],
-						$all ? [ 'all' => 1 ] : []
+						[ 'tab' => 'batch', 'scope' => $key, 'paged' => '%#%', 'per_page' => $per ],
+						$all ? [ 'all' => 1 ] : [],
+						'' !== $f_lang ? [ 'flang' => $f_lang ] : [],
+						'' !== $f_state ? [ 'fstate' => $f_state ] : []
 					) ) ),
 					'format'  => '',
 					'current' => $paged,
