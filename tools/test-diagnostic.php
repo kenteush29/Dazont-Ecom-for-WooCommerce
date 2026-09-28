@@ -2316,5 +2316,25 @@ ok( 'and a category its own, from the term meta WooCommerce writes',
 ok( 'its meta is primed as a term, not as a post',
 	in_array( 'term', array_map( static fn( $r ) => (string) $r[0], (array) $GLOBALS['dze_primed'] ), true ), true );
 
+echo "\nUNE PUCE DE CATEGORIE COMPTE CE QUE L ONGLET MONTRE\n";
+// « Gallery photographs is less than 5 — Category admin pouches (4) —
+// Nothing falls short of this any more. On a des filtres vides. »
+//
+// Le menu est bati sur les deux onglets a la fois pour qu une categorie
+// choisie ne disparaisse pas en changeant d onglet. Mais il en affichait
+// aussi le compte des deux, donc il promettait quatre produits sur un
+// onglet qui n en avait aucun.
+$dze_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-diagnostic.php' );
+ok( 'la puce compte sur l onglet affiche',
+	false !== strpos( $dze_src, "\$cats[ \$dze_tid ]['here'] = \$dze_n;" ), true );
+ok( 'et le menu affiche ce compte-la',
+	false !== strpos( $dze_src, "\$dze_cat['here'] ?? 0" ), true );
+ok( 'et plus celui des deux listes',
+	false !== strpos( $dze_src, "number_format_i18n( count( \$dze_cat['ids'] ) )" ), false );
+// L ENTREE RESTE PRESENTE meme a zero : on ne fait pas disparaitre le
+// filtre qu on vient de choisir parce qu on a change d onglet.
+ok( 'le menu est toujours bati sur les deux',
+	false !== strpos( $dze_src, "cat_index( array_merge( \$split['todo'], \$split['done'] ) )" ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

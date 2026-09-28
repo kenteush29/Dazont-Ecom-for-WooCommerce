@@ -541,6 +541,12 @@ class DZE_Wpml {
  * every question the pass asks it is recorded.
  */
 class DZE_Translate {
+	/** Ce qu une case cochee dans la liste de WordPress a mis en tete de file. */
+	public static array $asked = [];
+	public static array $unasked = [];
+	public static function asked(): array { return self::$asked; }
+	public static function unask( array $o ): void { self::$unasked[] = $o; }
+
 	/** kind:id:type => [ 'owes' => [codes], 'waiting' => bool ] */
 	public static array $shop = [];
 	public static array $sent = [];
@@ -2638,6 +2644,30 @@ ok( 'la file releve ce qui etait deja la',
 	false !== strpos( $dze_q, 'self::$split = self::hrefs_in( self::text_of(' ), true );
 ok( 'et le garde avec la ligne',
 	2, substr_count( $dze_q, 'self::with_split(' ) );
+
+echo "\nCE QU ON A DEMANDE A LA MAIN PASSE DEVANT\n";
+// « Manque la possibilite d envoyer des posts en traduction a partir de
+// l option bulk select WordPress native. Plus pratique pour lancer un
+// nouveau shop que le menu Dazont qui casse l ordre des pages et la
+// hierarchie. »
+//
+// La case cochee ne traduit pas sur place — trente pages dans une requete,
+// c est le delai depasse et rien d ecrit : la FAQ en a fait la preuve. Elle
+// donne une place en tete de file, et la passe les prend avant le reste.
+fresh( $ON );
+DZE_Translate::$asked = [ [ 'kind' => 'post', 'id' => 20, 'type' => 'post' ] ];
+DZE_Translate::$unasked = [];
+$dze_first = DZE_Automation::shortlist( 'translate', 3 );
+ok( 'la demande sort en premier',      (int) ( $dze_first[0]['tid'] ?? 0 ), 20 );
+ok( 'et elle dit pourquoi',            (string) ( $dze_first[0]['why'] ?? '' ), 'asked for by hand' );
+// UNE DEMANDE DEJA HONOREE SORT DE LA FILE plutot que d y tourner a chaque
+// passage : une file qu on ne vide jamais est une file qui grossit.
+DZE_Translate::$asked = [ [ 'kind' => 'post', 'id' => 21, 'type' => 'post' ] ];
+DZE_Translate::$unasked = [];
+DZE_Translate::$shop['post:21:post'] = [ 'marks' => [ 'fr' => 'ok', 'de' => 'ok', 'es' => 'ok' ] ];
+DZE_Automation::shortlist( 'translate', 3 );
+ok( 'une demande honoree est retiree',  count( DZE_Translate::$unasked ) >= 1, true );
+DZE_Translate::$asked = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

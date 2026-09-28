@@ -120,6 +120,8 @@ final class DZE_Translate {
 		// The module's own screen, and the three presses on it.
 		add_action( 'admin_menu', [ $this, 'register_menu' ] );
 		add_action( 'wp_ajax_dze_tr_batch', [ $this, 'ajax_batch' ] );
+		// L'ACTION GROUPÉE DE WORDPRESS, sur ses propres listes. Voir ask().
+		add_action( 'admin_init', [ $this, 'hook_bulk' ] );
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
 		add_action( 'wp_ajax_dze_tr_accept_all', [ $this, 'ajax_accept_all' ] );
 		add_action( 'wp_ajax_dze_tr_peek', [ $this, 'ajax_peek' ] );
@@ -468,6 +470,96 @@ final class DZE_Translate {
 
 	/** Combien d objets une acceptation repasse en revue. */
 	public const RELINK_SWEEP = 40;
+
+	/** Où s'écrit ce qu'on a demandé à la main, en attendant la passe. */
+	public const OPT_ASKED = 'dze_translate_asked';
+
+	/**
+	 * CE QU'ON A DEMANDÉ À LA MAIN PASSE DEVANT.
+	 *
+	 * « Manque la possibilité d'envoyer des posts en traduction à partir de
+	 * l'option bulk select WordPress native. Plus pratique pour lancer un
+	 * nouveau shop que le menu Dazont qui casse l'ordre des pages et la
+	 * hiérarchie. »
+	 *
+	 * La liste native garde l'ordre, les filtres et la hiérarchie que
+	 * WordPress connaît déjà : on ne redessine pas ce qu'il fait mieux. Ce que
+	 * la case cochée produit n'est PAS une traduction immédiate — trente pages
+	 * dans une requête, c'est le délai dépassé et rien d'écrit — mais une
+	 * place en tête de file. La passe automatique les prend avant le reste,
+	 * à son rythme, et elles arrivent en relecture comme les autres.
+	 *
+	 * @param array<int,array{kind:string,id:int,type:string}> $objets
+	 * @return int combien ont été mis en file.
+	 */
+	public static function ask( array $objets ): int {
+		$file = (array) get_option( self::OPT_ASKED, [] );
+		$vu   = [];
+		foreach ( $file as $un ) {
+			$vu[ self::ref( (array) $un ) ] = true;
+		}
+		$n = 0;
+		foreach ( $objets as $o ) {
+			$o = [
+				'kind' => (string) ( $o['kind'] ?? 'post' ),
+				'id'   => (int) ( $o['id'] ?? 0 ),
+				'type' => (string) ( $o['type'] ?? '' ),
+			];
+			if ( $o['id'] < 1 ) {
+				continue;
+			}
+			$clef = self::ref( $o );
+			if ( isset( $vu[ $clef ] ) ) {
+				continue; // demandé deux fois reste demandé une fois.
+			}
+			$vu[ $clef ] = true;
+			$file[]      = $o;
+			$n++;
+		}
+		// BORNÉE : une file qu'on ne vide jamais est une file qui grossit
+		// jusqu'à ne plus tenir dans une option.
+		update_option( self::OPT_ASKED, array_slice( $file, -2000 ), false );
+		return $n;
+	}
+
+	/**
+	 * Ce qui attend en tête de file, débarrassé de ce qui n'a plus lieu d'être.
+	 *
+	 * @return array<int,array{kind:string,id:int,type:string}>
+	 */
+	public static function asked(): array {
+		$file = (array) get_option( self::OPT_ASKED, [] );
+		$out  = [];
+		foreach ( $file as $un ) {
+			$o = (array) $un;
+			$id = (int) ( $o['id'] ?? 0 );
+			if ( $id < 1 ) {
+				continue;
+			}
+			// UN OBJET DISPARU N'EST PAS DU TRAVAIL. Supprimé depuis, il ferait
+			// tourner la passe à vide sur chaque tick.
+			if ( 'post' === (string) ( $o['kind'] ?? '' ) && ! get_post( $id ) ) {
+				continue;
+			}
+			$out[] = $o;
+		}
+		return $out;
+	}
+
+	/** Retire un objet de la file demandée — il a été pris en charge. */
+	public static function unask( array $o ): void {
+		$clef = self::ref( $o );
+		$file = (array) get_option( self::OPT_ASKED, [] );
+		$out  = [];
+		foreach ( $file as $un ) {
+			if ( self::ref( (array) $un ) !== $clef ) {
+				$out[] = $un;
+			}
+		}
+		if ( count( $out ) !== count( $file ) ) {
+			update_option( self::OPT_ASKED, $out, false );
+		}
+	}
 
 	/**
 	 * CE QU ON TRADUIT EN CE MOMENT, pour que la depense le dise.
@@ -4391,6 +4483,102 @@ final class DZE_Translate {
 	 * object, so a run of forty says where it is instead of hanging on one
 	 * request that either works or times out.
 	 */
+	/**
+	 * « ENVOYER EN TRADUCTION » DANS LA LISTE DE WORDPRESS.
+	 *
+	 * Une entrée de plus dans le menu déroulant que WordPress dessine déjà, sur
+	 * les types que la boutique a choisi de traduire — et sur la langue source
+	 * seulement : envoyer une traduction se faire traduire n'a pas de sens.
+	 */
+	public function hook_bulk(): void {
+		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() || ! current_user_can( 'edit_posts' ) ) {
+			return;
+		}
+		foreach ( self::picked_scope() as $one ) {
+			if ( 'term' === (string) ( $one['kind'] ?? '' ) ) {
+				continue; // les taxonomies ont leur propre écran, pas edit.php.
+			}
+			$type = (string) ( $one['type'] ?? '' );
+			if ( '' === $type ) {
+				continue;
+			}
+			$ecran = 'product' === $type ? 'edit-product' : 'edit-' . $type;
+			add_filter( "bulk_actions-{$ecran}", [ $this, 'bulk_entry' ] );
+			add_filter( "handle_bulk_actions-{$ecran}", [ $this, 'bulk_run' ], 10, 3 );
+		}
+		add_action( 'admin_notices', [ $this, 'bulk_said' ] );
+	}
+
+	/** @param array<string,string> $actions */
+	public function bulk_entry( $actions ) {
+		$actions['dze_translate'] = __( 'Send to translation (Dazont)', 'dazont-ecom' );
+		return $actions;
+	}
+
+	/**
+	 * @param string          $redirect
+	 * @param string          $action
+	 * @param array<int,int>  $ids
+	 * @return string
+	 */
+	public function bulk_run( $redirect, $action, $ids ) {
+		if ( 'dze_translate' !== $action ) {
+			return $redirect;
+		}
+		$src  = (string) DZE_Wpml::default_language();
+		$objs = [];
+		$hors = 0;
+		foreach ( (array) $ids as $id ) {
+			$id   = (int) $id;
+			$type = (string) ( get_post_type( $id ) ?: '' );
+			if ( '' === $type ) {
+				continue;
+			}
+			// SEULEMENT DEPUIS LA LANGUE SOURCE. « Notre module WPML ne devrait
+			// traduire du contenu uniquement qu'à partir de la langue par
+			// défaut » — une traduction envoyée se faire traduire produirait
+			// une deuxième version de la même page.
+			$lang = (string) apply_filters( 'wpml_element_language_code', null, [ 'element_id' => $id, 'element_type' => 'post_' . $type ] );
+			if ( '' !== $lang && $lang !== $src ) {
+				$hors++;
+				continue;
+			}
+			$objs[] = [ 'kind' => 'post', 'id' => $id, 'type' => $type ];
+		}
+		$n = $objs ? self::ask( $objs ) : 0;
+		return add_query_arg( [ 'dze_tr_asked' => $n, 'dze_tr_skipped' => $hors ], $redirect );
+	}
+
+	/** Ce que l'action groupée a fait, dit là où elle a été demandée. */
+	public function bulk_said(): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- lecture d'un retour de redirection.
+		if ( ! isset( $_GET['dze_tr_asked'] ) ) {
+			return;
+		}
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		$n    = absint( $_GET['dze_tr_asked'] );
+		$hors = isset( $_GET['dze_tr_skipped'] ) ? absint( $_GET['dze_tr_skipped'] ) : 0;
+		// phpcs:enable
+		$dit = $n
+			? sprintf(
+				/* translators: %s: how many objects were queued */
+				_n( '%s page is queued for translation. The automatic pass takes it next, and it arrives under To review.', '%s pages are queued for translation. The automatic pass takes them next, and they arrive under To review.', $n, 'dazont-ecom' ),
+				number_format_i18n( $n )
+			)
+			: __( 'Nothing was queued: these were already waiting, or none of them is in the site language.', 'dazont-ecom' );
+		if ( $hors ) {
+			$dit .= ' ' . sprintf(
+				/* translators: %s: how many were already translations */
+				_n( '%s was already a translation and was left alone.', '%s were already translations and were left alone.', $hors, 'dazont-ecom' ),
+				number_format_i18n( $hors )
+			);
+		}
+		printf(
+			'<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
+			esc_attr( $n ? 'success' : 'info' ),
+			esc_html( $dit )
+		);
+	}
 	public function ajax_batch(): void {
 		$this->screen_guard();
 		// UNE TRADUCTION PREND LE TEMPS QU ELLE PREND.

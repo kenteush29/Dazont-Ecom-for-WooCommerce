@@ -3173,6 +3173,26 @@ final class DZE_Diagnostic {
 		if ( ! isset( $cats[ $cat ] ) ) {
 			$cat = 0;
 		}
+		// COMBIEN CETTE CATEGORIE EN A *ICI*, sur l onglet qu on regarde.
+		//
+		// « Gallery photographs is less than 5 — Category admin pouches (4) —
+		// Nothing falls short of this any more. On a des filtres vides. »
+		//
+		// Le menu est bati sur les DEUX listes a la fois, pour qu une categorie
+		// choisie ne disparaisse pas en changeant d onglet — c est voulu et
+		// c est bien. Mais il en affichait aussi le compte des deux, donc il
+		// promettait quatre produits sur un onglet qui n en avait aucun.
+		// L entree reste ; c est le CHIFFRE qui suit l onglet.
+		$tab_ids = array_flip( array_map( 'intval', (array) ( 'fixed' === $show ? $split['done'] : $split['todo'] ) ) );
+		foreach ( $cats as $dze_tid => $dze_one ) {
+			$dze_n = 0;
+			foreach ( (array) $dze_one['ids'] as $dze_pid ) {
+				if ( isset( $tab_ids[ (int) $dze_pid ] ) ) {
+					$dze_n++;
+				}
+			}
+			$cats[ $dze_tid ]['here'] = $dze_n;
+		}
 		$in_all = count( $ids );
 		if ( $cat ) {
 			$keep = array_flip( $cats[ $cat ]['ids'] );
@@ -3352,7 +3372,7 @@ final class DZE_Diagnostic {
 					'<option value="%1$d"%2$s>%3$s</option>',
 					(int) $dze_tid,
 					selected( $cat, (int) $dze_tid, false ),
-					esc_html( $dze_cat['name'] . ' (' . number_format_i18n( count( $dze_cat['ids'] ) ) . ')' )
+					esc_html( $dze_cat['name'] . ' (' . number_format_i18n( (int) ( $dze_cat['here'] ?? 0 ) ) . ')' )
 				);
 			}
 			printf(
