@@ -264,5 +264,23 @@ for ( $i = 0; $i < 4; $i++ ) { DZE_Ai_Usage::fal_attempt( 8 ); DZE_Ai_Usage::fal
 ok( 'all four came back, so nothing is said about failures',
 	false !== strpos( DZE_Ai_Usage::fal_blocked( 8 ), 'came back' ), false );
 
+echo "\nOU PART L ARGENT, PAR MODULE\n";
+// « Pour le comptage des operations, c est un chaos total. Il faudrait
+// mieux developper, par module. » Dix-huit unites a plat obligeaient a
+// additionner de tete « cat_links » et « mesh_pick » pour savoir ce que
+// coute le maillage.
+ok( 'le maillage regroupe ses deux unites',
+	[ DZE_Ai_Usage::module_of( 'cat_links' ), DZE_Ai_Usage::module_of( 'mesh_pick' ) ], [ 'linking', 'linking' ] );
+ok( 'les images sont du contenu produit', DZE_Ai_Usage::module_of( 'product_img' ), 'products' );
+// UNE UNITE OUBLIEE NE DISPARAIT PAS : un compte qui ne tombe pas juste
+// est un compte qu on cesse de croire.
+ok( 'une unite inconnue tombe dans le reste', DZE_Ai_Usage::module_of( 'jamais_vu' ), 'rest' );
+// ET LE DETAIL : « x produits, x articles de blog, x taxonomies ».
+ok( 'une unite detaillee reste dans son module', DZE_Ai_Usage::module_of( 'translate:post' ), 'translate' );
+ok( 'et elle se lit en toutes lettres',
+	false !== strpos( DZE_Ai_Usage::unit_label( 'translate:post' ), 'articles' ), true );
+ok( 'un genre inconnu est rendu tel quel',
+	false !== strpos( DZE_Ai_Usage::unit_label( 'translate:zzz' ), 'zzz' ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
