@@ -277,8 +277,12 @@ ok( 'an old subject answer changes nothing', $GLOBALS['sent']['sources'], $befor
 ok( 'and an old copy answer changes nothing', $GLOBALS['told'], $said );
 // And nothing appended can still be asking for a setting or for a copy: those
 // were sentences the plugin wrote over the owner's own prompt.
+// ON VERIFIE CE QUI EST DIT, PAS COMBIEN DE CHOSES SONT DITES. Un nombre
+// interdit aussi les reponses legitimes : « une seule photo, choisie
+// expres » en est une, et elle a ete ajoutee. Les deux qui portaient « ce
+// qui a ete depose » restent bannies, et c est ELLES qu on nomme.
 ok( 'the brief is told the product and nothing else',
-	count( $GLOBALS['told'] ), 5 );
+	in_array( 'copy', $GLOBALS['told'], true ) || in_array( 'setting', $GLOBALS['told'], true ), false );
 
 // A PICKED PHOTOGRAPH IS AN ANSWER TOO, and it never reached this function:
 // the toolbox posted src_id and only the main-image lane ever read it, so
@@ -470,6 +474,27 @@ $GLOBALS['about'] = [];
 $GLOBALS['images'] = [];
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1 ] );
 ok( 'a run that failed still let go',   (int) end( $GLOBALS['about'] ), 0 );
+
+echo "\nLA PHOTO PRINCIPALE SEULEMENT, POUR TOUTE UNE SERIE\n";
+// Le decor, remis : une section plus haut l a vide pour ses propres essais.
+shop();
+// « J utilise le bulk content pour mettre a jour des centaines de
+// produits. » Choisir une photo produit par produit n a aucun sens a cette
+// echelle — et c est pourtant la que le modele melange les vues, puisque
+// chaque fiche envoie tout ce qu elle a. L ecran en masse n avait aucun
+// selecteur du tout.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'only_main' => 1 ] );
+ok( 'seule la photo principale part',
+	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG11/full' ] );
+// ET LE MODELE SAIT QU IL N A QU UNE VUE : sans ca il tournerait l objet et
+// inventerait la face qu il n a jamais vue.
+ok( 'et il sait qu il n a qu une vue', $GLOBALS['told'][5] ?? null, true );
+// SANS LA CASE, RIEN NE CHANGE : plusieurs photos aident sur un produit
+// simple, elles perdent le modele sur un produit technique, et c est a la
+// boutique de savoir lequel elle traite.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1 ] );
+ok( 'sans la case, toutes partent',
+	count( (array) $GLOBALS['sent']['sources'] ) > 1, true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
