@@ -4666,6 +4666,24 @@ Answer with STRICT JSON and nothing else: "
 											<?php endforeach; ?>
 										</select>
 									<?php endif; ?>
+									<?php
+									// LA PHOTO PRINCIPALE SEULEMENT, POUR TOUTE LA SÉRIE.
+									//
+									// « J'utilise le bulk content pour mettre à jour des
+									// centaines de produits. » Choisir une photo produit par
+									// produit n'a aucun sens à cette échelle — et c'est là que
+									// le mélange de vues arrive, puisque chaque fiche envoie
+									// tout ce qu'elle a. Une seule décision pour la série.
+									//
+									// Décochée par défaut : plusieurs photos aident le modèle
+									// sur un produit simple, elles le perdent sur un produit
+									// technique. C'est à la boutique de savoir lequel elle
+									// traite.
+									?>
+									<label class="dze-tpl-onemain-wrap" title="<?php esc_attr_e( 'Sends only each product\'s main photograph, instead of all of them. On technical products, several conflicting views are what makes the model merge a back with parts of the front.', 'dazont-ecom' ); ?>">
+										<input type="checkbox" class="dze-tpl-onemain" />
+										<?php esc_html_e( 'Main photo only', 'dazont-ecom' ); ?>
+									</label>
 									<select class="dze-tpl-n" title="<?php esc_attr_e( 'Attempts for this prompt, on each product — you keep the good ones at review time.', 'dazont-ecom' ); ?>">
 										<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
 											<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>

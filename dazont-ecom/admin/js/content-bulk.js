@@ -703,6 +703,13 @@
 		if (review) { data.mode = 'defer'; data.stash = 1; }
 		if (scene === undefined) { scene = job.scene; }
 		if ($('#dze-cb-tplrows .dze-tpl-scene').length) { data.scene = scene; }
+		// LA PHOTO PRINCIPALE SEULEMENT, si la serie le demande.
+		//
+		// « J utilise le bulk content pour mettre a jour des centaines de
+		// produits. » Le sélecteur de photo de la fenetre produit ne sert a
+		// rien a cette echelle, et c est pourtant la que le modele melange les
+		// vues : chaque fiche envoie tout ce qu elle a. Une case pour la serie.
+		if ($('.dze-tpl-onemain').first().prop('checked')) { data.only_main = 1; }
 		// Where it goes travels WITH the order, so the image is remembered as
 		// headed there even if the tab is closed before the review.
 		data.target = target || job.target;

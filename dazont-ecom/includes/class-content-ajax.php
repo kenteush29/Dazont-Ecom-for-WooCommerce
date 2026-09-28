@@ -1056,6 +1056,22 @@ trait DZE_Content_Ajax {
 		// a seventh bag. Not one either — a single cropped shot is what makes
 		// it invent the rest. The number is a setting, beside the fal.ai key.
 		$product_ids = self::product_source_ids( $pid );
+		// « J'UTILISE LE BULK CONTENT POUR METTRE À JOUR DES CENTAINES DE
+		// PRODUITS. »
+		//
+		// Choisir une photo produit par produit n'a aucun sens sur trois cents
+		// fiches : c'est exactement ce que le bulk sert à éviter. Mais c'est là
+		// que le mélange de vues arrive, puisque chaque produit envoie tout ce
+		// qu'il a — et l'écran en masse n'a jamais eu de sélecteur du tout.
+		//
+		// Une seule décision pour toute la série, donc : « la photo principale
+		// seulement ». Le modèle ne voit qu'une face, il ne peut plus en
+		// fabriquer une moyenne, et personne n'a rien coché trois cents fois.
+		if ( ! empty( $in['only_main'] ) ) {
+			$thumb       = (int) get_post_thumbnail_id( $pid );
+			$product_ids = ( $thumb && wp_attachment_is_image( $thumb ) ) ? [ $thumb ] : array_slice( $product_ids, 0, 1 );
+			$src_id      = 0;
+		}
 		// The one that was picked leads them: it is what the model works from,
 		// and the others are the angles it does not show. An id that answers
 		// for nothing is dropped rather than sent.
@@ -1270,7 +1286,7 @@ trait DZE_Content_Ajax {
 			// in is the only lane with a subject of its own — there the answer
 			// is allowed to look like its source, and everywhere else it is the
 			// product that is being photographed afresh.
-			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, '' !== $src );
+			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, '' !== $src, 1 === $product_count && ( ! empty( $in['only_main'] ) || $src_id > 0 ) );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
