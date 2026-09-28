@@ -106,6 +106,14 @@ final class DZE_Translate {
 	}
 
 	private function __construct() {
+		// LA FILE DEMANDEE SE VIDE HORS DE L ADMIN, donc son crochet se pose
+		// AVANT le garde ci-dessous.
+		//
+		// WP-Cron ne tourne PAS en admin : declare plus bas, ce crochet
+		// n existait tout simplement pas au moment ou le planificateur
+		// l appelait, et la file se serait remplie sans jamais se vider — en
+		// silence, ce qui est la pire des pannes.
+		add_action( self::HOOK_DRAIN, [ __CLASS__, 'drain' ] );
 		// Admin only, by nature: nothing here has any business on a shop page.
 		if ( ! is_admin() ) {
 			return;
@@ -120,6 +128,8 @@ final class DZE_Translate {
 		// The module's own screen, and the three presses on it.
 		add_action( 'admin_menu', [ $this, 'register_menu' ] );
 		add_action( 'wp_ajax_dze_tr_batch', [ $this, 'ajax_batch' ] );
+		// L'ENVOI EN MASSE DÉPOSE ET REPART. Voir ajax_queue().
+		add_action( 'wp_ajax_dze_tr_queue', [ $this, 'ajax_queue' ] );
 		// L'ACTION GROUPÉE DE WORDPRESS, sur ses propres listes. Voir ask().
 		add_action( 'admin_init', [ $this, 'hook_bulk' ] );
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
@@ -492,7 +502,7 @@ final class DZE_Translate {
 	 * @param array<int,array{kind:string,id:int,type:string}> $objets
 	 * @return int combien ont été mis en file.
 	 */
-	public static function ask( array $objets ): int {
+	public static function ask( array $objets, bool $accept = false ): int {
 		$file = (array) get_option( self::OPT_ASKED, [] );
 		$vu   = [];
 		foreach ( $file as $un ) {
@@ -504,6 +514,10 @@ final class DZE_Translate {
 				'kind' => (string) ( $o['kind'] ?? 'post' ),
 				'id'   => (int) ( $o['id'] ?? 0 ),
 				'type' => (string) ( $o['type'] ?? '' ),
+				// « Ecrire sans relire » voyage AVEC la demande, pas dans un
+				// reglage : deposee aujourd hui, elle doit etre traitee comme on
+				// l a voulue aujourd hui, meme si la case a change depuis.
+				'accept' => $accept ? 1 : 0,
 			];
 			if ( $o['id'] < 1 ) {
 				continue;
@@ -544,6 +558,213 @@ final class DZE_Translate {
 			$out[] = $o;
 		}
 		return $out;
+	}
+
+	/**
+	 * LE VERROU D UN PASSAGE.
+	 *
+	 * Le rendez-vous suivant est pris AVANT de travailler — sinon un passage
+	 * qui meurt arrete la file pour toujours. Mais deux passages qui se
+	 * chevauchent traduiraient le meme objet deux fois et le paieraient deux
+	 * fois. Le verrou tranche : le second rentre aussitot.
+	 *
+	 * Il expire tout seul, parce qu un passage tue ne le rend jamais et qu un
+	 * verrou coince est une file morte.
+	 */
+	public const LOCK_DRAIN = 'dze_translate_draining';
+
+	/** Combien de temps un passage peut tenir le verrou. */
+	public const LOCK_LIFE = 900;
+
+	/** Le crochet que la file demandée fait tourner toute seule. */
+	public const HOOK_DRAIN = 'dze_translate_drain';
+
+	/**
+	 * UN SEUL OBJET PAR PASSAGE.
+	 *
+	 * Trois au depart, et le premier essai l a tranche : deux articles ont
+	 * occupe le passage plus de HUIT MINUTES sans le finir. Un objet part
+	 * dans cinq langues, chaque langue est un appel d une minute, et aucun
+	 * hebergeur ne laisse une tache vivre un quart d heure.
+	 *
+	 * Un passage qui meurt en chemin ne perd rien — ce qui est traduit est
+	 * depose, ce qui reste est encore en file — mais il ne se REPROGRAMME
+	 * pas, et la file s arrete. Un seul objet a la fois tient dans le temps
+	 * accorde, se reprogramme, et le debit est le meme au bout du compte.
+	 */
+	public const DRAIN_STEP = 1;
+
+	/**
+	 * LA FILE SE VIDE TOUTE SEULE, EN ARRIÈRE-PLAN.
+	 *
+	 * « Les traductions en bulk devraient s'effectuer en background, je n'en
+	 * suis pas sûr, je n'ai pas osé changer de page pendant le chargement. »
+	 *
+	 * Un envoi de quarante pages depuis le navigateur, c'est quarante
+	 * allers-retours pendant lesquels il faut rester là — et la FAQ a montré
+	 * qu'un seul objet lourd suffit à faire mourir la requête. Alors l'écran
+	 * ne traduit plus : il DÉPOSE, et repart. Ce qui travaille ensuite est
+	 * cette fonction, réveillée par le planificateur, trois objets à la fois,
+	 * qui se reprogramme tant qu'il reste quelque chose.
+	 *
+	 * Trois et pas trente : une page lourde prend une minute, et un passage qui
+	 * dépasse le temps accordé par l'hébergeur ne finit jamais son lot. Trois
+	 * qui aboutissent valent mieux que trente qui meurent.
+	 *
+	 * Rien n'est perdu si le passage tombe : ce qui a été traduit est déjà
+	 * déposé, et ce qui restait est encore dans la file.
+	 */
+	public static function drain(): void {
+		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return;
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 600 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- l'hébergeur peut refuser.
+		}
+		// UN SEUL PASSAGE A LA FOIS — MAIS CELUI QUI ARRIVE TROP TOT NE
+		// DISPARAIT PAS.
+		//
+		// Le rendez-vous suivant est pris en tete de passage, donc il se
+		// declenche PENDANT que le verrou est encore tenu. En rentrant
+		// bredouille il se marquait « termine », et plus rien n etait
+		// programme : la chaine se rompait au premier maillon. Constate sur
+		// Kula — un passage complet, une langue produite, et zero suite.
+		//
+		// Il se redonne donc rendez-vous, plus tard, le temps que le passage
+		// en cours finisse.
+		if ( get_transient( self::LOCK_DRAIN ) ) {
+			if ( ! wp_next_scheduled( self::HOOK_DRAIN ) ) {
+				wp_schedule_single_event( time() + 120, self::HOOK_DRAIN );
+			}
+			return;
+		}
+		$reste = self::asked();
+		if ( ! $reste ) {
+			return;
+		}
+		set_transient( self::LOCK_DRAIN, time(), self::LOCK_LIFE );
+		$cibles = [];
+		$src    = (string) DZE_Wpml::default_language();
+		foreach ( DZE_Wpml::get_active_languages() as $l ) {
+			$code = (string) ( $l['code'] ?? '' );
+			if ( '' !== $code && $code !== $src ) {
+				$cibles[] = $code;
+			}
+		}
+		// ON SE REPROGRAMME AVANT DE TRAVAILLER, PAS APRES.
+		//
+		// Un passage qui meurt en chemin — l hebergeur coupe, la memoire
+		// manque — n execute jamais la ligne qui reprogramme le suivant. La
+		// file s arrete alors pour toujours, sans un mot : exactement la panne
+		// muette qu on passe ses journees a fermer ailleurs. Le rendez-vous
+		// suivant est donc pris D ABORD ; un passage qui n a rien a faire
+		// rentre aussitot et ne coute rien.
+		// LE RENDEZ-VOUS SUIVANT EST PRIS D'ABORD, TOUJOURS.
+		//
+		// Un passage qui meurt en chemin — l'hébergeur coupe, la mémoire
+		// manque — n'exécute jamais la ligne qui reprogramme le suivant, et la
+		// file s'arrête alors pour toujours, sans un mot. Le premier essai l'a
+		// montré : cinq cents secondes, tué, rien produit, rien dit.
+		self::kick_drain();
+
+		$o = (array) reset( $reste );
+		// CE QUI ATTEND DÉJÀ UN OUI OU UN NON N EST PAS À REFAIRE.
+		//
+		// Le test portait sur l objet ENTIER : des qu une seule langue etait
+		// produite, l objet sortait de la file et les quatre autres n etaient
+		// jamais faites. Constate sur Kula : le francais depose, l allemand,
+		// le polonais, l espagnol et le russe abandonnes en silence.
+		//
+		// On regarde donc LANGUE PAR LANGUE, et une langue deja deposee est
+		// simplement sautee — la reproduire la paierait deux fois.
+		$deja = array_keys( (array) ( self::waiting( $o )['langs'] ?? [] ) );
+		// UNE SEULE LANGUE PAR PASSAGE.
+		//
+		// Un objet part dans cinq langues et chaque langue est un appel d'une
+		// minute : le premier essai a dépassé les cinq cents secondes sur DEUX
+		// articles. Une langue tient largement dans le temps qu'un hébergeur
+		// accorde, l'objet reste en file tant qu'il doit encore quelque chose,
+		// et le débit est le même au bout du compte.
+		$owed = [];
+		foreach ( $cibles as $code ) {
+			if ( in_array( $code, $deja, true ) ) {
+				continue; // deposee, elle attend la relecture.
+			}
+			if ( '' !== trim( implode( '', (array) self::obj_stale( $o, $code ) ) ) ) {
+				$owed[] = $code;
+			}
+		}
+		if ( ! $owed ) {
+			self::unask( $o ); // plus rien dû : la demande est honorée.
+			delete_transient( self::LOCK_DRAIN );
+			return;
+		}
+		$lang = (string) reset( $owed );
+		// TROIS ÉCHECS ET L'OBJET SORT. Un texte qui fait tomber le passage à
+		// chaque fois prendrait la file entière en otage : on le perd plutôt
+		// que de tout bloquer, et il reste visible là où on l'a demandé.
+		$essais = (int) get_post_meta( (int) $o['id'], '_dze_drain_tries', true );
+		if ( $essais >= 3 ) {
+			self::unask( $o );
+			self::note_drain_error( $o, __( 'Left the queue after three passes that came back with nothing.', 'dazont-ecom' ) );
+			delete_post_meta( (int) $o['id'], '_dze_drain_tries' );
+			delete_transient( self::LOCK_DRAIN );
+			return;
+		}
+		update_post_meta( (int) $o['id'], '_dze_drain_tries', $essais + 1 );
+		try {
+			$made = self::produce( $o, [ $lang ] );
+			// « Écrire sans relire » voyage avec la demande : voir ask().
+			if ( ! empty( $o['accept'] ) && ! empty( $made['langs'] ) ) {
+				self::accept( $o, (array) $made['langs'] );
+			}
+			// Un passage qui a produit remet le compteur à zéro : les trois
+			// essais comptent les échecs D'AFFILÉE, pas les langues.
+			delete_post_meta( (int) $o['id'], '_dze_drain_tries' );
+		} catch ( \Throwable $e ) {
+			self::note_drain_error( $o, $e->getMessage() );
+		}
+		// Ce qui doit encore une autre langue reste en file pour le passage
+		// suivant ; ce qui ne doit plus rien en sort au passage d'après, par le
+		// test en tête de cette fonction.
+		if ( 1 === count( $owed ) ) {
+			self::unask( $o );
+		}
+		delete_transient( self::LOCK_DRAIN );
+		// ET ON REPREND LA MAIN SI LE RENDEZ-VOUS DU DEBUT S EST PERDU : il a
+		// pu se declencher pendant qu on tenait le verrou et rentrer bredouille.
+		// Deux ceintures valent mieux qu une file arretee en silence.
+		if ( self::asked() ) {
+			self::kick_drain();
+		}
+	}
+
+	/** Réveille la file demandée, maintenant si le planificateur le permet. */
+	public static function kick_drain(): void {
+		if ( function_exists( 'as_enqueue_async_action' ) ) {
+			$next = function_exists( 'as_next_scheduled_action' ) ? as_next_scheduled_action( self::HOOK_DRAIN ) : false;
+			if ( false === $next ) {
+				as_enqueue_async_action( self::HOOK_DRAIN, [], 'dazont-ecom' );
+				return;
+			}
+			if ( true !== $next ) {
+				return; // un passage attend déjà son tour.
+			}
+		}
+		if ( ! wp_next_scheduled( self::HOOK_DRAIN ) ) {
+			wp_schedule_single_event( time() + 5, self::HOOK_DRAIN );
+		}
+	}
+
+	/** Ce qui a résisté, gardé pour l'écran plutôt que perdu en silence. */
+	private static function note_drain_error( array $o, string $why ): void {
+		$log = (array) get_option( 'dze_translate_drain_errors', [] );
+		array_unshift( $log, [
+			'ref' => self::ref( $o ),
+			'why' => mb_substr( $why, 0, 200 ),
+			'at'  => time(),
+		] );
+		update_option( 'dze_translate_drain_errors', array_slice( $log, 0, 30 ), false );
 	}
 
 	/** Retire un objet de la file demandée — il a été pris en charge. */
@@ -4578,6 +4799,52 @@ final class DZE_Translate {
 			esc_attr( $n ? 'success' : 'info' ),
 			esc_html( $dit )
 		);
+	}
+	/**
+	 * L'ENVOI EN MASSE : DÉPOSER, PAS ATTENDRE.
+	 *
+	 * « Les traductions en bulk devraient s'effectuer en background, je n'en
+	 * suis pas sûr, je n'ai pas osé changer de page pendant le chargement. »
+	 *
+	 * L'écran faisait un aller-retour par objet et il fallait rester là. Une
+	 * seule requête maintenant : elle range la sélection dans la file et rend
+	 * la main tout de suite. Ce qui travaille ensuite est `drain()`, réveillé
+	 * par le planificateur — on peut fermer l'onglet.
+	 */
+	public function ajax_queue(): void {
+		$this->screen_guard();
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- screen_guard() l'a vérifié.
+		$refs   = isset( $_POST['refs'] ) ? (array) wp_unslash( $_POST['refs'] ) : [];
+		$accept = ! empty( $_POST['accept'] );
+		// phpcs:enable
+		$objs = [];
+		foreach ( $refs as $ref ) {
+			$o = self::from_ref( sanitize_text_field( (string) $ref ) );
+			if ( $o ) {
+				$objs[] = $o;
+			}
+		}
+		if ( ! $objs ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing was ticked that this site translates.', 'dazont-ecom' ) ] );
+		}
+		$n = self::ask( $objs, $accept );
+		self::kick_drain();
+		wp_send_json_success( [
+			'queued'  => $n,
+			'waiting' => count( self::asked() ),
+			'message' => $n
+				? sprintf(
+					/* translators: %s: how many objects were queued */
+					_n(
+						'%s page is queued. It is translated in the background — you can close this tab.',
+						'%s pages are queued. They are translated in the background — you can close this tab.',
+						$n,
+						'dazont-ecom'
+					),
+					number_format_i18n( $n )
+				)
+				: __( 'They were already in the queue.', 'dazont-ecom' ),
+		] );
 	}
 	public function ajax_batch(): void {
 		$this->screen_guard();
