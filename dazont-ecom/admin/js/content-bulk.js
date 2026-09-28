@@ -974,7 +974,7 @@
 		// The gallery as it stands today, right under the new images: the only
 		// way to judge whether a generated shot ADDS something.
 		loadCurrent(id).then(function () {
-			renderCurrentImages(id); renderToday(id); renderLog(id); renderSrcs(id);
+			renderCurrentImages(id); renderToday(id); renderLog(id);
 		});
 		srcState(id);
 	}
@@ -998,12 +998,21 @@
 	function renderSrcs(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-srcs');
 		if (!$slot.length || !b.current) { return; }
+		// Photographs that could not be READ are not photographs that are
+		// gone: what was picked stays picked until the product answers.
+		if (b.currentKo) { $slot.empty(); srcState(id); return; }
 		var html = '<button type="button" class="dze-one-srcpick dze-cb-srcpick" data-id="0">' + esc(i18n.srcRow) + '</button>';
+		// A photograph picked, then taken off the product, is no longer
+		// picked: the server would drop it and send every photograph instead.
+		var have = (b.current.images || []).map(function (im) { return parseInt(im.id, 10) || 0; });
+		picks[String(id)] = picksOf(id).filter(function (pid) { return have.indexOf(pid) >= 0; });
 		(b.current.images || []).forEach(function (im) {
 			if (!im.id) { return; }
 			html += '<button type="button" class="dze-one-srcpick dze-cb-srcpick" data-id="' + im.id + '">' +
 				'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" />' +
-				'<span class="dze-one-srcn" aria-hidden="true"></span></button>';
+				'<span class="dze-one-srcn" aria-hidden="true"></span>' +
+				(im.variation ? '<span class="dze-one-srcvar">' + esc(im.variation) + '</span>' : '') +
+				'</button>';
 		});
 		$slot.html(html);
 		srcState(id);
@@ -1402,6 +1411,9 @@
 	// per-product image popup to open.
 	function renderCurrentImages(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-nowshots');
+		// The picker offers the photographs the product has NOW: one reframed
+		// or removed a moment ago is not left on offer.
+		renderSrcs(id);
 		if (!$slot.length || !b.current || !window.dzePhotos) { return; }
 		if (b.currentKo) {
 			$slot.empty().append(
