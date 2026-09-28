@@ -88,6 +88,9 @@ final class DZE_Discounts {
 	private const META_MANAGED    = '_dze_sale_managed'; // per (variation) row flag.
 	private const META_PREV       = '_dze_sale_prev';   // original _sale_price to restore.
 	private const META_PREV_PRICE = '_dze_price_prev';  // original _price to restore.
+
+	/** Où les prix de solde incohérents rencontrés sont notés. */
+	public const OPT_DRIFT = 'dze_sale_drift';
 	private const META_PREV_FROM  = '_dze_sale_prev_from';
 	private const META_PREV_TO    = '_dze_sale_prev_to';
 	private const SYNC_CHUNK      = 60;                 // rows processed per background pass.
@@ -1382,7 +1385,50 @@ final class DZE_Discounts {
 		if ( $regular <= 0 ) {
 			return $sale; // sans prix normal il n y a rien a comparer.
 		}
-		return ( (float) $sale >= $regular ) ? '' : $sale;
+		if ( (float) $sale < $regular ) {
+			return $sale;
+		}
+		// ET ON NOTE QUI A DÉRIVÉ, PARCE QU'ON NE SAIT PAS ENCORE POURQUOI.
+		//
+		// « Tu as bien trouvé pourquoi le solde était plus élevé que le prix de
+		// base ? » — Non. J'ai trouvé le symptôme, mille sept cent soixante-seize
+		// lignes, et posé ce garde-fou. Mais la cause reste inconnue : le code
+		// qui écrit refuse déjà un solde qui dépasse, donc quelque chose a bougé
+		// APRÈS. J'ai supposé une synchronisation fournisseur — c'était une
+		// hypothèse, et la réparation a effacé ce qui aurait permis de la
+		// vérifier.
+		//
+		// On garde donc une trace de la prochaine dérive : le produit, les deux
+		// prix, l'heure. Une par produit et par jour, cinquante au plus — ce
+		// filtre tourne à chaque lecture de prix, il ne doit rien coûter.
+		self::note_drift( (int) $product->get_id(), $regular, (float) $sale );
+		return '';
+	}
+
+	/**
+	 * Les prix incohérents rencontrés, pour savoir enfin d'où ils viennent.
+	 *
+	 * @param float $regular Le prix normal tel qu'il est en base.
+	 * @param float $sale    Le prix de solde qui le dépasse.
+	 */
+	private static function note_drift( int $pid, float $regular, float $sale ): void {
+		if ( $pid < 1 ) {
+			return;
+		}
+		$jour = gmdate( 'Y-m-d' );
+		$vu   = get_transient( 'dze_sale_drift_' . $pid );
+		if ( $vu === $jour ) {
+			return; // déjà noté aujourd'hui : une ligne par produit et par jour.
+		}
+		set_transient( 'dze_sale_drift_' . $pid, $jour, DAY_IN_SECONDS );
+		$log = (array) get_option( self::OPT_DRIFT, [] );
+		array_unshift( $log, [
+			'pid'  => $pid,
+			'reg'  => round( $regular, 2 ),
+			'sale' => round( $sale, 2 ),
+			'at'   => time(),
+		] );
+		update_option( self::OPT_DRIFT, array_slice( $log, 0, 50 ), false );
 	}
 
 	public function filter_price( $price, $product ) {

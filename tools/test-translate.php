@@ -2549,6 +2549,56 @@ ok( 'la case est sur l ecran',
 ok( 'et elle ne se souvient de rien',
 	1 === preg_match( '/id="dze-tr-autoaccept" \/>/', $dze_scr ), true );
 
+echo "\nLA FILE DEMANDEE SE VIDE TOUTE SEULE, EN ARRIERE-PLAN\n";
+// « Les traductions en bulk devraient s effectuer en background, je n en
+// suis pas sur, je n ai pas ose changer de page pendant le chargement. »
+//
+// C etait un aller-retour par objet et il fallait rester la. L ecran depose
+// maintenant en une requete et rend la main ; drain() travaille ensuite.
+$dze_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
+ok( 'le moteur existe',               method_exists( 'DZE_Translate', 'drain' ), true );
+ok( 'et l ecran depose en une fois',  method_exists( 'DZE_Translate', 'ajax_queue' ), true );
+// LE PIEGE QUI AURAIT TOUT CASSE : WP-Cron ne tourne PAS en admin. Declare
+// apres le garde `is_admin()`, le crochet n existait pas au moment ou le
+// planificateur l appelait — la file se serait remplie sans jamais se
+// vider, en silence.
+$dze_pos_hook  = strpos( $dze_src, 'add_action( self::HOOK_DRAIN' );
+$dze_pos_garde = strpos( $dze_src, 'if ( ! is_admin() ) {' );
+ok( 'le crochet est pose AVANT le garde admin',
+	$dze_pos_hook !== false && $dze_pos_garde !== false && $dze_pos_hook < $dze_pos_garde, true );
+// IL SE REPROGRAMME A CHAQUE PASSAGE, sinon un lot de quarante sarreterait
+// au premier. Et il le fait AVANT de travailler : voir plus bas.
+ok( 'et il se reprogramme a chaque passage',
+	false !== strpos( $dze_src, 'self::kick_drain();' ), true );
+// UN OBJET QUI RESISTE NE FERME PAS LA FILE : trois passages sans rien
+// produire et il sort, sinon un seul texte impossible la bloque pour
+// toujours.
+ok( 'trois echecs et lobjet sort',
+	false !== strpos( $dze_src, 'if ( $essais >= 3 ) {' ), true );
+// UNE SEULE LANGUE PAR PASSAGE : un objet part dans cinq langues et chaque
+// langue est un appel dune minute. Le premier essai a depasse les cinq
+// cents secondes sur DEUX articles, tue, rien produit, rien dit.
+ok( 'une seule langue par passage',
+	false !== strpos( $dze_src, 'self::produce( $o, [ $lang ] )' ), true );
+// LE RENDEZ-VOUS SUIVANT EST PRIS AVANT LE TRAVAIL : un passage qui meurt
+// n executerait jamais la ligne de fin, et la file sarreterait en silence.
+$dze_p_kick = strpos( $dze_src, 'self::kick_drain();', strpos( $dze_src, 'public static function drain' ) );
+$dze_p_work = strpos( $dze_src, 'self::produce( $o, [ $lang ] )' );
+ok( 'le rendez-vous est pris avant le travail',
+	$dze_p_kick !== false && $dze_p_work !== false && $dze_p_kick < $dze_p_work, true );
+// ET UN VERROU EMPECHE DEUX PASSAGES DE SE CHEVAUCHER : sinon le meme objet
+// serait traduit deux fois et paye deux fois.
+ok( 'un seul passage a la fois',
+	false !== strpos( $dze_src, 'get_transient( self::LOCK_DRAIN )' ), true );
+// LE VERROU EXPIRE TOUT SEUL : un passage tue ne le rend jamais, et un
+// verrou coince est une file morte.
+ok( 'et le verrou expire tout seul',
+	false !== strpos( $dze_src, 'self::LOCK_DRAIN, time(), self::LOCK_LIFE' ), true );
+// ET « ECRIRE SANS RELIRE » VOYAGE AVEC LA DEMANDE, pas dans un reglage :
+// deposee aujourd hui, elle doit etre traitee comme on l a voulue.
+ok( 'le choix decriture voyage avec elle',
+	false !== strpos( $dze_src, "'accept' => \$accept ? 1 : 0" ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 

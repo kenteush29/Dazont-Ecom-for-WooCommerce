@@ -171,118 +171,46 @@
 		});
 	});
 
+	// L ENVOI EN MASSE DEPOSE ET REPART.
+	//
+	// « Les traductions en bulk devraient s effectuer en background, je n en
+	// suis pas sur, je n ai pas ose changer de page pendant le chargement. »
+	//
+	// C etait un aller-retour par objet, et il fallait rester la : quarante
+	// pages, quarante requetes, et une seule page lourde suffisait a faire
+	// mourir celle en cours. Une requete maintenant, qui range la selection
+	// et rend la main. Le travail se fait ensuite, tout seul.
 	$(document).on('click', '#dze-tr-send', function () {
 		var $btn = $(this);
-		var langs = $('.dze-tr-lang:checked').map(function () { return $(this).val(); }).get();
-		// CE QUI A ETE COCHE, SUR TOUTES LES PAGES. La liste du DOM ne
-		// connait que la page affichee ; la memoire, elle, garde le reste.
+		var langs = $('.dze-tr-lang:checked').length;
 		remember();
 		var refs = Object.keys(readKept());
-		if (!langs.length) { window.alert(i18n.langFirst); return; }
+		if (!langs) { window.alert(i18n.langFirst); return; }
 		if (!refs.length) { window.alert(i18n.tickFirst); return; }
-
-		var total = refs.length, done = 0, waiting = 0, spent = 0, failed = 0, stop = false;
 		$btn.prop('disabled', true);
-		// A RUN ON FORTY ROWS MUST BE STOPPABLE, like every other long press in
-		// this plugin: it walks one object at a time, so stopping costs nothing
-		// and leaves what has already come back exactly where it is.
-		$('#dze-tr-stop').show().prop('disabled', false).off('click.dzetr').on('click.dzetr', function () {
-			stop = true;
-			$(this).prop('disabled', true);
-		});
-		$('#dze-tr-prog').show();
 		$('#dze-tr-sendstate').text(i18n.sending);
-
-		// WHAT HAPPENED TO **THIS** ROW, on the row itself. A batch that
-		// finished and left every line exactly as it was is a press nobody can
-		// tell worked: "Rien à jour sur la page. La je ne comprends pas quoi
-		// faire en fait."
-		function mark(ref, state, said) {
-			$('.dze-tr-row').filter(function () { return String($(this).data('ref')) === String(ref); })
-				.find('.dze-tr-state')
-				.html('<span class="dze-tr-chip is-' + esc(state) + '">' + esc(said) + '</span>');
-		}
-
-		function step() {
-			if (stop && refs.length) { refs.length = 0; }
-			if (!refs.length) {
-				$btn.prop('disabled', false);
-				$('#dze-tr-stop').hide();
-				$('#dze-tr-progstep').text(stop ? i18n.stopped : '');
-				// A RUN THAT SPENT NOTHING SAYS SO. "Nothing had moved" and
-				// "it failed" must never read the same — with no key or WPML
-				// silent every row failed and the screen said "nothing was
-				// spent, they are up to date". A run that DID produce something
-				// offers the way to it rather than naming a tab.
-				if (spent) {
-					$('#dze-tr-sendstate').html(
-						esc(sprintf(i18n.sent, waiting)) +
-						(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : '') +
-						(failed ? ' ' + esc(sprintf(i18n.someFailed, failed)) : '')
-					);
-				} else if (failed) {
-					$('#dze-tr-sendstate').text(sprintf(i18n.allFailed, failed));
-				} else {
-					$('#dze-tr-sendstate').text(i18n.nothingNew);
-				}
+		post('dze_tr_queue', {
+			refs: refs,
+			accept: $('#dze-tr-autoaccept').prop('checked') ? 1 : 0
+		}).done(function (r) {
+			$btn.prop('disabled', false);
+			if (r && r.success) {
+				// DEPOSEE, DONC OUBLIEE : garder la selection ferait renvoyer les
+				// memes lignes au prochain clic.
+				writeKept({});
+				$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
+				bill();
+				$('#dze-tr-sendstate').html(esc(r.data.message || '') +
+					(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : ''));
 				return;
 			}
-			var ref = refs.shift();
-			post('dze_tr_batch', { ref: ref, langs: langs, accept: $('#dze-tr-autoaccept').prop('checked') ? 1 : 0 }).done(function (r) {
-				done++;
-				if (r && r.success) {
-					var n = (r.data.done || []).length;
-					// ECRIT OU EN ATTENTE : la case « sans relire » change ce que
-					// la ligne annonce, sinon elle renvoie vers une file vide.
-					var wrote = (r.data.written || []).length;
-					if (n) { spent++; if (!wrote) { waiting++; } }
-					mark(ref, wrote ? 'done' : (n ? 'held' : 'done'),
-						wrote ? i18n.rowWritten : (n ? i18n.rowHeld : i18n.rowNothing));
-					// AND THE ROW'S OWN BUTTON SAYS WHAT IT NOW OPENS ON: Look
-					// for the object as it stands, Review once there is work
-					// waiting for a decision. A screen that reacts to its own
-					// work is the rule, not a nicety.
-					if (n) {
-						$('tr[data-ref="' + ref + '"]').find('.dze-tr-openword').text(i18n.review);
-					}
-					$('#dze-tr-progstep').text(r.data.label || '');
-				} else {
-					failed++;
-					mark(ref, 'missing', said(r));
-					$('#dze-tr-progstep').text(said(r));
-				}
-			}).fail(function () {
-				done++;
-				failed++;
-				mark(ref, 'missing', i18n.error);
-				$('#dze-tr-progstep').text(i18n.error);
-			}).always(function () {
-				var pct = Math.round((done / total) * 100);
-				$('#dze-tr-prog .dze-cb-fill').css('width', pct + '%');
-				$('#dze-tr-progcount').text(sprintf(i18n.stepN, done, total));
-				step();
-			});
-		}
-		step();
+			$('#dze-tr-sendstate').text(said(r));
+		}).fail(function () {
+			$btn.prop('disabled', false);
+			$('#dze-tr-sendstate').text(i18n.error);
+		});
 	});
 
-	// =====================================================================
-	// THE TRANSLATION EDITOR — one screen per object, three presses
-	//
-	// "Je veux un seul écran pour chaque type de post. Comme le fait wpml !"
-	// Translate it, read it field by field, save it. What stood here before was
-	// a panel that unfolded inside a row AND a popup of ours on the product
-	// page: two per-object surfaces for one job, which is how two screens start
-	// disagreeing about one object and one of them loses text.
-	// =====================================================================
-
-	function editor() { return $('.dze-tr-editor'); }
-
-	// 1. TRANSLATE IT. Only what has moved is sent — the module's whole value —
-	// so a run that pays for nothing says so instead of looking broken.
-	// ONE HANDLER, TWO BUTTONS. The second sends `all`, which is the only
-	// difference between them: two copies of this would drift the day one of
-	// them learnt something the other did not.
 	$(document).on('click', '#dze-tr-auto, #dze-tr-auto-all', function () {
 		var $e = editor();
 		if (!$e.length) { return; }
