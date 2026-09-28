@@ -236,6 +236,25 @@
 				writeKept({});
 				$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
 				bill();
+				// LA LIGNE LE DIT TOUT DE SUITE, sans rafraichir.
+				//
+				// « in the queue FR DE PL ES RU — vu, mais seulement apres
+				// rafraichissement de la page. » Un ecran qui attend un F5 pour
+				// dire ce qu il vient de faire laisse croire qu il n a rien fait,
+				// et on renvoie tout une deuxieme fois.
+				var codes = $('.dze-tr-lang:checked').map(function () {
+					return String($(this).val()).toUpperCase();
+				}).get().join(' ');
+				refs.forEach(function (ref) {
+					var $row = $('.dze-tr-row').filter(function () {
+						return String($(this).data('ref')) === String(ref);
+					});
+					if (!$row.length || $row.find('.is-queued').length) { return; }
+					$row.find('td').eq(1).append(
+						' <span class="dze-tr-chip is-queued" style="background:#f0f6fc;border:1px solid #c5d9ed;color:#1d4b7d;">' +
+						esc(i18n.rowQueued) + (codes ? ' ' + esc(codes) : '') + '</span>'
+					);
+				});
 				$('#dze-tr-sendstate').html(esc(r.data.message || '') +
 					(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : ''));
 				return;
