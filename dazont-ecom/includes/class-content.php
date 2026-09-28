@@ -1538,7 +1538,7 @@ EOT;
 	 * rien d'autre." They are photographs of this product, they travel with the
 	 * product's own, and they are counted in $count with them.
 	 */
-	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false ): string {
+	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, bool $only_one = false ): string {
 		$out = "\n\n";
 		// SHORT, OR IT IS NOT READ. Every sentence here competes with the
 		// shop's own prompt for the model's attention, and this block had
@@ -1558,6 +1558,16 @@ EOT;
 				'IMAGES 1 TO %d ARE ONE SINGLE PRODUCT, photographed from different angles. Image 1 is the reference; the others show what it does not.',
 				$count
 			);
+		} elseif ( $only_one ) {
+			// UNE PHOTO CHOISIE EXPRES : c est CETTE vue qu on refait, pas une
+			// autre. « J aurais aime refaire l image qui m etait a disposition,
+			// juste cette image — les images fournisseur sont souvent bonnes et
+			// demandent un agrandissement ou un meilleur angle. »
+			//
+			// On le dit deux fois, parce que le modele a le droit de recadrer et
+			// de rapprocher, et pas du tout de tourner l objet : un quart de
+			// tour lui ferait inventer la face qu il n a jamais vue.
+			$out .= 'IMAGE 1 IS THE PRODUCT AND THE VIEW. It is the only photograph you are given, on purpose. Keep the SAME face of the product and the same orientation: you may come closer, reframe, clean the background and light it better, but you may NOT turn the product, show another side, or add any part this photograph does not show. Anything not visible here does not exist for this image.';
 		} else {
 			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is.';
 		}

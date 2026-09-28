@@ -707,6 +707,11 @@ trait DZE_Content_Ajax {
 		// ONE photograph of the product as the source — remaking a supplier
 		// shot is work done on that shot, not on the product in general.
 		$src_id = isset( $_POST['src_id'] ) ? absint( $_POST['src_id'] ) : 0;
+		// ET ELLE DOIT ÊTRE À CE PRODUIT. Une pièce jointe d'ailleurs ferait
+		// fabriquer la photo d'un autre article sans que rien ne s'en plaigne.
+		if ( $src_id && ! in_array( $src_id, self::product_own_image_ids( $pid ), true ) ) {
+			$src_id = 0;
+		}
 		// Which recipe: a registry image prompt, or the main-image one.
 		$recipe = isset( $_POST['recipe'] ) ? sanitize_key( wp_unslash( $_POST['recipe'] ) ) : '';
 		if ( ! $pid ) {
@@ -751,7 +756,11 @@ trait DZE_Content_Ajax {
 			// shown is a part it does not have to make up.
 			$refs  = [];
 			$ref_n = 0;
-			foreach ( self::product_source_ids( $pid ) as $i => $aid ) {
+			// UNE SEULE, OU TOUTES. Voir $src_id : quand la boutique a désigné
+			// une photo, elle part seule et en pleine taille — c'est elle le
+			// sujet, la vue et la référence, et il n'y a plus rien avec quoi
+			// la confondre.
+			foreach ( ( $src_id ? [ $src_id ] : self::product_source_ids( $pid ) ) as $i => $aid ) {
 				try {
 					$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
 				} catch ( \Throwable $e ) {
@@ -791,7 +800,7 @@ trait DZE_Content_Ajax {
 			$recipe_row = '' !== $recipe ? self::registry_row( $recipe ) : self::main_recipe();
 			$count      = count( $sources );
 			$variants   = 0;
-			if ( is_array( $recipe_row ) && self::wants_variants( $recipe_row ) ) {
+			if ( ! $src_id && is_array( $recipe_row ) && self::wants_variants( $recipe_row ) ) {
 				foreach ( $this->variant_images( $pid, self::product_source_ids( $pid ) ) as $uri ) {
 					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
 						break;
@@ -841,7 +850,7 @@ trait DZE_Content_Ajax {
 			$prompt = ( '' !== $dze_ctx ? "Product context: {$dze_ctx}\n\n" : '' )
 				. $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( $count, $plate_row, 0, $variants, false )
+				. self::sources_instruction( $count, $plate_row, 0, $variants, false, $src_id > 0 && 1 === $count )
 				. self::note_lines( $pid, '', isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '' );
 
 			DZE_Ai_Usage::unit( 'product_img' );
@@ -1050,8 +1059,22 @@ trait DZE_Content_Ajax {
 		// The one that was picked leads them: it is what the model works from,
 		// and the others are the angles it does not show. An id that answers
 		// for nothing is dropped rather than sent.
-		if ( $src_id && wp_attachment_is_image( $src_id ) ) {
-			$product_ids = array_values( array_unique( array_merge( [ $src_id ], array_diff( $product_ids, [ $src_id ] ) ) ) );
+		// CHOISIR UNE PHOTO, C'EST LA CHOISIR — pas la mettre devant les autres.
+		//
+		// « J'aurais aimé refaire l'image qui m'était à disposition. Juste
+		// cette image. Les images fournisseur sont souvent bonnes et
+		// demandent un agrandissement ou un meilleur angle, et c'est
+		// justement quand il y en a beaucoup que le modèle a du mal. »
+		//
+		// L'intention était écrite trois cents lignes plus haut — « remaking a
+		// supplier shot is work done on that shot, not on the product in
+		// general » — mais le code se contentait de RÉORDONNER : la photo
+		// choisie passait en tête et les cinq autres partaient quand même.
+		// Sur un 6b23-1, cinq faces contradictoires sans arbitre donnent un
+		// arrière avec des pièces de l'avant. Une seule photo ne peut pas se
+		// mélanger à une autre.
+		if ( $src_id && wp_attachment_is_image( $src_id ) && in_array( $src_id, $product_ids, true ) ) {
+			$product_ids = [ $src_id ];
 		} else {
 			$src_id = 0;
 		}

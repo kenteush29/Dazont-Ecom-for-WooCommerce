@@ -451,11 +451,23 @@ foreach ( [
 // them are gone, so a caller still passing them is answered exactly as one
 // that does not.
 $refl = new ReflectionMethod( 'DZE_Content', 'sources_instruction' );
+// ON NOMME CE QUI NE DOIT PAS REVENIR, plutot que de compter. Un nombre
+// interdit aussi ce qui est legitime : « une seule photo, choisie expres »
+// est une reponse que la brief a le droit de recevoir, et elle a ete
+// ajoutee. Les deux qui portaient « ce qui a ete depose » restent bannies.
+$dze_noms = array_map( static fn( $p ) => $p->getName(), $refl->getParameters() );
 ok( 'the brief takes no answer about what was handed in',
-	$refl->getNumberOfParameters(), 5 );
+	array_values( array_intersect( $dze_noms, [ 'pasted', 'handed', 'copy', 'mode' ] ) ), [] );
 ok( 'and an extra one changes nothing',
-	DZE_Content::sources_instruction( 2, null, 0, 0, true, 1, 'copy' ),
+	DZE_Content::sources_instruction( 2, null, 0, 0, true, false, 1, 'copy' ),
 	DZE_Content::sources_instruction( 2, null, 0, 0, true ) );
+// ET LA NOUVELLE REPONSE DIT BIEN CE QU ELLE DOIT DIRE : une photo choisie
+// expres est la vue a refaire, pas une reference parmi d autres.
+$dze_seule = DZE_Content::sources_instruction( 1, null, 0, 0, false, true );
+ok( 'one chosen photograph is the view',
+	false !== strpos( $dze_seule, 'IMAGE 1 IS THE PRODUCT AND THE VIEW' ), true );
+ok( 'and the product may not be turned',
+	false !== strpos( $dze_seule, 'may NOT turn the product' ), true );
 
 echo "\nNOTHING APPENDED MAY OVERRULE THE PROMPT\n";
 // "Tu as encore ajouté des instructions custom par dessus le prompt ? Ça
