@@ -81,6 +81,9 @@ final class DZE_Automation {
 	 */
 	private const LOOK_DEEP = 250;
 
+	/** Les tailles de page offertes à la liste du travail fait. */
+	public const PER_PAGE = [ 10, 25, 50, 100, 200 ];
+
 	/**
 	 * How long nothing may move before the screen calls the run stopped.
 	 *
@@ -1065,6 +1068,45 @@ final class DZE_Automation {
 		self::held_reset();
 		$src = (string) DZE_Wpml::default_language();
 		$out = [];
+		// CE QU'ON A DEMANDÉ À LA MAIN PASSE DEVANT.
+		//
+		// La case cochée dans la liste de WordPress ne traduit pas sur place —
+		// trente pages dans une requête, c'est le délai dépassé et rien
+		// d'écrit — elle donne une place en tête de file. C'est ici qu'on la
+		// tient. Voir DZE_Translate::ask().
+		$dze_cibles = [];
+		foreach ( DZE_Wpml::get_active_languages() as $dze_l ) {
+			$dze_c = (string) ( $dze_l['code'] ?? '' );
+			if ( '' !== $dze_c && $dze_c !== $src ) {
+				$dze_cibles[] = $dze_c;
+			}
+		}
+		foreach ( DZE_Translate::asked() as $dze_o ) {
+			if ( count( $out ) >= $n ) {
+				break;
+			}
+			$dze_owed = self::translate_owed( $dze_o, $dze_cibles );
+			if ( ! $dze_owed ) {
+				// Traduit depuis, par nous ou à la main : la demande est
+				// honorée, et elle sort de la file plutôt que d'y tourner.
+				DZE_Translate::unask( $dze_o );
+				continue;
+			}
+			if ( DZE_Translate::waiting( $dze_o ) ) {
+				continue; // déjà produit, il attend un oui ou un non.
+			}
+			$out[] = [
+				'tid'   => (int) $dze_o['id'],
+				'name'  => DZE_Translate::obj_label( $dze_o ),
+				'kind'  => 'term' === (string) ( $dze_o['kind'] ?? '' ) ? 'product_cat' : 'post',
+				'ref'   => DZE_Translate::ref( $dze_o ),
+				'langs' => $dze_owed,
+				'why'   => __( 'asked for by hand', 'dazont-ecom' ),
+			];
+		}
+		if ( count( $out ) >= $n ) {
+			return $out;
+		}
 		// LES TERMES D ABORD, ET SANS COMPTEUR.
 		//
 		// « Pour tout ce qui est critique comme les attributs, categories etc
@@ -4027,7 +4069,33 @@ final class DZE_Automation {
 			$only = isset( $_GET['task'] ) ? sanitize_key( wp_unslash( $_GET['task'] ) ) : '';
 		}
 		$only = isset( self::tasks()[ $only ] ) ? $only : '';
-		$rows = self::past( 200, $only );
+		// COMBIEN PAR PAGE, ET QUELLE PAGE.
+		//
+		// « Il faut des options d'affichage — 10, 25, 50, 100, 200 par page
+		// avec pagination. Que ce soit clean, et que ça évite tout problème de
+		// page surchargée. »
+		//
+		// La liste sortait deux cents lignes d'un coup, chacune relisant le
+		// texte de sa page pour dire où en sont ses liens : sur une boutique
+		// qui travaille tous les jours, c'est une page qui met dix secondes à
+		// s'ouvrir et que personne ne lit jusqu'en bas.
+		//
+		// Le choix est gardé dans l'adresse, donc un tri ou un retour arrière
+		// le conserve, et il voyage avec la tâche qu'on regarde.
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- naviguer dans une liste n'écrit rien.
+		$par_page = isset( $_GET['per_page'] ) ? absint( $_GET['per_page'] ) : 25;
+		if ( ! in_array( $par_page, self::PER_PAGE, true ) ) {
+			$par_page = 25;
+		}
+		$page = isset( $_GET['paged'] ) ? max( 1, absint( $_GET['paged'] ) ) : 1;
+		// phpcs:enable
+		// LU LARGE, MONTRÉ ÉTROIT : le compte total est ce que la pagination
+		// annonce, et il doit être vrai même quand on regarde la page une.
+		$tout   = self::past( max( 1000, $par_page * 20 ), $only );
+		$combien = count( $tout );
+		$pages  = max( 1, (int) ceil( $combien / $par_page ) );
+		$page   = min( $page, $pages );
+		$rows   = array_slice( $tout, ( $page - 1 ) * $par_page, $par_page );
 		if ( '' !== $only ) {
 			printf(
 				'<p class="description" style="margin:0 0 10px;">%1$s <a href="%2$s">%3$s</a></p>',
@@ -4206,7 +4274,67 @@ final class DZE_Automation {
 			echo '<span class="dze-auto-msg"></span>';
 			echo '</td></tr>';
 		}
-		echo '</tbody></table></div>';
+		echo '</tbody></table>';
+		// LA BARRE DE NAVIGATION, DANS L'ENVELOPPE DE WORDPRESS.
+		//
+		// `paginate_links()` rend des liens que la feuille de style de
+		// l'administration n'habille QUE dans `.tablenav-pages` : en dehors,
+		// ils sortent en chiffres nus. Piège déjà payé sur l'écran Diagnostic.
+		// L ECRAN OU L ON EST, pas celui de ce module : cette meme liste est
+		// dessinee sous l onglet « Done » du maillage, et une pagination qui
+		// renvoie ailleurs fait sortir le lecteur de l ecran qu il lisait.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- naviguer dans une liste n ecrit rien.
+		$ici   = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : self::MENU_SLUG;
+		$garde = [ 'page' => $ici ];
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- naviguer dans une liste n'écrit rien.
+		foreach ( [ 'tab', 'task' ] as $dze_k ) {
+			if ( isset( $_GET[ $dze_k ] ) ) {
+				$garde[ $dze_k ] = sanitize_key( wp_unslash( $_GET[ $dze_k ] ) );
+			}
+		}
+		echo '<div class="tablenav bottom"><div class="tablenav-pages" style="float:none;margin:8px 0;">';
+		printf(
+			'<span class="displaying-num">%s</span> ',
+			esc_html( sprintf(
+				/* translators: %s: how many rows the whole list holds */
+				_n( '%s item', '%s items', $combien, 'dazont-ecom' ),
+				number_format_i18n( $combien )
+			) )
+		);
+		// COMBIEN PAR PAGE — un formulaire GET, comme partout ailleurs dans
+		// l'administration : pas de JavaScript à faire manquer, et l'adresse
+		// garde la vue.
+		printf( '<form method="get" action="%s" style="display:inline-block;margin-right:10px;">', esc_url( admin_url( 'admin.php' ) ) );
+		foreach ( $garde as $dze_k => $dze_v ) {
+			printf( '<input type="hidden" name="%1$s" value="%2$s" />', esc_attr( $dze_k ), esc_attr( $dze_v ) );
+		}
+		echo '<label for="dze-auto-perpage" class="screen-reader-text">' . esc_html__( 'Rows per page', 'dazont-ecom' ) . '</label>';
+		echo '<select name="per_page" id="dze-auto-perpage" onchange="this.form.submit();">';
+		foreach ( self::PER_PAGE as $dze_n ) {
+			printf(
+				'<option value="%1$d"%2$s>%3$s</option>',
+				(int) $dze_n,
+				selected( $par_page, $dze_n, false ),
+				esc_html( sprintf(
+					/* translators: %s: how many rows to show on one page */
+					__( '%s per page', 'dazont-ecom' ),
+					number_format_i18n( $dze_n )
+				) )
+			);
+		}
+		echo '</select></form>';
+		if ( $pages > 1 ) {
+			echo wp_kses_post( (string) paginate_links( [
+				'base'    => add_query_arg( array_merge( $garde, [ 'per_page' => $par_page, 'paged' => '%#%' ] ), admin_url( 'admin.php' ) ),
+				'format'  => '',
+				'current' => $page,
+				'total'   => $pages,
+				'type'    => 'plain',
+				'prev_text' => '&laquo;',
+				'next_text' => '&raquo;',
+			] ) );
+		}
+		echo '</div></div></div>';
 	}
 
 	public static function ajax_run(): void {
