@@ -569,7 +569,11 @@ final class DZE_Prompts {
 					</p>
 					<pre style="max-height:260px;overflow:auto;white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;padding:10px;font-size:12px;line-height:1.5;margin:0;"><?php echo esc_html( $note ); ?></pre>
 					<p class="description" style="margin:6px 0 0;">
-						<?php esc_html_e( 'It names the photographs sent with the request, which your instructions cannot: they do not know how many the run attaches or in what order. A run that also carries a scene, a photograph you pasted or one this prompt already made adds one line naming that image, in the same place.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'It names the photographs sent with the request, which your instructions cannot: they do not know how many the run attaches or in what order. A run that also carries a background, the product\'s other colours or a picture this prompt already made adds its own note, in the same place.', 'dazont-ecom' ); ?>
+						<?php if ( class_exists( 'DZE_Screens' ) ) : ?>
+							<?php // THE WORDS ARE THE SHOP'S: « tu as encore caché du texte ». Readable here, changed there. ?>
+							<a href="<?php echo esc_url( DZE_Screens::url( 'settings', 'content' ) . '#dze-photonotes' ); ?>"><?php esc_html_e( 'Change these words ↗', 'dazont-ecom' ); ?></a>
+						<?php endif; ?>
 					</p>
 				<?php endif; ?>
 				<?php if ( class_exists( 'DZE_Marketing_Ai' ) ) : ?>

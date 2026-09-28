@@ -422,6 +422,33 @@
 	font-size: 10px; line-height: 16px; text-align: center;
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* The order photographs were clicked in: the first one is image 1. */
+.dze-one-srcn:empty { display: none; }
+.dze-one-srcn {
+	position: absolute; top: 4px; left: 4px; z-index: 3;
+	min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box;
+	border-radius: 10px; background: #2271b1; color: #fff;
+	font-size: 12px; font-weight: 600; line-height: 20px; text-align: center;
+}
+/* What is sent, said in a sentence under the photographs. */
+.dze-one-srcsaid, .dze-cb-srcsaid { margin: 0 0 10px; color: #50575e; }
+/* EXACTLY WHAT THE MODEL RECEIVES, before paying for it: the photographs in
+   the order they travel, numbered as the prompt names them, and the prompt. */
+.dze-one-preview { margin: 8px 0 12px; padding: 10px 12px; background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px; }
+.dze-one-prevhead { margin: 0 0 6px; font-weight: 600; }
+.dze-one-previmgs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.dze-one-previmg { position: relative; width: 96px; margin: 0; font-size: 11px; color: #50575e; line-height: 1.3; }
+.dze-one-previmg img { display: block; width: 96px; height: 96px; object-fit: cover; border: 1px solid #dcdcde; border-radius: 3px; background: #fff; }
+.dze-one-previmg figcaption { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; }
+.dze-one-prevnone { display: block; width: 96px; height: 96px; background: #dcdcde; border-radius: 3px; }
+.dze-one-prevtext {
+	margin: 0; max-height: 320px; overflow: auto; padding: 8px 10px;
+	background: #fff; border: 1px solid #dcdcde; border-radius: 3px;
+	white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5;
+}
+/* The bulk panel's own picker: smaller tiles, a product panel holds a lot. */
+.dze-cb-srcs .dze-one-srcpick { width: 96px; height: 96px; }
+.dze-cb-srcstate { color: #646970; font-weight: 400; }
 /* ---- The box that takes photographs from outside the shop ---- */
 /* admin/js/paste-box.js, mounted by the one-function popup, the toolbox and
    each product's panel on the bulk screen. One component, one appearance. */
@@ -1041,6 +1068,17 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-tplgrid.has-noscene .dze-tplhead,
 .dze-tplgrid.has-noscene .dze-tplrow {
 	grid-template-columns: minmax(180px, 280px) 76px 84px 108px 66px;
+}
+/* THE BULK SCREEN'S ROWS SAY WHICH PHOTOGRAPHS TRAVEL, in a column of
+   their own — it was a tick box squeezed under « Attempts ». « Put it » is
+   140px and not 108: « Product gallery » came out as « Prod… ». */
+.dze-tplgrid.has-photos .dze-tplhead,
+.dze-tplgrid.has-photos .dze-tplrow {
+	grid-template-columns: minmax(180px, 280px) 76px 170px 138px 64px 140px 66px;
+}
+.dze-tplgrid.has-photos.has-noscene .dze-tplhead,
+.dze-tplgrid.has-photos.has-noscene .dze-tplrow {
+	grid-template-columns: minmax(180px, 280px) 76px 138px 64px 140px 66px;
 }
 /* And nothing on a row may spill out of its column again, whatever it holds:
    a grid item's default min-width is its content, which is exactly how one

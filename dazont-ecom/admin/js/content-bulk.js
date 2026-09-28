@@ -59,13 +59,13 @@
 		m.bulkFields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
-		m.tpls = tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n }; });
+		m.tpls = tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n, photos: j.photos }; });
 		saveMem(m);
 	}
 	// The run's own rows, and no others: the same row lives on a product's
 	// panel now, and what is typed there is that product's business — storing
 	// it as the run's would change what every other product does.
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-scene, #dze-cb-tplrows .dze-tpl-n, #dze-cb-tplrows .dze-tpl-target, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn', persist);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-scene, #dze-cb-tplrows .dze-tpl-n, #dze-cb-tplrows .dze-tpl-target, #dze-cb-tplrows .dze-tpl-photos, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn', persist);
 
 	// Every block says what is ticked out of what it holds: "2 / 6" answers
 	// "did I forget something?" without opening anything.
@@ -99,6 +99,7 @@
 		var row = (value && typeof value === 'object') ? value : { tpl: value };
 		if (row.tpl !== '' && row.tpl !== undefined && row.tpl !== null) { $r.find('.dze-cb-tpl').val(String(row.tpl)); }
 		if (row.n) { $r.find('.dze-tpl-n').val(String(row.n)); }
+		if ('main' === row.photos) { $r.find('.dze-tpl-photos').val('main'); }
 		syncPeek($r);
 		// The destination and the background are the prompt's own — "Remake
 		// main" writes the main image, a studio prompt is shot on its backdrop
@@ -237,7 +238,7 @@
 	});
 	// A change to the rows of a product's own order changes THAT product's
 	// order and nothing else; a change to the run's is remembered as the run's.
-	$(document).on('change', '.dze-cb-ownrows .dze-cb-tpl, .dze-cb-ownrows .dze-tpl-scene, .dze-cb-ownrows .dze-tpl-n, .dze-cb-ownrows .dze-tpl-target', function () {
+	$(document).on('change', '.dze-cb-ownrows .dze-cb-tpl, .dze-cb-ownrows .dze-tpl-scene, .dze-cb-ownrows .dze-tpl-n, .dze-cb-ownrows .dze-tpl-target, .dze-cb-ownrows .dze-tpl-photos', function () {
 		rowsChanged($(this).closest('.dze-tplrows'));
 	});
 	function rowsChanged($wrap) {
@@ -264,7 +265,8 @@
 				tpl: String(v),
 				scene: $r.find('.dze-tpl-scene').length ? parseInt($r.find('.dze-tpl-scene').val(), 10) : -1,
 				n: parseInt($r.find('.dze-tpl-n').val(), 10) || 1,
-				target: $r.find('.dze-tpl-target').val() || 'gallery'
+				target: $r.find('.dze-tpl-target').val() || 'gallery',
+				photos: 'main' === $r.find('.dze-tpl-photos').val() ? 'main' : 'all'
 			});
 		});
 		return out;
@@ -297,7 +299,7 @@
 	function jobFor(id, tpl) {
 		var found = null;
 		jobsFor(id).forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
-		return found || { tpl: String(tpl), scene: -1, n: 1, target: 'gallery' };
+		return found || { tpl: String(tpl), scene: -1, n: 1, target: 'gallery', photos: 'all' };
 	}
 
 	// =====================================================================
@@ -692,24 +694,22 @@
 		// the panel before it builds its orders, so a note read off the DOM at
 		// that moment is a note that has just been wiped.
 		if (String(told[id] || '').trim()) { data.note = String(told[id]); }
-		// WHICH photograph is the product, from that product's own picker. Its
-		// default POSTS what it says: "main photograph" and a chosen one both
-		// mean the product is image 1, and what was pasted is then read for the
-		// place, the light and the styling.
-
 		// Which attempt of this prompt this is: the second one is asked for a
 		// different framing instead of coming back as the first one again.
 		if (attempt) { data.attempt = attempt; }
 		if (review) { data.mode = 'defer'; data.stash = 1; }
 		if (scene === undefined) { scene = job.scene; }
 		if ($('#dze-cb-tplrows .dze-tpl-scene').length) { data.scene = scene; }
-		// LA PHOTO PRINCIPALE SEULEMENT, si la serie le demande.
-		//
-		// « J utilise le bulk content pour mettre a jour des centaines de
-		// produits. » Le sélecteur de photo de la fenetre produit ne sert a
-		// rien a cette echelle, et c est pourtant la que le modele melange les
-		// vues : chaque fiche envoie tout ce qu elle a. Une case pour la serie.
-		if ($('.dze-tpl-onemain').first().prop('checked')) { data.only_main = 1; }
+		// WHICH OF ITS PHOTOGRAPHS. « Main photo only » is for technical
+		// products, where several conflicting views make the model merge a
+		// back with parts of the front. Only the FIRST row's box was ever
+		// read — a second row ticked « Main
+		// photo only » and still sent everything. Each order now carries its
+		// own answer, and photographs picked on this product's own panel win
+		// over it: they are the photographs this product is made from.
+		var mine = picksOf(id);
+		if (mine.length) { data.src_ids = mine; }
+		else if ('main' === job.photos) { data.only_main = 1; }
 		// Where it goes travels WITH the order, so the image is remembered as
 		// headed there even if the tab is closed before the review.
 		data.target = target || job.target;
@@ -875,6 +875,16 @@
 			// Photographs this product does not have yet, sent with the images
 			// asked for from this panel: a supplier shot pasted on the line of
 			// the product it belongs to, and to no other.
+			// WHICH OF ITS PHOTOGRAPHS THIS PRODUCT'S PICTURES ARE MADE FROM.
+			// « J'aimerais re-générer des images basées sur l'image en pièce
+			// jointe » — one picture of the gallery, on the product it belongs
+			// to. Clicked in order, the first is image 1; none clicked, the
+			// row's own answer stands.
+			'<details class="dze-cx-acc dze-cb-srcwrap">' +
+				'<summary>' + esc(i18n.srcTitle) + ' <span class="dze-cb-srcstate"></span></summary>' +
+				'<div class="dze-one-srcs dze-cb-srcs dze-zoomgroup"></div>' +
+				'<p class="description dze-cb-srcsaid"></p>' +
+			'</details>' +
 			'<details class="dze-cx-acc dze-cb-else">' +
 				'<summary>' + esc(i18n.stepElse) + '</summary>' +
 				'<div class="dze-cb-elsebox"></div>' +
@@ -964,9 +974,52 @@
 		// The gallery as it stands today, right under the new images: the only
 		// way to judge whether a generated shot ADDS something.
 		loadCurrent(id).then(function () {
-			renderCurrentImages(id); renderToday(id); renderLog(id);
+			renderCurrentImages(id); renderToday(id); renderLog(id); renderSrcs(id);
 		});
+		srcState(id);
 	}
+
+	// The photographs picked on a product's panel, kept OUTSIDE its bucket —
+	// like the note and the pasted photographs — because every run deletes
+	// the bucket before it builds the orders that must carry them.
+	var picks = {};
+	function picksOf(id) { return (picks[String(id)] || []).slice(); }
+	function srcState(id) {
+		var ids = picksOf(id), $cell = previewCell(id);
+		$cell.find('.dze-cb-srcstate').text(ids.length ? sprintf(i18n.srcPicked, ids.length) : i18n.srcRow);
+		$cell.find('.dze-cb-srcsaid').text(!ids.length ? i18n.srcRowSaid
+			: (1 === ids.length ? i18n.srcOneSaid : sprintf(i18n.srcManySaid, ids.length)));
+		$cell.find('.dze-cb-srcpick').each(function () {
+			var n = ids.indexOf(parseInt($(this).data('id'), 10) || -1);
+			$(this).toggleClass('is-sel', n >= 0).find('.dze-one-srcn').text(n >= 0 && ids.length > 1 ? String(n + 1) : '');
+		});
+		$cell.find('.dze-cb-srcpick[data-id="0"]').toggleClass('is-sel', !ids.length);
+	}
+	function renderSrcs(id) {
+		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-srcs');
+		if (!$slot.length || !b.current) { return; }
+		var html = '<button type="button" class="dze-one-srcpick dze-cb-srcpick" data-id="0">' + esc(i18n.srcRow) + '</button>';
+		(b.current.images || []).forEach(function (im) {
+			if (!im.id) { return; }
+			html += '<button type="button" class="dze-one-srcpick dze-cb-srcpick" data-id="' + im.id + '">' +
+				'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" />' +
+				'<span class="dze-one-srcn" aria-hidden="true"></span></button>';
+		});
+		$slot.html(html);
+		srcState(id);
+	}
+	$(document).on('click', '.dze-cb-srcpick', function () {
+		var id = $(this).closest('.dze-cb-preview').data('id');
+		var pid = parseInt($(this).data('id'), 10) || 0;
+		var ids = picksOf(id);
+		if (!pid) { ids = []; }
+		else {
+			var at = ids.indexOf(pid);
+			if (at >= 0) { ids.splice(at, 1); } else { ids.push(pid); }
+		}
+		picks[String(id)] = ids;
+		srcState(id);
+	});
 
 	// The rows of a product's own order, drawn from the run's own grid — the
 	// headings included, so a column added to it tomorrow arrives here with no
@@ -2020,7 +2073,9 @@
 		// could have read a progress bar — and a long one opens lanes up to
 		// three, which is where the provider starts refusing requests. Asking
 		// on screen only ever offered a way to get it wrong.
-		var lanes = jobs.length <= 2 ? 1 : (jobs.length <= 8 ? 2 : 3);
+		// TWO PRODUCTS ALREADY GO SIDE BY SIDE: they are independent, and a
+		// pair run one after the other waited for no reason at all.
+		var lanes = jobs.length <= 1 ? 1 : (jobs.length <= 8 ? 2 : 3);
 		// A product asking for several images is several calls of its own, so
 		// its lane is already busy: piling three of those in parallel is what
 		// times a shared server out.

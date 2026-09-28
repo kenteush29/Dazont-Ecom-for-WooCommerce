@@ -168,7 +168,9 @@ foreach ( $calls as $args ) {
 	// argument order and nothing at all about the ceiling it exists for.
 	if ( ! preg_match( '/,\s*\$pid\s*(?:,|$)/', trim( $args ) ) ) { $blind++; }
 }
-ok( 'the product lane really does make images', count( $calls ) >= 2, true );
+// ONE ORDER BUILDER NOW: the product popup hands its order to shoot() like
+// every other screen, so the lane makes its pictures through one call.
+ok( 'the product lane really does make images', count( $calls ) >= 1, true );
 ok( 'and every one of its calls names its product', $blind, 0 );
 // And nothing reaches the provider around it: one endpoint, one funnel, one
 // place the ceiling has to be asked.

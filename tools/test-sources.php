@@ -395,79 +395,59 @@ if ( in_array( '--dump-bulk', (array) $argv, true ) ) {
 	exit( 0 );
 }
 
-echo "\nThe photographs win over the words — on EVERY run\n";
-// The ordinary run: no photograph pasted, no photograph picked, the product's
-// own images and the product's own data. This is the toolbox, the bulk
-// screen, and every automatic pass — which is to say, nearly everything.
-$plain = DZE_Content::sources_instruction( 3, null, 0, 0, false );
-ok( 'an ordinary run is arbitrated',    arbitrated( $plain ), true );
-ok( 'and it says what not to do with a word',
-	false !== strpos( $plain, 'these photographs are the one being made' ), true );
-// The run with a subject — a photograph pasted or picked — was the ONLY one
-// that used to carry it.
-ok( 'a run with a subject still is',    arbitrated( DZE_Content::sources_instruction( 3, null, 0, 0, true ) ), true );
-// And a product with ONE photograph, which is where a description has the
-// most room to talk the model into something.
-ok( 'a single photograph is arbitrated too',
-	arbitrated( DZE_Content::sources_instruction( 1, null, 0, 0, false ) ), true );
-
-echo "\nAnd the rest of the brief is still there\n";
-ok( 'several photographs are named as one product',
-	false !== strpos( $plain, 'ARE ONE SINGLE PRODUCT' ), true );
-ok( 'the fittings are named, so none is a surprise',
-	false !== strpos( $plain, 'every buckle, strap, cord, zip, seam and marking' ), true );
-ok( 'and an unreadable one is left out rather than painted',
-	false !== strpos( $plain, 'an invented one is a fake' ), true );
-// SAID ONCE. Four ways of saying one rule is not four times the rule, and
-// every sentence here competes with the shop's own prompt for attention.
-ok( 'the rule is not repeated four ways',
-	substr_count( $plain, 'invent' ), 1 );
-ok( 'and the whole brief stays short',  strlen( $plain ) < 700, true );
-$subj = DZE_Content::sources_instruction( 3, null, 0, 0, true );
-ok( 'a subject run names image 1 as the product',
-	false !== strpos( $subj, 'IMAGE 1 IS THE PRODUCT TO WORK ON' ), true );
-ok( 'and the others as shape only',     false !== strpos( $subj, 'for the shape and the construction only' ), true );
-// EVERY PHOTOGRAPH IN THE REQUEST IS THE PRODUCT, so nothing appended may
-// still call one of them a reference, a setting or a thing to copy.
-//
-// "Ces 2 fonctions n'ont rien a faire ici... on envoie des images
-// supplementaires qui apportent plus de detail sur le produit, et jamais rien
-// d'autre." Both questions the plugin used to ask — is the product the
-// subject, is what you added a setting or something to copy — had one answer
-// all along, and every sentence that carried them competed with the shop's own
-// prompt while nobody could see it.
-foreach ( [
-	'IS A REFERENCE YOU WERE HANDED',
-	'ARE PHOTOGRAPHS YOU WERE HANDED',
-	'TO WORK FROM',
-	'take no colour, pattern, material, shape or object',
-	'reproduce what it shows on the product',
-	'reproduce what they show on the product',
-] as $gone ) {
-	ok( 'nothing appended says "' . $gone . '"',
-		false !== strpos( $plain . $subj, $gone ), false );
-}
-// And the two answers cannot be asked for either: the parameters that carried
-// them are gone, so a caller still passing them is answered exactly as one
-// that does not.
-$refl = new ReflectionMethod( 'DZE_Content', 'sources_instruction' );
-// ON NOMME CE QUI NE DOIT PAS REVENIR, plutot que de compter. Un nombre
-// interdit aussi ce qui est legitime : « une seule photo, choisie expres »
-// est une reponse que la brief a le droit de recevoir, et elle a ete
-// ajoutee. Les deux qui portaient « ce qui a ete depose » restent bannies.
-$dze_noms = array_map( static fn( $p ) => $p->getName(), $refl->getParameters() );
-ok( 'the brief takes no answer about what was handed in',
-	array_values( array_intersect( $dze_noms, [ 'pasted', 'handed', 'copy', 'mode' ] ) ), [] );
-ok( 'and an extra one changes nothing',
-	DZE_Content::sources_instruction( 2, null, 0, 0, true, false, 1, 'copy' ),
-	DZE_Content::sources_instruction( 2, null, 0, 0, true ) );
-// ET LA NOUVELLE REPONSE DIT BIEN CE QU ELLE DOIT DIRE : une photo choisie
-// expres est la vue a refaire, pas une reference parmi d autres.
-$dze_seule = DZE_Content::sources_instruction( 1, null, 0, 0, false, true );
-ok( 'one chosen photograph is the view',
-	false !== strpos( $dze_seule, 'IMAGE 1 IS THE PRODUCT AND THE VIEW' ), true );
-ok( 'and the product may not be turned',
-	false !== strpos( $dze_seule, 'may NOT turn the product' ), true );
+echo "\nWHAT IS SAID ABOUT THE PHOTOGRAPHS IS THE SHOP'S, NOT OURS\n";
+// « Tu as encore caché du texte : IMAGES 1 TO 5 ARE ONE SINGLE PRODUCT… J'aurais
+// mis : Les images fournies représentent un seul et même produit. L'image 1 est
+// l'image principale… Les photos font foi devant la description produit. »
+// Every note is a setting now, with the owner's own wording as the default of
+// the ordinary run, and his words replace ours wherever he writes them.
+$dze_cat = DZE_Content::photo_note_catalog();
+$plain   = DZE_Content::sources_instruction( 3, null, 0, 0, false );
+ok( 'several photographs: the owner\'s own words, by default', trim( $plain ), $dze_cat['many']['default'] );
+ok( 'which name image 1 as the main image',          false !== strpos( $plain, 'Image 1 is the main image' ), true );
+ok( 'and let the photographs win over the description',
+	false !== strpos( $plain, 'The photographs take precedence over the product description' ), true );
+ok( 'and warn against moving a detail',              false !== strpos( $plain, 'never to move a detail' ), true );
+$dze_one = DZE_Content::sources_instruction( 1, null, 0, 0, false, true );
+ok( 'one photograph has a note of its own',          trim( $dze_one ), $dze_cat['one']['default'] );
+// « J'aimerais re-générer des images basées sur l'image en pièce jointe » — a
+// supplier's « Detailed introduction » sheet, eight panels and their captions.
+// Told « keep the same view, never turn the product », the model could only
+// copy the sheet. What to make is the prompt's to say; the note says what the
+// picture IS, and that its captions are not part of the product.
+ok( 'it no longer forbids the prompt a new view',    false !== strpos( $dze_one, 'may NOT turn' ), false );
+ok( 'and leaves out the text laid over a supplier sheet',
+	false !== strpos( $dze_one, 'text, captions, arrows or several pictures laid out side by side' ), true );
+ok( 'a product with a single photograph is read the same way',
+	DZE_Content::sources_instruction( 1, null, 0, 0, false ), $dze_one );
+ok( 'a picture being retouched has its own note',
+	trim( DZE_Content::sources_instruction( 1, null, 0, 0, true ) ), $dze_cat['edit']['default'] );
+// THE SHOP'S OWN WORDS REPLACE OURS — and an emptied note is not an empty
+// message to the model: it goes back to the default.
+$dze_keep_settings = $GLOBALS['opts']['dze_content_settings'] ?? null;
+$GLOBALS['opts']['dze_content_settings']['photo_notes'] = [ 'many' => 'MY OWN WORDS ABOUT THESE PHOTOGRAPHS.', 'one' => '   ' ];
+ok( 'the shop\'s words replace ours',
+	trim( DZE_Content::sources_instruction( 3, null, 0, 0, false ) ), 'MY OWN WORDS ABOUT THESE PHOTOGRAPHS.' );
+ok( 'and an emptied note is the default again',
+	trim( DZE_Content::sources_instruction( 1, null, 0, 0, false ) ), $dze_cat['one']['default'] );
+// SAVED LIKE EVERY OTHER SETTING HERE: only what the form carried, and a note
+// left as the default stored as nothing, so the default can still improve.
+$dze_saved = DZE_Content::instance()->sanitize( [ 'photo_notes' => [ 'many' => $dze_cat['many']['default'], 'one' => 'Mine.' ] ] );
+ok( 'a note left as the default is stored as nothing',   (array) ( $dze_saved['photo_notes'] ?? [] ), [ 'one' => 'Mine.' ] );
+$GLOBALS['opts']['dze_content_settings'] = $dze_saved;
+$dze_other = DZE_Content::instance()->sanitize( [ 'store_context' => 'A tactical shop.' ] );
+ok( 'and a form that did not carry the notes leaves them alone', (array) ( $dze_other['photo_notes'] ?? [] ), [ 'one' => 'Mine.' ] );
+if ( null === $dze_keep_settings ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_settings; }
+// EVERY PICTURE IS NUMBERED WHERE IT TRAVELS: the product, its other colours,
+// a picture already made, the scene — in that order, whatever each note says.
+$dze_all = DZE_Content::sources_instruction( 2, [ 'image' => 9, 'prompt' => 'Slate surface' ], 1, 1, false );
+ok( 'another colour is numbered after the product',  false !== strpos( $dze_all, 'Image 3: the same product in another colour' ), true );
+ok( 'a picture already made comes next',             false !== strpos( $dze_all, 'Image 4: a picture already made' ), true );
+ok( 'the scene last',                                false !== strpos( $dze_all, 'Image 5: the scene' ), true );
+ok( 'with the shop\'s own words for that scene after it',
+	strpos( $dze_all, 'Slate surface' ) > strpos( $dze_all, 'Image 5: the scene' ), true );
+ok( 'several pictures of a kind are numbered as a range',
+	false !== strpos( DZE_Content::sources_instruction( 2, null, 0, 2, false ), 'Images 3 to 4: the same product in another colour' ), true );
 
 echo "\nNOTHING APPENDED MAY OVERRULE THE PROMPT\n";
 // "Tu as encore ajouté des instructions custom par dessus le prompt ? Ça
@@ -484,7 +464,7 @@ ok( 'nothing tells the model to ignore the prompt',
 ok( 'and nothing else says "ignore"',   substr_count( $scened, 'ignore' ), 0 );
 // The scene still does its own mechanical work: it IS the background, and the
 // shop's own words for that scene travel with it.
-ok( 'the scene is still named',         false !== strpos( $scened, 'IS THE SCENE' ), true );
+ok( 'the scene is still named',         false !== strpos( $scened, 'Image 4: the scene' ), true );
 ok( "and the shop's own scene text travels", false !== strpos( $scened, 'Slate surface' ), true );
 // And the sentence added on top of the prompt in 4.322 is gone: an ordinary
 // run is told what the photographs ARE, not what to make of them.
@@ -1358,9 +1338,9 @@ ok( 'and it appends nothing whatever',           $dze_said, '' );
 // is why this line was a second way of saying what the images already say.
 $dze_avoid = DZE_Content::sources_instruction( 2, null, 1, 0, false );
 ok( 'the one already made is still named',
-	false !== strpos( $dze_avoid, 'IS A PHOTOGRAPH ALREADY MADE' ), true );
+	false !== strpos( $dze_avoid, 'Image 3: a picture already made' ), true );
 ok( 'and still asked to be different',
-	false !== strpos( $dze_avoid, 'must be clearly different' ), true );
+	false !== strpos( $dze_avoid, 'Make a clearly different one' ), true );
 // AND THE SOURCE OF THE FAULT IS GONE FROM THE FILE, not merely unused: a
 // sentence nothing sends is a sentence somebody wires back up next year.
 // THE WHOLE APPENDED TEXT IS LOCKED, so nothing joins it by accident. Every
@@ -1369,13 +1349,8 @@ ok( 'and still asked to be different',
 // without anybody deciding to add them. A new one now turns this gate red and
 // somebody has to put it in the lock on purpose — "adding a sentence to that
 // note is a decision the shop takes, not one taken for it".
-ok( 'the appended text is exactly what it was',
-	md5( DZE_Content::sources_instruction( 3, null, 0, 0, false ) ),
-	md5( "\n\nIMAGES 1 TO 3 ARE ONE SINGLE PRODUCT, photographed from different angles. Image 1 is the reference; the others show what it does not."
-		. ' Reproduce it exactly: every buckle, strap, cord, zip, seam and marking the photographs show, in the same places, and NOTHING they do not show.'
-		. ' Where the product data above names a part you cannot see in them — a strap, a fastening, a colour, a pattern — THE PHOTOGRAPHS WIN:'
-		. ' that text describes the product in general, these photographs are the one being made.'
-		. ' A part left out of frame is a photograph; an invented one is a fake.' ) );
+ok( 'the appended text is exactly what the shop reads in its settings',
+	DZE_Content::sources_instruction( 3, null, 0, 0, false ), "\n\n" . DZE_Content::photo_note( 'many' ) );
 ok( 'the hints are gone from the plugin',
 	substr_count( (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' ),
 		'filling most of the frame' ), 0 );

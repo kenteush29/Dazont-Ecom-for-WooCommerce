@@ -683,222 +683,94 @@ trait DZE_Content_Ajax {
 		] );
 	}
 
+	/**
+	 * THE PRODUCT POPUP'S BUTTON — the same order as every other screen.
+	 *
+	 * It used to build its own: its own photographs, its own background
+	 * sentence, its own brief. Two builders of one order drift apart, and they
+	 * had — the popup never sent a picture already made, the bulk screen did;
+	 * the popup said « Also: » before the owner's note, the bulk screen did
+	 * not. It now hands `shoot()` what it was asked, in `shoot()`'s own words,
+	 * and there is ONE order whichever button is pressed.
+	 *
+	 * `dry` asks for the order without sending it: what the model would read,
+	 * and which pictures it would see, in which order — before anything is
+	 * paid for.
+	 */
 	public function ajax_quick_main(): void {
 		$this->guard();
-		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
-		// A recipe typed for this run only, never saved unless asked.
-		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
-		// An image pasted straight into the lane (Ctrl+V or dropped): it arrives
-		// as a data URI, never as a URL, so nothing is fetched from anywhere.
-		// Several of them, in fact: three supplier shots of the same jacket, none
-		// of them usable as it stands, tell the model far more together than the
-		// best of them alone. The first is the subject; the others are context.
-		$pastes = isset( $_POST['pastes'] ) ? (array) wp_unslash( $_POST['pastes'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as images below.
-		// The same answer, on the lane that remakes the main image: a fault
-		// mended on one screen and not the other is the fault still shipped.
-
-		$paste  = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
-		if ( ! $pastes && '' !== $paste ) {
-			$pastes = [ $paste ];
-		}
-		// The surface to put the product on: a background, or none.
-		$bg = isset( $_POST['bg'] ) ? absint( $_POST['bg'] ) : 0;
-		// ONE photograph of the product as the source — remaking a supplier
-		// shot is work done on that shot, not on the product in general.
-		$src_id = isset( $_POST['src_id'] ) ? absint( $_POST['src_id'] ) : 0;
-		// ET ELLE DOIT ÊTRE À CE PRODUIT. Une pièce jointe d'ailleurs ferait
-		// fabriquer la photo d'un autre article sans que rien ne s'en plaigne.
-		if ( $src_id && ! in_array( $src_id, self::product_own_image_ids( $pid ), true ) ) {
-			$src_id = 0;
-		}
-		// Which recipe: a registry image prompt, or the main-image one.
+		// phpcs:disable WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput -- guard() checks the nonce; shoot() sanitises every field it reads, exactly as the other screens post them.
+		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		$recipe = isset( $_POST['recipe'] ) ? sanitize_key( wp_unslash( $_POST['recipe'] ) ) : '';
-		if ( ! $pid ) {
-			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
+		$typed  = isset( $_POST['prompt'] ) ? (string) $_POST['prompt'] : '';
+		$bg     = isset( $_POST['bg'] ) ? absint( $_POST['bg'] ) : 0;
+		// Which prompt: the one picked, or the one that makes the main image.
+		$want = '' !== $recipe ? $recipe : (string) ( self::main_recipe()['id'] ?? '' );
+		$idx  = null;
+		$base = '';
+		foreach ( self::image_templates() as $i => $t ) {
+			if ( (string) $t['id'] === $want ) {
+				$idx  = (int) $i;
+				$base = (string) $t['prompt'];
+				break;
+			}
 		}
-		if ( '' === self::fal_key() ) {
-			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) ] );
+		// The background, as the scene it is — the same list, one picture.
+		$scene = -1;
+		if ( $bg ) {
+			foreach ( self::scenes() as $si => $sc ) {
+				if ( (int) $sc['image'] === $bg ) {
+					$scene = (int) $si;
+					break;
+				}
+			}
 		}
-		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
-			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
+		$in = [
+			'post'     => $pid,
+			'template' => null === $idx ? 0 : $idx,
+			'scene'    => $scene,
+			'pastes'   => isset( $_POST['pastes'] ) ? (array) $_POST['pastes'] : [],
+			'src_ids'  => isset( $_POST['src_ids'] ) ? array_map( 'absint', (array) $_POST['src_ids'] ) : [],
+			'src_id'   => isset( $_POST['src_id'] ) ? absint( $_POST['src_id'] ) : 0,
+			'note'     => isset( $_POST['note'] ) ? (string) $_POST['note'] : '',
+			'mode'     => 'defer',
+			'stash'    => 1,
+			'dry'      => ! empty( $_POST['dry'] ) ? 1 : 0,
+		];
+		// WHAT WAS TYPED FOR THIS RUN, when it is not the prompt as saved: the
+		// box opens on the saved words, and sending those back as « typed »
+		// would hide which prompt made the picture.
+		if ( '' !== trim( wp_unslash( $typed ) ) && trim( wp_unslash( $typed ) ) !== trim( $base ) ) {
+			$in['custom_prompt'] = $typed;
 		}
+		// NO PROMPT MAKES THE MAIN IMAGE on this shop: the lane still works,
+		// on the shipped main-image prompt, and its picture still goes to the
+		// main image — never to the first gallery prompt that happens to exist.
+		if ( null === $idx ) {
+			if ( ! isset( $in['custom_prompt'] ) ) {
+				$in['custom_prompt'] = wp_slash( self::quick_prompt() );
+			}
+			$in['target'] = 'main';
+		}
+		// phpcs:enable
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
-
 		try {
-			$sources = [];
-			// The photographs that come AFTER the subject: the product's own,
-			// as context. They are not there to be redrawn — the instruction
-			// sent with them says image 1 is the reference and the others fill
-			// in what it does not show — but without them a pasted photograph
-			// was all the model ever saw of the product, and it had to guess
-			// the back, the lining, the fastenings and the material.
-			// Photographs from outside that are NOT the subject: the product
-			// stays image 1 and they are read for the setting. Without this,
-			// pasting anything made that thing the subject — so there was no
-			// way to say "keep this product, exactly this one, and put it in
-			// that scene", which is the whole point of pasting an inspiration.
-			// ONE PRODUCT, SEVERAL PHOTOGRAPHS OF IT — and everything added
-			// from outside is another photograph of it.
-			//
-			// "Ces 2 fonctions n'ont rien à faire ici. Le 1, c'est évident, on
-			// travaille toujours à partir de l'image principale. Le 2, c'est
-			// évident, on envoie des images supplémentaires qui apportent plus
-			// de détail sur le produit, et jamais rien d'autre."
-			//
-			// Three branches and two questions lived here — is the product the
-			// subject, and is what you added a setting or something to copy —
-			// and both had one answer all along. The product's own lead, main
-			// first; what was handed in follows. Which is also the best defence
-			// against invented hardware there is: a part the model has been
-			// shown is a part it does not have to make up.
-			$refs  = [];
-			$ref_n = 0;
-			// UNE SEULE, OU TOUTES. Voir $src_id : quand la boutique a désigné
-			// une photo, elle part seule et en pleine taille — c'est elle le
-			// sujet, la vue et la référence, et il n'y a plus rien avec quoi
-			// la confondre.
-			foreach ( ( $src_id ? [ $src_id ] : self::product_source_ids( $pid ) ) as $i => $aid ) {
-				try {
-					$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
-				} catch ( \Throwable $e ) {
-					continue;
-				}
-			}
-			if ( $pastes ) {
-				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
-				if ( ! $outside ) {
-					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
-				}
-				$refs = $outside;
-			}
-			if ( ! $sources && ! $refs ) {
-				throw new RuntimeException( __( 'This product has no photograph to start from: set a featured image first.', 'dazont-ecom' ) );
-			}
-			// What was handed in joins them: it is the same product seen from
-			// somewhere else, so it travels in the same lane and is counted in
-			// the same figure.
-			foreach ( $refs as $uri ) {
-				if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
-					break;
-				}
-				$sources[] = $uri;
-				$ref_n++;
-			}
-			if ( ! $sources ) {
-				throw new RuntimeException( __( 'No image to work from: set a featured image, or paste the address of one.', 'dazont-ecom' ) );
-			}
-			// The other colours of the same product, when the prompt asked for
-			// them: they say what the construction is, and the paragraph that
-			// names them says they say nothing about the colour.
-			// The prompt row behind this run: it says where the image is meant
-			// to go, how its file is named and what travels with it, and all
-			// three have to survive until the image is accepted — possibly on
-			// another screen.
-			$recipe_row = '' !== $recipe ? self::registry_row( $recipe ) : self::main_recipe();
-			$count      = count( $sources );
-			$variants   = 0;
-			if ( ! $src_id && is_array( $recipe_row ) && self::wants_variants( $recipe_row ) ) {
-				foreach ( $this->variant_images( $pid, self::product_source_ids( $pid ) ) as $uri ) {
-					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
-						break;
-					}
-					$sources[] = $uri;
-					$variants++;
-				}
-			}
-			// The background travels as the LAST image, exactly like a scene: a
-			// surface the model can see beats a colour it has to imagine, and it
-			// is the same file for every product — which is the whole point.
-			$plate = $bg && wp_attachment_is_image( $bg ) ? $bg : 0;
-			if ( $plate ) {
-				$sources[] = $this->fal_source_data_uri( $plate );
-			}
-			$base = '' !== trim( $override ) ? $override : self::quick_prompt();
-			if ( '' === trim( $override ) && $recipe_row && '' !== trim( (string) ( $recipe_row['prompt'] ?? '' ) ) ) {
-				$base = (string) $recipe_row['prompt'];
-			}
-			// What the surface IS decides how it is described: the shop's own
-			// backdrop, one of the scenes, or a blank product to print on.
-			$plate_row = null;
-			if ( $plate ) {
-				$plate_row = [ 'prompt' => 'This is the shop\'s backdrop: reproduce its exact tone and its gradient, and place the product on it. Do not add anything else to it, and do not darken it.' ];
-				foreach ( self::scenes() as $sc ) {
-					if ( (int) $sc['image'] === $plate ) {
-						$plate_row = $sc;
-						break;
-					}
-				}
-			}
-			// THE SAME BRIEF WHICHEVER BUTTON WAS PRESSED. shoot() — the toolbox,
-			// the bulk screen, every automatic pass — puts the product's own
-			// data at the head of the prompt; this path, the Main image
-			// button, sent none of it. One job answered two ways is two
-			// results nobody can compare, and the prompts are written for the
-			// one that has the context.
-			$dze_ctx = trim( self::store_context() . ' ' . mb_substr(
-				trim( (string) preg_replace( '/\s+/', ' ', self::payload_lines(
-					$pid,
-					(array) ( $recipe_row['inputs'] ?? [ 'title', 'description' ] ),
-					(string) ( $recipe_row['inputs_meta'] ?? '' )
-				) ) ),
-				0,
-				800
-			) );
-			$prompt = ( '' !== $dze_ctx ? "Product context: {$dze_ctx}\n\n" : '' )
-				. $base
-				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( $count, $plate_row, 0, $variants, false, $src_id > 0 && 1 === $count )
-				. self::note_lines( $pid, '', isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '' );
-
-			DZE_Ai_Usage::unit( 'product_img' );
-			DZE_Ai_Usage::about( $pid );
-			// The shape is asked of the PROVIDER, which is the only place it
-			// means anything: written in the instructions it was a wish, and
-			// the image came back in the shape of the photograph it was built
-			// from. Left on "same shape as the photograph", nothing changes.
-			// The same sentence on the other lane that makes a photograph: two
-			// ways of saying it is two traces nobody can compare.
-			$dze_made = self::sources_said( [
-				[ __( 'of the product', 'dazont-ecom' ), $count ],
-				[ __( 'added from elsewhere', 'dazont-ecom' ), $ref_n ],
-			] );
-			if ( $plate ) {
-				$dze_made .= ( '' !== $dze_made ? ' · ' : '' ) . sprintf(
-					/* translators: %s: the scene's name */
-					__( 'the scene "%s"', 'dazont-ecom' ),
-					(string) ( $plate_row['name'] ?? __( 'the shop backdrop', 'dazont-ecom' ) )
-				);
-			}
-			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $recipe_row['ratio'] ?? '' ) ) ?: 'auto', $pid, $dze_made );
-			DZE_Ai_Usage::unit();
-			DZE_Ai_Usage::about();
-			DZE_Ai_Usage::finished( 'product_img' );
-			// Charged to the product it was made for: what a product has cost
-			// in images is the question being asked while looking at it.
-			self::charge_product( $pid, self::last_image_cost() );
+			$made = $this->shoot( $in );
 		} catch ( \Throwable $e ) {
-			DZE_Ai_Usage::unit();
-			DZE_Ai_Usage::about();
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
-
-		// Kept with the product, like any other pending result: a closed tab
-		// does not lose the image that was just paid for.
-		self::stash( $pid, [
-			'shot'   => $image_url,
-			'target' => $recipe_row ? ( ( ( $recipe_row['output'] ?? '' ) === 'main' ) ? 'main' : 'gallery' ) : 'main',
-			'recipe' => $recipe_row ? (string) ( $recipe_row['id'] ?? '' ) : '',
-		] );
+		if ( ! empty( $made['dry'] ) ) {
+			wp_send_json_success( $made );
+		}
 		$main = (int) get_post_thumbnail_id( $pid );
 		wp_send_json_success( [
-			'url'  => $image_url,
+			'url'   => (string) ( $made['url'] ?? '' ),
 			// Shown next to the new image and opened by its zoom: the original.
-			'main' => $main ? (string) wp_get_attachment_image_url( $main, 'full' ) : '',
+			'main'  => $main ? (string) wp_get_attachment_image_url( $main, 'full' ) : '',
 			// What this product has cost in images, counted after this one.
-			'spend' => self::product_spend( $pid ),
+			'spend' => $made['spend'] ?? self::product_spend( $pid ),
 		] );
 	}
 
@@ -973,6 +845,21 @@ trait DZE_Content_Ajax {
 		// read it — so the picker was a control that did nothing here, and its
 		// default, which reads "Main photograph", answered nothing either.
 		$src_id = isset( $in['src_id'] ) ? absint( $in['src_id'] ) : 0;
+		// SEVERAL, PICKED IN ORDER. « J'aimerais re-générer des images basées
+		// sur l'image en pièce jointe » — a supplier's « Detailed
+		// introduction » sheet, one gallery picture among eight. Picking
+		// photographs is picking what the model works from: the first one
+		// picked is image 1, and nothing that was not picked travels.
+		$src_ids = [];
+		foreach ( (array) ( $in['src_ids'] ?? [] ) as $dze_one ) {
+			$dze_one = absint( $dze_one );
+			if ( $dze_one && ! in_array( $dze_one, $src_ids, true ) ) {
+				$src_ids[] = $dze_one;
+			}
+		}
+		if ( $src_id && ! $src_ids ) {
+			$src_ids = [ $src_id ];
+		}
 		// WHAT THE PERSON TYPED FOR THIS RUN. It used to be saved on the
 		// product and sent with every image made for it afterwards, which is a
 		// hidden instruction by any other name.
@@ -1071,6 +958,7 @@ trait DZE_Content_Ajax {
 			$thumb       = (int) get_post_thumbnail_id( $pid );
 			$product_ids = ( $thumb && wp_attachment_is_image( $thumb ) ) ? [ $thumb ] : array_slice( $product_ids, 0, 1 );
 			$src_id      = 0;
+			$src_ids     = [];
 		}
 		// The one that was picked leads them: it is what the model works from,
 		// and the others are the angles it does not show. An id that answers
@@ -1089,8 +977,18 @@ trait DZE_Content_Ajax {
 		// Sur un 6b23-1, cinq faces contradictoires sans arbitre donnent un
 		// arrière avec des pièces de l'avant. Une seule photo ne peut pas se
 		// mélanger à une autre.
-		if ( $src_id && wp_attachment_is_image( $src_id ) && in_array( $src_id, $product_ids, true ) ) {
-			$product_ids = [ $src_id ];
+		// ONLY THIS PRODUCT'S, and any of them — not only the first ones the
+		// shop's figure keeps for an ordinary run: the sheet worth working
+		// from is often the last picture of the gallery. A colour's own
+		// photograph counts: the picker shows it, with its colour written on
+		// the tile, and a pick that is dropped in silence sends everything.
+		if ( $src_ids ) {
+			$dze_own = self::product_image_ids( $pid );
+			$src_ids = array_values( array_filter( $src_ids, static fn( $one ) => in_array( (int) $one, $dze_own, true ) && wp_attachment_is_image( (int) $one ) ) );
+		}
+		if ( $src_ids ) {
+			$product_ids = array_slice( $src_ids, 0, self::MAX_SOURCES );
+			$src_id      = (int) $product_ids[0];
 		} else {
 			$src_id = 0;
 		}
@@ -1156,6 +1054,11 @@ trait DZE_Content_Ajax {
 			// Sources: fal's own CDN URLs pass through; local files go as data URIs
 			// (fal cannot always fetch staging/hotlink-protected site URLs).
 			$sources     = [];
+			// WHAT EACH PICTURE IS, in the order it travels — for the screen
+			// that shows what will be sent before anything is paid for.
+			$labels      = [];
+			$dze_thumb   = static fn( int $aid ): string => (string) wp_get_attachment_image_url( $aid, 'thumbnail' );
+			$dze_main    = (int) get_post_thumbnail_id( $pid );
 			$weight      = 0;
 			// Counted WHERE THE LANE IS FILLED: read back from the request
 			// afterwards it would be a second answer to one question, and the
@@ -1167,6 +1070,7 @@ trait DZE_Content_Ajax {
 				// is the only lane where the answer is allowed to look like its
 				// source, which is why it stands apart from everything below.
 				$sources[] = $src;
+				$labels[]  = [ 'what' => __( 'The picture being retouched', 'dazont-ecom' ), 'thumb' => $src ];
 			} else {
 				// EVERYTHING THAT TRAVELS IS A PHOTOGRAPH OF THIS PRODUCT.
 				//
@@ -1203,6 +1107,14 @@ trait DZE_Content_Ajax {
 						break;
 					}
 					$sources[] = $uri;
+					$labels[]  = [
+						'what'  => $src_ids
+							? __( 'A photograph you picked', 'dazont-ecom' )
+							: ( (int) $aid === $dze_main ? __( 'The main photograph', 'dazont-ecom' ) : __( 'A gallery photograph', 'dazont-ecom' ) ),
+						'thumb' => $dze_thumb( (int) $aid ),
+						'full'  => (string) wp_get_attachment_image_url( (int) $aid, 'large' ),
+						'id'    => (int) $aid,
+					];
 				}
 				if ( $pastes ) {
 					$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
@@ -1214,6 +1126,7 @@ trait DZE_Content_Ajax {
 							break;
 						}
 						$sources[] = $uri;
+						$labels[]  = [ 'what' => __( 'A photograph added from elsewhere', 'dazont-ecom' ), 'thumb' => '' ];
 						$dze_paste_n++;
 					}
 				}
@@ -1237,6 +1150,7 @@ trait DZE_Content_Ajax {
 						break;
 					}
 					$sources[] = $uri;
+					$labels[]  = [ 'what' => __( 'The same product in another colour', 'dazont-ecom' ), 'thumb' => '' ];
 					$variants++;
 				}
 			}
@@ -1269,10 +1183,12 @@ trait DZE_Content_Ajax {
 							break;
 						}
 						$sources[] = $uri;
+						$labels[]  = [ 'what' => __( 'A picture this prompt already made — « not like this »', 'dazont-ecom' ), 'thumb' => $dze_thumb( $ref ) ];
 					} else {
 						// One still waiting: it lives on fal's own CDN, so it
 						// travels as a URL and weighs nothing.
 						$sources[] = $ref;
+						$labels[]  = [ 'what' => __( 'A picture this prompt already made — « not like this »', 'dazont-ecom' ), 'thumb' => (string) $ref ];
 					}
 					$avoid++;
 				}
@@ -1281,6 +1197,12 @@ trait DZE_Content_Ajax {
 			// that is not the product.
 			if ( $scene ) {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
+				$labels[]  = [
+					/* translators: %s: the background's name */
+					'what'  => sprintf( __( 'The background « %s »', 'dazont-ecom' ), (string) ( $scene['name'] ?? '' ) ),
+					'thumb' => $dze_thumb( (int) $scene['image'] ),
+					'full'  => (string) wp_get_attachment_image_url( (int) $scene['image'], 'large' ),
+				];
 			}
 			// ONE PRODUCT, SEVERAL PHOTOGRAPHS OF IT. Editing one image handed
 			// in is the only lane with a subject of its own — there the answer
@@ -1323,6 +1245,25 @@ trait DZE_Content_Ajax {
 					__( 'the scene "%s"', 'dazont-ecom' ),
 					(string) ( $scene['name'] ?? '' )
 				);
+			}
+			// WHAT WILL BE SENT, WITHOUT SENDING IT. « Je ne comprends toujours
+			// pas comment fonctionne la re-génération d'image. » The same order,
+			// built by the same lines, stopped one step before the provider is
+			// asked: the words the model reads and the pictures it sees, in their
+			// order — and nothing is paid for.
+			if ( ! empty( $in['dry'] ) ) {
+				DZE_Ai_Usage::unit();
+				DZE_Ai_Usage::about();
+				foreach ( $labels as $dze_n => $dze_l ) {
+					$labels[ $dze_n ]['n'] = $dze_n + 1;
+				}
+				return [
+					'dry'    => true,
+					'prompt' => $prompt,
+					'images' => $labels,
+					'target' => $target,
+					'made'   => $dze_made,
+				];
 			}
 			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto', $pid, $dze_made );
 			DZE_Ai_Usage::unit();

@@ -542,10 +542,18 @@ final class DZE_Mesh {
 		if ( '' === $url || 0 === strpos( $url, '#' ) || 0 === strpos( $url, 'mailto:' ) || 0 === strpos( $url, 'tel:' ) ) {
 			return '';
 		}
-		$home = (string) wp_parse_url( home_url(), PHP_URL_HOST );
-		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
-		if ( '' !== $host && strtolower( $host ) !== strtolower( $home ) ) {
+		// THE SITE'S OWN ADDRESS, never the one this request came in on: see
+		// DZE_Wpml::site_host(). Read on the German domain, every link to the
+		// main one was taken for a link to another site.
+		$home = ( class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'site_host' ) ) ? DZE_Wpml::site_host() : strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
+		$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+		if ( '' !== $host && preg_replace( '/^www\./', '', $host ) !== preg_replace( '/^www\./', '', $home ) ) {
 			return ''; // another site: not ours to weave.
+		}
+		// A RELATIVE ADDRESS IS THIS SITE: '/tactical-pants' is read as the
+		// full address it stands for.
+		if ( '' === $host && 0 === strpos( $url, '/' ) && 0 !== strpos( $url, '//' ) ) {
+			$url = untrailingslashit( (string) get_option( 'home' ) ) . $url;
 		}
 		$key = untrailingslashit( strtok( $url, '#?' ) );
 		if ( isset( $byurl[ $key ] ) ) {

@@ -915,12 +915,16 @@ ok( 'and that fragment is not printed',   false !== strpos( $dze_q, (string) $dz
 
 // NOTHING IN THE QUEUE, everything in its wait: no invented figure at all.
 fresh( $ON );
+$GLOBALS['opts']['date_format'] = 'Y-m-d';
 DZE_Queue::$counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
 DZE_Automation::tick( 'mesh_links', true );
 DZE_Automation::shortlist( 'mesh_links', 1 );
 $dze_wait = DZE_Automation::reason_text( 'none' );
-ok( 'a wait is said without a figure',    1 === preg_match( '/\d/', $dze_wait ), false );
-ok( 'and it says what it is waiting on',  false !== stripos( $dze_wait, 'last few days' ), true );
+// NO COUNT OF PAGES — the tally is however many it walked — but THE DATE the
+// wait ends: « 237 done recently and resting » with no end read as a
+// breakdown. The date is the only figure in the sentence.
+ok( 'a wait is said without a count',     1 === preg_match( '/\d/', (string) preg_replace( '/\d{4}-\d{2}-\d{2}/', '', $dze_wait ) ), false );
+ok( 'and it says until when',             1 === preg_match( '/due again on \d{4}-\d{2}-\d{2}/', $dze_wait ), true );
 
 echo "\nA promise the queue never kept does not hold a page\n";
 //
