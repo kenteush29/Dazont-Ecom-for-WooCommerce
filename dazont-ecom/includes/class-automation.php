@@ -1954,6 +1954,31 @@ final class DZE_Automation {
 	}
 
 	/**
+	 * LE REPOS EST-IL EXPLIQUÉ ?
+	 *
+	 * « Nothing produced for 2 days, although it is switched on. Nothing found
+	 * for 52 seconds — 237 done recently and resting. En tant qu'utilisateur,
+	 * je suis perdu et me dis : c'est de la merde, ça fonctionne pas. »
+	 *
+	 * Le bandeau ROUGE criait à la panne et la phrase juste en dessous
+	 * expliquait que tout allait bien : deux cent trente-sept pages venaient
+	 * d'être faites et se reposaient. Les deux disaient vrai et se
+	 * contredisaient, ce qui se lit plus mal que le silence.
+	 *
+	 * Une passe qui n'a rien trouvé PARCE QUE tout est fait, en file, ou en
+	 * attente d'un oui n'est pas en panne. L'alarme ne se lève donc que
+	 * lorsqu'il n'y a aucune raison à donner.
+	 */
+	public static function idle_explained( string $id ): bool {
+		foreach ( (array) ( self::idle_of( $id )['held'] ?? [] ) as $n ) {
+			if ( (int) $n > 0 ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * CE QUE LA TACHE DIRAIT SI ON LUI DEMANDAIT POURQUOI ELLE NE FAIT RIEN.
 	 *
 	 * '' quand elle travaille normalement.
@@ -3249,7 +3274,8 @@ final class DZE_Automation {
 		if ( ! empty( $conf['on'] ) && 'month' !== ( $conf['cadence'] ?? '' ) ) {
 			$last = (int) ( ( self::state()['last'] ?? [] )[ $id ] ?? 0 );
 			$gap  = max( 600, self::gap( $id ) );
-			if ( $last > 0 && time() - $last > max( 6 * HOUR_IN_SECONDS, $gap * 24 ) ) {
+			// PAS D'ALARME QUAND LE REPOS EST EXPLIQUÉ : voir idle_explained().
+			if ( $last > 0 && time() - $last > max( 6 * HOUR_IN_SECONDS, $gap * 24 ) && ! self::idle_explained( $id ) ) {
 				printf(
 					'<p class="dze-auto-stale" style="margin:0 0 8px;padding:6px 10px;border-left:4px solid #b32d2e;background:#fcf0f1;"><strong>%s</strong>%s</p>',
 					esc_html( sprintf(

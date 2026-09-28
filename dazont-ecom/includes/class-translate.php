@@ -130,6 +130,9 @@ final class DZE_Translate {
 		add_action( 'wp_ajax_dze_tr_batch', [ $this, 'ajax_batch' ] );
 		// L'ENVOI EN MASSE DÉPOSE ET REPART. Voir ajax_queue().
 		add_action( 'wp_ajax_dze_tr_queue', [ $this, 'ajax_queue' ] );
+		// LE PANNEAU DE LA FILE : la faire avancer, ou la vider.
+		add_action( 'wp_ajax_dze_tr_runqueue', [ $this, 'ajax_runqueue' ] );
+		add_action( 'wp_ajax_dze_tr_emptyqueue', [ $this, 'ajax_emptyqueue' ] );
 		// L'ACTION GROUPÉE DE WORDPRESS, sur ses propres listes. Voir ask().
 		add_action( 'admin_init', [ $this, 'hook_bulk' ] );
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
@@ -521,6 +524,19 @@ final class DZE_Translate {
 			];
 			if ( $o['id'] < 1 ) {
 				continue;
+			}
+			// SEULEMENT DEPUIS LA LANGUE SOURCE, ET LE GARDE EST ICI.
+			//
+			// L ecran filtre deja, l action groupee de WordPress aussi — mais la
+			// file, elle, acceptait n importe quoi. Un article ESPAGNOL a fini
+			// en attente de relecture « a traduire en francais » parce qu il
+			// avait ete depose sans passer par un ecran. Deux gardes qui se
+			// ressemblent ne valent pas un garde a l endroit ou tout passe.
+			if ( class_exists( 'DZE_Wpml' ) ) {
+				$langue = self::obj_language( $o );
+				if ( '' !== $langue && $langue !== DZE_Wpml::default_language() ) {
+					continue;
+				}
 			}
 			$clef = self::ref( $o );
 			if ( isset( $vu[ $clef ] ) ) {
@@ -4811,6 +4827,50 @@ final class DZE_Translate {
 	 * la main tout de suite. Ce qui travaille ensuite est `drain()`, réveillé
 	 * par le planificateur — on peut fermer l'onglet.
 	 */
+	/** Fait avancer la file d un cran, a la demande. */
+	public function ajax_runqueue(): void {
+		$this->screen_guard();
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 600 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		ignore_user_abort( true );
+		self::drain();
+		$reste = count( self::asked() );
+		wp_send_json_success( [
+			'left'    => $reste,
+			'message' => $reste
+				? sprintf(
+					/* translators: %s: how many are still waiting */
+					_n( 'Done. %s page still waiting.', 'Done. %s pages still waiting.', $reste, 'dazont-ecom' ),
+					number_format_i18n( $reste )
+				)
+				: __( 'The queue is empty.', 'dazont-ecom' ),
+		] );
+	}
+
+	/**
+	 * VIDE LA FILE, sans rien traduire.
+	 *
+	 * « J ai envoye 2x toute la liste des categories. Ridicule. » — Un depot
+	 * ne se double pas, la file ecarte ce qu elle a deja ; mais il faut
+	 * pouvoir se raviser, et une file qu on ne peut pas vider est une file
+	 * qui fait peur.
+	 */
+	public function ajax_emptyqueue(): void {
+		$this->screen_guard();
+		$n = count( self::asked() );
+		update_option( self::OPT_ASKED, [], false );
+		delete_option( 'dze_translate_drain_errors' );
+		wp_send_json_success( [
+			'left'    => 0,
+			'message' => sprintf(
+				/* translators: %s: how many were dropped */
+				_n( '%s page taken out of the queue. Nothing was translated.', '%s pages taken out of the queue. Nothing was translated.', $n, 'dazont-ecom' ),
+				number_format_i18n( $n )
+			),
+		] );
+	}
+
 	public function ajax_queue(): void {
 		$this->screen_guard();
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- screen_guard() l'a vérifié.

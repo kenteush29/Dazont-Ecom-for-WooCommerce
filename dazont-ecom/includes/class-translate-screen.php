@@ -975,7 +975,10 @@ trait DZE_Translate_Screen {
 		$waiting = (int) ( self::review_counts()[ DZE_Wpml::element_name( (string) $scope['kind'], (string) $scope['type'] ) ] ?? 0 );
 		$total   = (int) ( $counts[ $src ] ?? 0 );
 		?>
-		<form method="get" class="dze-tr-head">
+		<?php // LES FILTRES SUR UNE LIGNE. « Les filtres sont empiles, ils
+		// devraient etre alignes. » Ils l etaient chacun dans son <label>, donc
+		// chacun sur sa ligne. ?>
+		<form method="get" class="dze-tr-head" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0;">
 			<input type="hidden" name="page" value="<?php echo esc_attr( self::MENU_SLUG ); ?>" />
 			<input type="hidden" name="tab" value="batch" />
 			<label><strong><?php esc_html_e( 'Translate', 'dazont-ecom' ); ?></strong>
@@ -1092,6 +1095,20 @@ trait DZE_Translate_Screen {
 				<div class="dze-cb-bar"><div class="dze-cb-fill"></div></div>
 				<p><strong id="dze-tr-progcount"></strong> <span id="dze-tr-progstep" class="description"></span></p>
 			</div>
+			<?php
+			// CE QUI SE PASSE EN ARRIÈRE-PLAN, ÉCRIT QUELQUE PART.
+			//
+			// « J'ai choisi toutes les catégories, ça me dit : send to queue.
+			// J'ouvre la queue. Rien. Je ne sais pas ce qui se passe en
+			// background, je ne comprends rien. J'ai peur de payer pour rien. »
+			//
+			// Il avait cent soixante-quatorze objets en file et un passage en
+			// cours — tout marchait. Mais RIEN ne le disait : l'écran annonçait
+			// un dépôt et renvoyait vers une relecture encore vide, ce qui se
+			// lit exactement comme une panne. Une file invisible n'est pas une
+			// file, c'est un trou.
+			self::queue_panel();
+			?>
 		</div>
 		<?php
 		// ---- 4. THE LIST ----
@@ -1113,6 +1130,63 @@ trait DZE_Translate_Screen {
 	 * Cancel. What varies between the two screens is WHAT the blocks are, never
 	 * the shape around them.
 	 */
+	/**
+	 * LA FILE D'ARRIÈRE-PLAN, VISIBLE.
+	 *
+	 * Combien attendent, si un passage travaille en ce moment, quand est le
+	 * suivant, et ce qui a résisté. Sans ça, « send to queue » est une promesse
+	 * qu'on ne peut pas vérifier.
+	 */
+	public static function queue_panel(): void {
+		$file = self::asked();
+		$errs = (array) get_option( 'dze_translate_drain_errors', [] );
+		if ( ! $file && ! $errs ) {
+			return; // rien en route : pas de panneau vide à lire.
+		}
+		$occupe = (bool) get_transient( self::LOCK_DRAIN );
+		$quand  = wp_next_scheduled( self::HOOK_DRAIN );
+		echo '<div class="notice notice-info inline" style="margin:12px 0;max-width:900px;">';
+		printf(
+			'<p style="margin:8px 0 4px;"><strong>%s</strong></p>',
+			esc_html( sprintf(
+				/* translators: %s: how many objects wait in the background queue */
+				_n( '%s page is waiting in the background queue.', '%s pages are waiting in the background queue.', count( $file ), 'dazont-ecom' ),
+				number_format_i18n( count( $file ) )
+			) )
+		);
+		// CE QUI SE PASSE MAINTENANT, en toutes lettres : « ça tourne » et
+		// « c'est arrêté » ne doivent jamais se ressembler.
+		$dit = $occupe
+			? __( 'A page is being translated right now. One language at a time, about a minute and a half each — a page in five languages takes about eight minutes.', 'dazont-ecom' )
+			: ( $quand
+				? sprintf(
+					/* translators: %s: how long until the next pass */
+					__( 'The next page starts in %s.', 'dazont-ecom' ),
+					human_time_diff( time(), $quand )
+				)
+				: __( 'No pass is scheduled. Press the button below and it starts again.', 'dazont-ecom' ) );
+		printf( '<p class="description" style="margin:0 0 8px;">%s</p>', esc_html( $dit ) );
+		printf(
+			'<p style="margin:0 0 8px;"><button type="button" class="button" id="dze-tr-runqueue"%2$s>%1$s</button>'
+				. ' <button type="button" class="button" id="dze-tr-emptyqueue">%3$s</button>'
+				. ' <span class="dze-tr-queuemsg description" style="margin-left:8px;"></span></p>',
+			esc_html__( 'Run one now', 'dazont-ecom' ),
+			$occupe ? ' disabled="disabled"' : '',
+			esc_html__( 'Empty the queue', 'dazont-ecom' )
+		);
+		if ( $errs ) {
+			printf(
+				'<p class="description" style="margin:0 0 8px;color:#b32d2e;">%s</p>',
+				esc_html( sprintf(
+					/* translators: 1: how many failed, 2: the most recent reason */
+					_n( '%1$s page came back with nothing. Last reason: %2$s', '%1$s pages came back with nothing. Last reason: %2$s', count( $errs ), 'dazont-ecom' ),
+					number_format_i18n( count( $errs ) ),
+					(string) ( $errs[0]['why'] ?? '' )
+				) )
+			);
+		}
+		echo '</div>';
+	}
 	public static function pick_body( string $key, array $scope, array $langs, string $src, int $paged = 1, int $per = 25, bool $all = false, array $only = [], string $f_lang = '', string $f_state = '' ): void {
 		// THE NARROWING HAPPENS IN THE QUERY THAT PAGES. Filtered after the
 		// paging, the pager counted the whole catalogue and the page showed
@@ -1167,7 +1241,13 @@ trait DZE_Translate_Screen {
 				<td class="check-column"><input type="checkbox" id="dze-tr-all" title="<?php esc_attr_e( 'Select every row on this page', 'dazont-ecom' ); ?>" /></td>
 				<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
 				<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
-				<th style="width:150px;" title="<?php esc_attr_e( 'One flag per language: green is up to date, a flag you can press is owed. Hover a flag to read where it stands.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
+				<?php // ASSEZ DE PLACE POUR TOUS LES DRAPEAUX SUR UNE LIGNE.
+				// « Le bloc Name prend tellement de place que chaque bouton de langue
+				// est empile et prend enormement de place. C est ridicule. »
+				// Le nom prenait tout le reste et cette colonne se retrouvait a cent
+				// cinquante pixels : cinq langues, cinq lignes. On lui donne de quoi
+				// les aligner, et le nom se contente de ce qui reste. ?>
+				<th style="width:<?php echo (int) max( 220, count( $langs ) * 46 ); ?>px;white-space:nowrap;" title="<?php esc_attr_e( 'One flag per language: green is up to date, a flag you can press is owed. Hover a flag to read where it stands.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
 				<th style="width:120px;"></th>
 			</tr></thead>
 			<tbody>
@@ -1214,7 +1294,7 @@ trait DZE_Translate_Screen {
 						<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( self::obj_label( $o ) ); ?></strong></a>
 					</td>
 					<?php echo wp_kses_post( DZE_Hub::id_td( (int) $o['id'] ) ); ?>
-					<td class="dze-tr-state">
+					<td class="dze-tr-state" style="white-space:nowrap;">
 						<?php foreach ( $state as $code => $said ) : ?>
 							<?php
 							// WPML'S OWN GESTURE: the plus makes the missing
