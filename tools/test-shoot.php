@@ -284,13 +284,14 @@ ok( 'the brief is told the product and nothing else',
 // the toolbox posted src_id and only the main-image lane ever read it, so
 // picking one here changed nothing at all.
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'src_id' => 12 ] );
-ok( 'a picked photograph leads them',
+// CE QUI EST DEPOSE A LA MAIN RESTE : c est un geste explicite, pas une
+// accumulation automatique. On ne ferme que la porte de la galerie.
+ok( 'a picked photograph is the only one of the product',
 	$GLOBALS['sent']['sources'], [
-		'data:image/jpeg;base64,IMG12/full', 'data:image/jpeg;base64,IMG11/large', 'data:pasted' ] );
+		'data:image/jpeg;base64,IMG12/full', 'data:pasted' ] );
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_id' => 12 ] );
-ok( 'and leads them with nothing pasted at all',
-	$GLOBALS['sent']['sources'], [
-		'data:image/jpeg;base64,IMG12/full', 'data:image/jpeg;base64,IMG11/large' ] );
+ok( 'and it goes out alone with nothing pasted',
+	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG12/full' ] );
 // An id that answers for no image is dropped rather than sent: the product's
 // own order stands.
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_id' => 999 ] );
