@@ -55,7 +55,9 @@ function wp_list_pluck( $rows, $field ) { return array_map( static fn( $r ) => $
 function untrailingslashit( $s ) { return rtrim( (string) $s, '/\\' ); }
 function trailingslashit( $s ) { return untrailingslashit( $s ) . '/'; }
 function wp_parse_url( $url, $c = -1 ) { return parse_url( (string) $url, $c ); }
-function home_url( $p = '/' ) { return 'https://kula.test' . $p; }
+// THE DOMAIN OF THE REQUEST, which WPML changes with the language: a visit on
+// the German domain answers kula.de here, the stored option stays kula.test.
+function home_url( $p = '/' ) { return ( $GLOBALS['request_home'] ?? 'https://kula.test' ) . $p; }
 function admin_url( $p = '' ) { return 'https://kula.test/wp-admin/' . $p; }
 function add_query_arg( $args, $url = '' ) {
 	$q = [];
@@ -366,6 +368,8 @@ class DZE_Ai_Usage { public static array $units = []; public static function uni
  * and in cron, where they are not. The table answers everywhere.
  */
 class DZE_Wpml {
+	// The real one reads the stored `home` option; so does this.
+	public static function site_host() { return strtolower( (string) parse_url( (string) ( get_option( 'home' ) ?: home_url() ), PHP_URL_HOST ) ); }
 	public static array $asked = [];
 	public static function ids_in_language( string $element_type, string $language ): ?array {
 		self::$asked[] = $element_type . ':' . $language;
@@ -431,6 +435,19 @@ ok( 'a fragment is not another page',   DZE_Mesh::resolve( 'https://kula.test/ca
 ok( 'another site is not ours to weave', DZE_Mesh::resolve( 'https://amazon.com/x', $byurl ), '' );
 ok( 'an anchor is not a link at all',   DZE_Mesh::resolve( '#top', $byurl ), '' );
 ok( 'nor is an address to write to',    DZE_Mesh::resolve( 'mailto:a@b.c', $byurl ), '' );
+// READ FROM ANOTHER LANGUAGE'S DOMAIN. WordPress runs its scheduled tasks on
+// whichever domain a visitor loaded; read from kula.de, every link to the
+// main domain was taken for another site, and Kula's graph came back with 11
+// links out of 2,438 — « 303 pages short of links » on a meshed shop.
+$GLOBALS['opts']['home']      = 'https://kula.test';
+$GLOBALS['request_home'] = 'https://kula.de';
+ok( 'read from another language domain, a link to the site is still the site',
+	DZE_Mesh::resolve( 'https://kula.test/category/boonie-hats/', $byurl ), 'product_cat:12' );
+ok( 'and a link to that other domain is not a page of this graph',
+	DZE_Mesh::resolve( 'https://kula.de/category/boonie-hats/', $byurl ), '' );
+unset( $GLOBALS['request_home'] );
+ok( 'a relative address is this site',  DZE_Mesh::resolve( '/category/boonie-hats/', $byurl ), 'product_cat:12' );
+unset( $GLOBALS['opts']['home'] );
 
 echo "\nThe shop, read once\n";
 $counts = DZE_Mesh::scan();

@@ -425,9 +425,26 @@ final class DZE_Wpml {
 		];
 	}
 
+	/**
+	 * THE SITE'S OWN ADDRESS — not the one this request came in on.
+	 *
+	 * With one domain per language, `home_url()` answers the domain of the
+	 * CURRENT language, and WordPress runs its scheduled tasks on whichever
+	 * domain a visitor happened to load: a reading started from a visit on
+	 * kula-tactical.de took every link to kula-tactical.com for a link to
+	 * another site, and the link graph of the whole shop came back with 11
+	 * links out of 2,438 — « 303 pages short of links » on a meshed site. The
+	 * stored `home` option is the main language's address whatever the
+	 * request; `home_url()` is only the fallback.
+	 */
+	public static function site_host(): string {
+		$h = strtolower( (string) wp_parse_url( (string) get_option( 'home' ), PHP_URL_HOST ) );
+		return '' !== $h ? $h : strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
+	}
+
 	/** Every host this shop answers on — one per language, when it has one. */
 	public static function hosts(): array {
-		$out = [];
+		$out = [ self::site_host() ];
 		$mine = wp_parse_url( home_url(), PHP_URL_HOST );
 		if ( $mine ) {
 			$out[] = strtolower( (string) $mine );

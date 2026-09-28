@@ -952,6 +952,7 @@ final class DZE_Automation {
 			}
 			if ( self::cooling( (int) $row['tid'], $id, $type, 0, 0, $cool ) && ! self::promise_broken( (int) $row['tid'], $id, $type, $row['kind'] ) ) {
 				self::$held['recent']++;
+				self::note_back( (int) $row['tid'], $id, $type );
 				$seen[ $key ] = true;
 				return false;
 			}
@@ -1172,6 +1173,7 @@ final class DZE_Automation {
 					}
 					if ( self::cooling( $oid, $id, $type, 0, 0, time() - self::COOLDOWN * DAY_IN_SECONDS ) ) {
 						self::$held['recent']++;
+						self::note_back( $oid, $id, $type );
 						continue;
 					}
 					$owed = self::translate_owed( $o, $langs );
@@ -1516,10 +1518,37 @@ final class DZE_Automation {
 	 *
 	 * @var array{queued:int,recent:int}
 	 */
-	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0 ];
+	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0 ];
 
 	public static function held_reset(): void {
-		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0 ];
+		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0 ];
+	}
+
+	/**
+	 * WHEN THE FIRST RESTING ONE COMES BACK.
+	 *
+	 * « Nothing found — 237 done recently and resting. Et le module dit, rien
+	 * trouvé. Putain, c'est pas normal. » A count of resting pages says that
+	 * the pass is waiting, never until when — and a wait with no end reads as a
+	 * breakdown. The same rule as cooling(): a pass that changed something rests
+	 * COOLDOWN days, one that changed nothing rests RETRY days.
+	 */
+	private static function note_back( int $oid, string $id, string $type ): void {
+		$seen = self::seen( $oid, $id, $type );
+		if ( ! $seen ) {
+			return;
+		}
+		$t     = (int) $seen['t'];
+		$moved = (int) ( $seen['w'] ?? 0 ) || (int) ( $seen['l'] ?? 0 );
+		$back  = $t + ( $moved ? self::COOLDOWN : self::RETRY ) * DAY_IN_SECONDS;
+		if ( $back > time() && ( ! self::$held['back'] || $back < self::$held['back'] ) ) {
+			self::$held['back'] = $back;
+		}
+	}
+
+	/** The date a resting page is due again, in the shop's own words. */
+	private static function back_said( int $back ): string {
+		return $back > 0 ? date_i18n( (string) get_option( 'date_format' ), $back ) : '';
 	}
 
 	/** @return array{queued:int,recent:int} */
@@ -1575,8 +1604,13 @@ final class DZE_Automation {
 		}
 		if ( $r > 0 ) {
 			// No figure at all: this one is only knowable by reading the
-			// register of every page on the site, which this is not.
-			return __( 'Nothing new to start: the pages it looked at were all worked on in the last few days.', 'dazont-ecom' );
+			// register of every page on the site, which this is not. But WHEN the
+			// wait ends is known, and a wait with no end reads as a breakdown.
+			$back = (int) self::$held['back'];
+			return $back > 0
+				/* translators: %s: the date the first page is due again */
+				? sprintf( __( 'Nothing new to start: the pages it looked at were all worked on recently and wait before another pass. The first is due again on %s.', 'dazont-ecom' ), self::back_said( $back ) )
+				: __( 'Nothing new to start: the pages it looked at were all worked on in the last few days.', 'dazont-ecom' );
 		}
 		return __( 'Nothing is short of anything: every page has what its size calls for.', 'dazont-ecom' );
 	}
@@ -1975,7 +2009,11 @@ final class DZE_Automation {
 		$bouts = [];
 		$noms  = [
 			'queued'  => __( '%s already waiting in the writing queue', 'dazont-ecom' ),
-			'recent'  => __( '%s done recently and resting', 'dazont-ecom' ),
+			// WAITING, AND UNTIL WHEN: a wait with no end reads as a breakdown.
+			'recent'  => (int) ( $held['back'] ?? 0 ) > 0
+				/* translators: 1: how many, 2: how many days each one waits, 3: the date the first is due again */
+				? str_replace( [ '{days}', '{date}' ], [ (string) self::COOLDOWN, self::back_said( (int) $held['back'] ) ], __( '%s already done recently — each one waits up to {days} days before another pass, and the first is due again on {date}', 'dazont-ecom' ) )
+				: __( '%s already done recently and waiting before another pass', 'dazont-ecom' ),
 			'waiting' => __( '%s waiting for your yes or no', 'dazont-ecom' ),
 			'unread'  => __( 'the site has not been read yet', 'dazont-ecom' ),
 		];
@@ -1989,7 +2027,7 @@ final class DZE_Automation {
 		return $bouts
 			? sprintf(
 				/* translators: 1: how long ago, 2: a list of reasons */
-				__( 'Nothing found for %1$s — %2$s.', 'dazont-ecom' ),
+				__( 'Nothing new to start at the last look, %1$s ago: %2$s.', 'dazont-ecom' ),
 				human_time_diff( (int) $one['at'], time() ),
 				implode( ', ', $bouts )
 			)

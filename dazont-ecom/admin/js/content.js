@@ -1537,6 +1537,7 @@
 						'<option value="3">3</option><option value="4">4</option>' +
 					'</select></label> ' +
 				'<button type="button" class="button button-primary" id="dze-one-gen"></button> ' +
+					'<button type="button" class="button" id="dze-one-preview" style="display:none;" title="' + esc(i18n.previewTip) + '">' + esc(i18n.preview) + '</button> ' +
 					'<button type="button" class="button button-primary" id="dze-one-apply" style="display:none;"></button> ' +
 					'<span class="dze-cx-state" id="dze-one-state"></span>' +
 					// What this product has already cost in images. Beside the
@@ -1649,10 +1650,11 @@
 		if ('image' !== mode) { oneFillSettings(fid); }
 		// Asking for several at once is only offered where several make sense.
 		$('#dze-one-nwrap').toggle('image' === mode);
+		$('#dze-one-preview').toggle('image' === mode);
 		oneWillSpend();
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
-			one.srcId = 0; oneShowPasted('');
+			one.srcId = 0; one.srcIds = []; oneShowPasted('');
 			$('#dze-one-note').val(cfg.note || '');
 			$('#dze-one-notewrap').prop('open', !!(cfg.note || '').trim());
 			oneDrawRecipes();
@@ -1717,6 +1719,10 @@
 			'<div class="dze-step">' +
 				'<p class="dze-step-q"><span class="dze-step-n">2</span>' + esc(i18n.stepFrom) + '</p>' +
 				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
+				// WHAT THE PICK MEANS, said under it: « je ne comprends pas
+				// comment fonctionne la re-génération d'image basée sur ce qu'on
+				// a ». Every photograph, or only the ones clicked, in that order.
+				'<p class="dze-one-srcsaid description" id="dze-one-srcsaid"></p>' +
 				// A strip with no photograph in it has to say WHY: an empty picker
 				// beside a product whose main image is on screen reads as a bug,
 				// and until now it was one — the read could fail and nothing said so.
@@ -1758,6 +1764,9 @@
 				'<div class="dze-one-bgs" id="dze-one-bgs"></div>' +
 			'</div>' +
 
+			// WHAT WILL BE SENT, before anything is paid for: the pictures in
+			// their order and the words exactly as the model reads them.
+			'<div class="dze-one-preview dze-zoomgroup" id="dze-one-previewbox" style="display:none;"></div>' +
 			'<div class="dze-qm-pair dze-zoomgroup" id="dze-one-pair" style="display:none;">' +
 				'<figure id="dze-one-oldfig"><figcaption id="dze-one-oldcap"></figcaption>' +
 					'<img id="dze-one-old" alt="" /></figure>' +
@@ -1885,6 +1894,7 @@
 			html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '"' +
 				(im.variation ? ' title="' + esc(im.variation) + '"' : '') + '>' +
 				'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" />' +
+				'<span class="dze-one-srcn" aria-hidden="true"></span>' +
 				(im.variation ? '<span class="dze-one-srcvar">' + esc(im.variation) + '</span>' : '') +
 				'</button>';
 		});
@@ -1915,9 +1925,10 @@
 		$slot.html(oneSrcStrip([]));
 		loadCurrent().then(function (cur) {
 			// Something was chosen while the product was loading: leave it be.
-			if (one.srcId || onePastes().length) { return; }
+			if ((one.srcIds || []).length || onePastes().length) { return; }
 			$slot.html(oneSrcStrip(cur.images || []));
 			oneSrcNote(cur);
+			oneSrcSaid();
 		});
 	}
 	$(document).on('click', '.dze-one-tabs button', function () {
@@ -1936,14 +1947,47 @@
 			})
 			.fail(function (x) { $out.text(reason(x)); });
 	}
+	// SEVERAL PHOTOGRAPHS CAN BE PICKED, in order. « J'aimerais re-générer des
+	// images basées sur l'image en pièce jointe » — one picture of the
+	// gallery, or three of them: the first clicked is image 1, and nothing
+	// that was not clicked travels. « Every photograph » puts the product's
+	// ordinary set back.
+	function oneSrcSaid() {
+		var ids = one.srcIds || [];
+		var $said = $('#dze-one-srcsaid');
+		$('.dze-one-srcpick').each(function () {
+			var n = ids.indexOf(parseInt($(this).data('id'), 10) || -1);
+			$(this).toggleClass('is-sel', n >= 0).find('.dze-one-srcn').text(n >= 0 && ids.length > 1 ? String(n + 1) : '');
+		});
+		var outside = $('.dze-one-srcnew').hasClass('is-sel');
+		$('.dze-one-srcpick[data-id="0"]').toggleClass('is-sel', !ids.length && !outside);
+		$said.text(outside ? i18n.srcNewSaid
+			: (!ids.length ? sprintf(i18n.srcAllSaid, cfg.sourceCap || 10)
+			: (1 === ids.length ? i18n.srcOneSaid : sprintf(i18n.srcManySaid, ids.length))));
+		one.srcId = ids.length ? ids[0] : 0;
+		// Only ONE photograph of the product can be retired by its own remake.
+		$('#dze-one-replacewrap').toggle(1 === ids.length);
+		if (1 !== ids.length) { $('#dze-one-replace').prop('checked', false); }
+		$('#dze-one-previewbox').hide().empty();
+	}
 	$(document).on('click', '.dze-one-srcpick', function () {
-		$('.dze-one-srcpick').removeClass('is-sel');
-		$(this).addClass('is-sel');
 		var raw = String($(this).data('id'));
 		var outside = 'new' === raw;
 		var id = outside ? 0 : (parseInt(raw, 10) || 0);
-		one.srcId = id;
-		window.setTimeout(oneSubject, 0);
+		one.srcIds = one.srcIds || [];
+		if (outside) {
+			one.srcIds = [];
+			$('.dze-one-srcpick').removeClass('is-sel');
+			$(this).addClass('is-sel');
+		} else {
+			$('.dze-one-srcnew').removeClass('is-sel');
+			if (!id) {
+				one.srcIds = [];
+			} else {
+				var at = one.srcIds.indexOf(id);
+				if (at >= 0) { one.srcIds.splice(at, 1); } else { one.srcIds.push(id); }
+			}
+		}
 		// The box to paste into belongs to that tile: it is on screen when the
 		// tile is chosen, and out of the way the rest of the time.
 		$('#dze-one-elsewrap').toggle(outside);
@@ -1955,9 +1999,7 @@
 			var box = onePasteBox();
 			if (box) { box.el.trigger('focus'); }
 		}
-		// Only a photograph of the product can be retired by its own remake.
-		$('#dze-one-replacewrap').toggle(!!id);
-		if (!id) { $('#dze-one-replace').prop('checked', false); }
+		oneSrcSaid();
 	});
 	// One place that says which photographs from outside we work from, whether
 	// they arrived by Ctrl+V, by drag and drop, or from the computer. The FIRST
@@ -2005,6 +2047,48 @@
 	// server had three lanes; there is one now — every photograph in the
 	// request is this product — so there is nothing left to explain and a
 	// sentence explaining a rule that no longer exists is worse than none.
+	// WHAT WILL BE SENT, WITHOUT SENDING IT. « Je ne comprends toujours pas
+	// comment fonctionne la re-génération d'image. » The server builds the
+	// very order the Generate button would send — same photographs, same
+	// notes, same words — and stops one step before the provider: nothing is
+	// generated, nothing is paid for.
+	$(document).on('click', '#dze-one-preview', function () {
+		var $b = $(this).prop('disabled', true);
+		var $box = $('#dze-one-previewbox').show().html('<p class="description">' + esc(i18n.previewing) + '</p>');
+		var req = oneImageRequest($('#dze-one-prompt').val() || '');
+		req.dry = 1;
+		$.post(cfg.ajaxUrl, req).done(function (r) {
+			if (!r || !r.success) {
+				$box.html('<p class="dze-cx-state is-ko">' + esc((r && r.data && r.data.message) || i18n.error) + '</p>');
+				return;
+			}
+			var d = r.data || {};
+			var html = '<p class="dze-one-prevhead">' + esc(i18n.previewImgs) + '</p><div class="dze-one-previmgs">';
+			(d.images || []).forEach(function (im) {
+				html += '<figure class="dze-one-previmg">' +
+					(im.thumb
+						? '<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" />'
+						: '<span class="dze-one-prevnone" aria-hidden="true"></span>') +
+					'<figcaption><strong>' + esc(sprintf(i18n.imageN, im.n)) + '</strong><br />' + esc(im.what || '') + '</figcaption>' +
+					'</figure>';
+			});
+			html += '</div>' +
+				'<p class="dze-one-prevhead">' + esc(i18n.previewText) + '</p>' +
+				'<pre class="dze-one-prevtext">' + esc(d.prompt || '') + '</pre>' +
+				(cfg.notesUrl
+					? '<p class="description"><a href="' + esc(cfg.notesUrl) + '" target="_blank" rel="noopener">' + esc(i18n.previewEdit) + ' &#8599;</a></p>'
+					: '');
+			$box.html(html);
+		}).fail(function (x) {
+			$box.html('<p class="dze-cx-state is-ko">' + esc(reason(x)) + '</p>');
+		}).always(function () { $b.prop('disabled', false); });
+	});
+	// A new recipe, a new background or a new note is a new order: what was
+	// previewed for the last one is taken away rather than left to mislead.
+	$(document).on('click change', '.dze-one-recipe, .dze-one-bg, #dze-one-note, #dze-one-prompt', function () {
+		$('#dze-one-previewbox').hide().empty();
+	});
+
 	function oneShowPasted(dataUri) {
 		var box = onePasteBox();
 		if (!box) { return; }
@@ -2019,8 +2103,10 @@
 		$('.dze-one-srcpick').removeClass('is-sel');
 		$('.dze-one-srcnew').addClass('is-sel');
 		one.srcId = 0;
+		one.srcIds = [];
 		$('#dze-one-elsewrap').show();
 		$('#dze-one-replacewrap').hide();
+		oneSrcSaid();
 		var box = onePasteBox();
 		if (box) { box.addFile(file); }
 	}
@@ -2065,7 +2151,7 @@
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 			pastes: onePastes(),
 
-			src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
+			src_ids: (one.srcIds || []).slice(), recipe: $('#dze-one-recipe').val() || '',
 			bg: $('#dze-one-bg').val() || 0,
 			prompt: undefined === prompt ? ($('#dze-one-prompt').val() || '') : prompt
 		};

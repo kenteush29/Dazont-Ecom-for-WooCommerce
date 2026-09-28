@@ -76,6 +76,7 @@ final class DZE_Shoot_Host {
 
 	const MAX_PAYLOAD = 20000000;
 	const MAX_PASTED  = 12;
+	const MAX_SOURCES = 10;
 
 	public static function fal_key() { return 'fal-key'; }
 	public static function image_templates() { return $GLOBALS['tpls']; }
@@ -91,6 +92,12 @@ final class DZE_Shoot_Host {
 	public static function default_scene() { return $GLOBALS['scene_idx']; }
 	public static function is_fal_url( $u ) { return false !== strpos( (string) $u, 'fal.media' ); }
 	public static function product_source_ids( ...$a ) { return $GLOBALS['sources_ids']; }
+	// EVERY photograph of the product, not only the first ones an ordinary
+	// run keeps: a picked one may be the last of the gallery.
+	public static function product_own_image_ids( ...$a ) { return $GLOBALS['own_ids'] ?? $GLOBALS['sources_ids']; }
+	// The product's own AND its colours' photographs: a picked colour shot is
+	// still this product's.
+	public static function product_image_ids( ...$a ) { return array_values( array_unique( array_merge( $GLOBALS['own_ids'] ?? $GLOBALS['sources_ids'], $GLOBALS['colour_ids'] ?? [] ) ) ); }
 	public static function variation_ids( ...$a ) { return []; }
 	public static function wants_variants( ...$a ) { return false; }
 	public static function variation_group_name( ...$a ) { return 'Olive'; }
@@ -302,6 +309,44 @@ ok( 'and it goes out alone with nothing pasted',
 ok( 'an id that answers for nothing is dropped',
 	$GLOBALS['sent']['sources'], [
 		'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large' ] );
+
+// SEVERAL PHOTOGRAPHS PICKED, IN THE ORDER THEY WERE PICKED. « J'aimerais
+// re-générer des images basées sur l'image en pièce jointe » — a supplier's
+// detail sheet, often the LAST picture of the gallery: picking it must work
+// even when an ordinary run would not have sent it at all.
+$GLOBALS['own_ids'] = [ 11, 12, 13 ];
+$GLOBALS['images'][13] = true;
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_ids' => [ 13, 11 ] ] );
+ok( 'the photographs picked travel, first picked first',
+	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG13/full', 'data:image/jpeg;base64,IMG11/large' ] );
+ok( 'and the note is the one for several photographs', $GLOBALS['told'][0] ?? null, 2 );
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_ids' => [ 13 ] ] );
+ok( 'one picked beyond what an ordinary run sends still goes, alone',
+	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG13/full' ] );
+// A PHOTOGRAPH OF ANOTHER PRODUCT IS NEVER SENT, whatever the screen posts.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_ids' => [ 555 ] ] );
+ok( 'a picture that is not of this product is ignored',
+	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large' ] );
+// A COLOUR'S OWN PHOTOGRAPH IS STILL THIS PRODUCT'S. The picker shows it, its
+// colour written on the tile; dropping it in silence sent every photograph.
+$GLOBALS['colour_ids'] = [ 14 ];
+$GLOBALS['images'][14] = true;
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_ids' => [ 14 ] ] );
+ok( 'a colour photograph picked is the one sent',
+	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG14/full' ] );
+unset( $GLOBALS['own_ids'], $GLOBALS['colour_ids'] );
+
+// WHAT WILL BE SENT, WITHOUT SENDING IT. « Je ne comprends toujours pas
+// comment fonctionne la re-génération d'image. » The same order, stopped one
+// step before the provider: nothing is asked of fal and nothing is paid.
+$GLOBALS['sent'] = null;
+[ $dry, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'dry' => 1 ] );
+ok( 'a preview asks nothing of the provider',      $GLOBALS['sent'], [] );
+ok( 'and hands back the words the model would read',
+	false !== strpos( (string) ( $dry['prompt'] ?? '' ), 'SOURCES LINE.' ), true );
+ok( 'and every picture, numbered in its order',
+	array_map( static fn( $l ) => $l['n'] . ':' . $l['id'], (array) ( $dry['images'] ?? [] ) ), [ '1:11', '2:12' ] );
+ok( 'each saying what it is', (string) ( $dry['images'][0]['what'] ?? '' ) !== '', true );
 
 // THE ONE LANE THAT STILL HAS A SUBJECT is the arrow on a tile: "make this one
 // again". That is the only request whose answer is allowed to look like its

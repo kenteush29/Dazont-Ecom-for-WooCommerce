@@ -1518,130 +1518,121 @@ EOT;
 	}
 
 	/**
-	 * The paragraph that tells the model what each image it received IS.
+	 * WHAT IS SAID ABOUT THE PHOTOGRAPHS — in the owner's words, and his to change.
 	 *
-	 * Without it, several photographs of one product read as several products,
-	 * and a scene reads as something to blend the product into. It is appended
-	 * to the prompt rather than written into it, so the owner's own prompts
-	 * never have to carry this plumbing.
+	 * « Tu as encore caché du texte : IMAGES 1 TO 5 ARE ONE SINGLE PRODUCT… »
+	 * An image request carries several pictures, and something has to say what
+	 * each one IS — the prompt cannot, it does not know how many the run
+	 * attaches. That note is legitimate; it being written by the plugin, in the
+	 * plugin's words, where the owner could read it and not change it, was not.
+	 * So each note is a setting under Settings → Product content, with the
+	 * owner's own wording as the default for the ordinary run:
 	 *
-	 * @param int        $count Number of product photographs sent.
-	 * @param array|null $scene The scene, when one is used, sent last.
-	 * @param int        $avoid Photographs this prompt already made, sent after
-	 *                          the product ones and before the scene, so the
-	 *                          model can see what it must not do again.
-	 * @param int        $variants Photographs of OTHER COLOURS of the same
-	 *                          product, sent right after the product's own.
-	 * There is no lane for "photographs handed in from outside" any more, and
-	 * no question about what they are for. "On envoie des images
-	 * supplémentaires qui apportent plus de détail sur le produit, et jamais
-	 * rien d'autre." They are photographs of this product, they travel with the
-	 * product's own, and they are counted in $count with them.
+	 * « Les images fournies représentent un seul et même produit. L'image 1 est
+	 * l'image principale. Les autres sont des images de galeries, soit déjà
+	 * présentes, soit copiées depuis la page produit du fournisseur. Reproduire
+	 * tous les détails du produit à l'identique en tenant compte des différents
+	 * angles photos (attention à ne pas modifier l'emplacement d'un détail). Les
+	 * photos font foi devant la description produit. »
+	 *
+	 * Written in English, like every shipped default: the model mirrors the
+	 * language it is spoken to in. {images} is replaced by the numbers of the
+	 * images the note is about — « Image 6 », « Images 4 to 5 ».
+	 *
+	 * @return array<string,array{label:string,when:string,default:string}>
+	 */
+	public static function photo_note_catalog(): array {
+		return [
+			'many'    => [
+				'label'   => __( 'Several photographs of the product', 'dazont-ecom' ),
+				'when'    => __( 'Sent whenever more than one photograph of the product travels: the main image first, then the gallery — or the photographs you picked, in the order you picked them.', 'dazont-ecom' ),
+				'default' => 'The images provided show one single product. Image 1 is the main image. The others are gallery images, either already on the product or copied from the supplier\'s product page. Reproduce every detail of the product exactly, taking the different camera angles into account — be careful never to move a detail to another place. The photographs take precedence over the product description.',
+			],
+			'one'     => [
+				'label'   => __( 'One photograph of the product', 'dazont-ecom' ),
+				'when'    => __( 'Sent when a single photograph travels: the one you picked, the main one when « Main photo only » is chosen, or the only one the product has.', 'dazont-ecom' ),
+				'default' => 'Image 1 is the only photograph of the product you are given, chosen on purpose: it is the reference. Reproduce the product exactly as it shows it, every detail in the same place, and add nothing it does not show. If it carries text, captions, arrows or several pictures laid out side by side, those are not part of the product: keep the product alone. The photograph takes precedence over the product description.',
+			],
+			'edit'    => [
+				'label'   => __( 'A picture already made, retouched', 'dazont-ecom' ),
+				'when'    => __( 'Sent when ↻ remakes a picture that was generated: that picture is image 1.', 'dazont-ecom' ),
+				'default' => 'Image 1 is the picture to work on: keep the product in it exactly as it is.',
+			],
+			'colours' => [
+				'label'   => __( 'Photographs of its other colours', 'dazont-ecom' ),
+				'when'    => __( 'Sent when the prompt asks for the product\'s other colours to travel too.', 'dazont-ecom' ),
+				'default' => '{images}: the same product in another colour. Read them for the shape and the construction only — never for the colour, the pattern or the material, which come from the photographs of the product alone.',
+			],
+			'made'    => [
+				'label'   => __( 'A picture this prompt already made', 'dazont-ecom' ),
+				'when'    => __( 'Sent when a second picture is asked of the same prompt for the same product: the first one travels, so the second is not the same again.', 'dazont-ecom' ),
+				'default' => '{images}: a picture already made for this product with these same instructions. Make a clearly different one — another angle, another distance, another part — and never use it as the reference for the product: the photographs of the product are.',
+			],
+			'scene'   => [
+				'label'   => __( 'The background', 'dazont-ecom' ),
+				'when'    => __( 'Sent when a background is picked; the note written under that background follows it.', 'dazont-ecom' ),
+				'default' => "{images}: the scene — the surface, the background and the light of the final image. Only one product in the frame. The result must look like ONE photograph: the same perspective and the same light on the product as in the scene. The background is the scene image and only it: keep its colour, its gradient and its own shadow; do not paint another background over it, do not darken it, do not add a vignette. SHADOW: if the scene already shows a shadow on its surface, use that one and add no other. Otherwise, one soft ellipse directly under the product, no wider than the product, gone within a short distance — never a large dark area behind or around the product, and never two shadows.",
+			],
+		];
+	}
+
+	/** One note, as the shop has it: its own words, or the default. */
+	public static function photo_note( string $key ): string {
+		$cat = self::photo_note_catalog();
+		if ( ! isset( $cat[ $key ] ) ) {
+			return '';
+		}
+		$own = trim( (string) ( ( (array) ( self::get_settings()['photo_notes'] ?? [] ) )[ $key ] ?? '' ) );
+		return '' !== $own ? $own : (string) $cat[ $key ]['default'];
+	}
+
+	/** {images} in a note, said as the images it is about. */
+	private static function images_named( string $note, int $first, int $n ): string {
+		$said = 1 === $n ? sprintf( 'Image %d', $first ) : sprintf( 'Images %1$d to %2$d', $first, $first + $n - 1 );
+		return str_replace( '{images}', $said, $note );
+	}
+
+	/**
+	 * The paragraph that tells the model what each image it received IS —
+	 * assembled from the notes above, in the order the images travel: the
+	 * product, its other colours, a picture already made, the scene.
+	 *
+	 * @param int        $count         Photographs of THE PRODUCT sent — its
+	 *                                  own and any handed in beside them.
+	 * @param array|null $scene         The scene, when one is used, sent last.
+	 * @param int        $avoid         Pictures this prompt already made, sent
+	 *                                  after the product's and its colours'.
+	 * @param int        $variants      Photographs of its other colours.
+	 * @param bool       $subject_first A picture already made is being
+	 *                                  retouched: it is image 1.
+	 * @param bool       $only_one      Kept for the callers that still say it:
+	 *                                  one photograph is one photograph, however
+	 *                                  it came to be the only one.
 	 */
 	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, bool $only_one = false ): string {
 		$out = "\n\n";
-		// SHORT, OR IT IS NOT READ. Every sentence here competes with the
-		// shop's own prompt for the model's attention, and this block had
-		// grown to say the same thing four ways: read them together, never
-		// invent, reproduce every fitting, leave out what is not readable.
-		// Four ways of saying one rule is not four times the rule.
-		// The ONE lane with a subject of its own: the ↻ on a tile, remaking a
-		// single photograph that was handed in. Everywhere else the product's
-		// photographs and the ones added to them are one and the same product.
-		if ( $count > 1 && $subject_first ) {
-			$out .= sprintf(
-				'IMAGE 1 IS THE PRODUCT TO WORK ON: its colours, its pattern, its material and its markings are the ones to keep. IMAGES 2 TO %d show the same model in another version — read them for the shape and the construction only, never for a colour, a pattern or a texture.',
-				$count
-			);
-		} elseif ( $count > 1 ) {
-			$out .= sprintf(
-				'IMAGES 1 TO %d ARE ONE SINGLE PRODUCT, photographed from different angles. Image 1 is the reference; the others show what it does not.',
-				$count
-			);
-		} elseif ( $only_one ) {
-			// UNE PHOTO CHOISIE EXPRES : c est CETTE vue qu on refait, pas une
-			// autre. « J aurais aime refaire l image qui m etait a disposition,
-			// juste cette image — les images fournisseur sont souvent bonnes et
-			// demandent un agrandissement ou un meilleur angle. »
-			//
-			// On le dit deux fois, parce que le modele a le droit de recadrer et
-			// de rapprocher, et pas du tout de tourner l objet : un quart de
-			// tour lui ferait inventer la face qu il n a jamais vue.
-			$out .= 'IMAGE 1 IS THE PRODUCT AND THE VIEW. It is the only photograph you are given, on purpose. Keep the SAME face of the product and the same orientation: you may come closer, reframe, clean the background and light it better, but you may NOT turn the product, show another side, or add any part this photograph does not show. Anything not visible here does not exist for this image.';
+		if ( $count > 1 ) {
+			$out .= self::photo_note( 'many' );
+		} elseif ( $subject_first ) {
+			$out .= self::photo_note( 'edit' );
 		} else {
-			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is.';
+			$out .= self::photo_note( 'one' );
 		}
-		// THE PHOTOGRAPHS WIN OVER THE WORDS, ON EVERY RUN. Every image request
-		// carries the product's own data — its title, its description, its
-		// attributes — and a description describes the product IN GENERAL:
-		// the family, the version with the straps, the options. Sent with no
-		// arbiter beside it, the model reads "sangles réglables, attaches
-		// rapides" and draws exactly that, on a variant that has neither:
-		// "des attaches imaginaires rajoutées devant, une sangle imaginaire
-		// rajoutée derrière". This sentence used to be sent ONLY when a
-		// photograph had been pasted or picked — which is the one case where
-		// the text was least likely to be believed anyway.
-		$out .= ' Reproduce it exactly: every buckle, strap, cord, zip, seam and marking the photographs show, in the same places, and NOTHING they do not show. Where the product data above names a part you cannot see in them — a strap, a fastening, a colour, a pattern — THE PHOTOGRAPHS WIN: that text describes the product in general, these photographs are the one being made. A part left out of frame is a photograph; an invented one is a fake.';
-		// The other colours of the same product. They say what the shape, the
-		// cut and the details are — and nothing at all about the colour of the
-		// one being made, which is the whole reason they have to be named
-		// rather than dropped in with the rest.
 		if ( $variants > 0 ) {
-			$first = $count + 1;
-			$out  .= ' ' . (
-				1 === $variants
-					? sprintf( 'IMAGE %d IS THE SAME PRODUCT IN ANOTHER COLOUR', $first )
-					: sprintf( 'IMAGES %1$d TO %2$d ARE THE SAME PRODUCT IN OTHER COLOURS', $first, $first + $variants - 1 )
-			);
-			$out .= ' — same shape, same details, another colourway. Read '
-				. ( 1 === $variants ? 'it' : 'them' )
-				. ' for the construction only: the colours, the pattern and the material come from the photographs above and from them alone.';
+			$out .= "\n" . self::images_named( self::photo_note( 'colours' ), $count + 1, $variants );
 		}
-		// The model has no memory of what it handed back a minute ago, so
-		// asking a second time for "a photograph of the product in use" simply
-		// returned the first one again. It is shown them instead of being told
-		// about them: a sentence saying "make it different" loses to a set of
-		// source images saying "make it the same".
 		if ( $avoid > 0 ) {
-			$out .= ' ' . (
-				1 === $avoid
-					? sprintf( 'IMAGE %d IS A PHOTOGRAPH ALREADY MADE', $count + $variants + 1 )
-					: sprintf( 'IMAGES %1$d TO %2$d ARE PHOTOGRAPHS ALREADY MADE', $count + $variants + 1, $count + $variants + $avoid )
-			);
-			$out .= ' for this product with these very instructions. What you make now must be clearly different from '
-				. ( 1 === $avoid ? 'it' : 'each of them' )
-				. ' — another angle, another distance, another part. Never hand one back, and never read '
-				. ( 1 === $avoid ? 'it' : 'them' )
-				. ' as the reference for the product: the photographs above are.';
+			$out .= "\n" . self::images_named( self::photo_note( 'made' ), $count + $variants + 1, $avoid );
 		}
-		// Technical goods are lost in the details: a buckle, a webbing pitch, a
-		// label, a seam. The model reads a soft photograph, cannot make the
-		// detail out, and paints something plausible instead — which on a
-		// tactical product is immediately, obviously wrong. Said explicitly,
-		// and said as a preference for LESS rather than for invention.
-
 		if ( $scene ) {
-			// Deliberately says WHAT it is and not what it may not be: a shelf
-			// image can be a blank product to print on, and a sentence
-			// forbidding a scene from looking like a product fought the prompt
-			// that asked for exactly that.
-			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + $variants + $avoid + 1 );
-			if ( '' !== trim( (string) $scene['prompt'] ) ) {
+			$out .= "\n" . self::images_named( self::photo_note( 'scene' ), $count + $variants + $avoid + 1, 1 );
+			if ( '' !== trim( (string) ( $scene['prompt'] ?? '' ) ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
 			}
-			// The scene IS the background. Said any less firmly, the model
-			// paints its own over it — and, asked for "contact shadows" on a
-			// product that touches nothing, drops a large dark smear behind it.
-			$out .= "\nThe result must look like ONE photograph: the same perspective and the same light in the product as in the scene.";
-			// "Ignore any background described in words above" used to end this
-			// line: the plugin telling the model to disregard the shop's own
-			// prompt. Whatever else is appended here, nothing may overrule the
-			// instructions it is appended to.
-			$out .= "\nThe background is the scene image and only it: its colour, its gradient and its own shadow are kept as they are. Do not paint another background over it, do not darken it, do not add a vignette.";
-			$out .= "\nSHADOW: if the scene already shows a shadow on its surface, use that one and add no other. Otherwise, one soft ellipse directly under the product, no wider than the product, gone within a short distance. Never a large diffuse dark area behind, beside or around the product, and never two shadows.";
 		}
 		return $out;
 	}
+
 
 
 	/**
@@ -2374,6 +2365,20 @@ Answer with STRICT JSON and nothing else: "
 			$p = trim( sanitize_textarea_field( (string) $in['quick_prompt'] ) );
 			$out['quick_prompt'] = ( $p === trim( self::default_quick_prompt() ) ) ? '' : $p;
 		}
+		// WHAT IS SAID ABOUT THE PHOTOGRAPHS: only the notes the form carried,
+		// and a note left as the default is stored as nothing — so the default
+		// can improve later without overwriting words the shop really chose.
+		if ( isset( $in['photo_notes'] ) && is_array( $in['photo_notes'] ) ) {
+			$notes = (array) ( $out['photo_notes'] ?? [] );
+			foreach ( self::photo_note_catalog() as $key => $one ) {
+				if ( ! array_key_exists( $key, $in['photo_notes'] ) ) {
+					continue;
+				}
+				$txt = trim( sanitize_textarea_field( (string) $in['photo_notes'][ $key ] ) );
+				$notes[ $key ] = ( $txt === trim( (string) $one['default'] ) ) ? '' : $txt;
+			}
+			$out['photo_notes'] = array_filter( $notes, static fn( $v ) => '' !== (string) $v );
+		}
 		// Scene library: name + image + its own instruction, one marked default.
 		if ( isset( $in['sc_name'] ) && is_array( $in['sc_name'] ) ) {
 			$rows = [];
@@ -2830,6 +2835,40 @@ Answer with STRICT JSON and nothing else: "
 			} );
 			</script>
 
+			</details>
+
+			<?php
+			// WHAT IS SAID ABOUT THE PHOTOGRAPHS, written where it can be read
+			// AND changed. « Tu as encore caché du texte. » It was printed on
+			// every image prompt, word for word, and still hidden in the only
+			// sense that mattered: nobody could change it.
+			?>
+			<details class="dze-set" id="dze-photonotes">
+			<summary><?php esc_html_e( 'What is said about the photographs — added to every image request', 'dazont-ecom' ); ?></summary>
+			<p class="description" style="max-width:900px;">
+				<?php esc_html_e( 'Every image request carries photographs, and your prompt cannot know how many or in what order. These notes are what tells the model what each picture IS. They follow your prompt, in this order, only when that kind of picture is sent. {images} becomes the numbers of the pictures it is about — « Image 6 », « Images 4 to 5 ». Emptied, a note goes back to its default.', 'dazont-ecom' ); ?>
+			</p>
+			<?php foreach ( self::photo_note_catalog() as $dze_nk => $dze_note ) : ?>
+				<?php $dze_nv = self::photo_note( (string) $dze_nk ); ?>
+				<div class="dze-photonote" style="max-width:900px;margin:14px 0 0;">
+					<p style="margin:0 0 2px;"><strong><?php echo esc_html( (string) $dze_note['label'] ); ?></strong>
+						<?php if ( trim( $dze_nv ) !== trim( (string) $dze_note['default'] ) ) : ?>
+							<span class="description"> — <?php esc_html_e( 'your own wording', 'dazont-ecom' ); ?></span>
+						<?php endif; ?>
+					</p>
+					<p class="description" style="margin:0 0 4px;"><?php echo esc_html( (string) $dze_note['when'] ); ?></p>
+					<textarea class="large-text code dze-photonote-text" rows="<?php echo (int) max( 3, min( 8, ceil( mb_strlen( $dze_nv ) / 110 ) + 1 ) ); ?>" name="<?php echo esc_attr( $opt ); ?>[photo_notes][<?php echo esc_attr( (string) $dze_nk ); ?>]" data-default="<?php echo esc_attr( (string) $dze_note['default'] ); ?>"><?php echo esc_textarea( $dze_nv ); ?></textarea>
+					<p style="margin:2px 0 0;"><button type="button" class="button-link dze-photonote-reset"><?php esc_html_e( 'Restore the default', 'dazont-ecom' ); ?></button></p>
+				</div>
+			<?php endforeach; ?>
+			<script>
+			jQuery( function ( $ ) {
+				$( document ).on( 'click', '.dze-photonote-reset', function () {
+					var $t = $( this ).closest( '.dze-photonote' ).find( '.dze-photonote-text' );
+					$t.val( String( $t.data( 'default' ) || '' ) ).trigger( 'change' );
+				} );
+			} );
+			</script>
 			</details>
 
 			<details class="dze-set" open>
@@ -4259,6 +4298,14 @@ Answer with STRICT JSON and nothing else: "
 					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
 					'discard'  => __( 'Cancel', 'dazont-ecom' ),
 					'stepElse' => __( 'Photographs from elsewhere', 'dazont-ecom' ),
+					'srcTitle' => __( 'Photographs sent for this product', 'dazont-ecom' ),
+					'srcRow'   => __( 'As the prompt row says', 'dazont-ecom' ),
+					/* translators: %s: number of photographs picked */
+					'srcPicked'=> __( '— %s picked', 'dazont-ecom' ),
+					'srcRowSaid' => __( 'Nothing picked: each prompt row sends what its « Photos sent » column says. Click photographs to send only those, in the order you click them — the first one is image 1.', 'dazont-ecom' ),
+					'srcOneSaid' => __( 'Only this photograph is sent, for every prompt of this product: the model works from it alone.', 'dazont-ecom' ),
+					/* translators: %s: number of photographs picked */
+					'srcManySaid'=> __( 'These %s photographs are sent, for every prompt of this product, in the order you clicked them: the first one is image 1.', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
 					'confirmClear' => __( 'Take every product out of this list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
@@ -4628,11 +4675,12 @@ Answer with STRICT JSON and nothing else: "
 							     the FIRST row as if they belonged to the run, so a
 							     second prompt ran on a scene nobody had chosen for
 							     it and the screen offered no way to choose one. -->
-							<div class="dze-tplgrid<?php echo $dze_bscenes ? '' : ' has-noscene'; ?>">
+							<div class="dze-tplgrid has-photos<?php echo $dze_bscenes ? '' : ' has-noscene'; ?>">
 								<span class="dze-tplhead">
 									<span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
 									<span></span>
 									<?php if ( $dze_bscenes ) : ?><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span><?php endif; ?>
+									<span><?php esc_html_e( 'Photos sent', 'dazont-ecom' ); ?></span>
 									<span><?php esc_html_e( 'Attempts', 'dazont-ecom' ); ?></span>
 									<span><?php esc_html_e( 'Put it', 'dazont-ecom' ); ?></span>
 									<span></span>
@@ -4667,23 +4715,17 @@ Answer with STRICT JSON and nothing else: "
 										</select>
 									<?php endif; ?>
 									<?php
-									// LA PHOTO PRINCIPALE SEULEMENT, POUR TOUTE LA SÉRIE.
-									//
-									// « J'utilise le bulk content pour mettre à jour des
-									// centaines de produits. » Choisir une photo produit par
-									// produit n'a aucun sens à cette échelle — et c'est là que
-									// le mélange de vues arrive, puisque chaque fiche envoie
-									// tout ce qu'elle a. Une seule décision pour la série.
-									//
-									// Décochée par défaut : plusieurs photos aident le modèle
-									// sur un produit simple, elles le perdent sur un produit
-									// technique. C'est à la boutique de savoir lequel elle
-									// traite.
+									// A CHOICE PER ROW, IN ITS OWN COLUMN. It was a tick box
+									// squeezed under the « Attempts » heading, and only the
+									// FIRST row's was ever read: a second row ticked « Main
+									// photo only » and still sent every photograph.
+									// Photographs picked on a product's own panel win over
+									// this for that product.
 									?>
-									<label class="dze-tpl-onemain-wrap" title="<?php esc_attr_e( 'Sends only each product\'s main photograph, instead of all of them. On technical products, several conflicting views are what makes the model merge a back with parts of the front.', 'dazont-ecom' ); ?>">
-										<input type="checkbox" class="dze-tpl-onemain" />
-										<?php esc_html_e( 'Main photo only', 'dazont-ecom' ); ?>
-									</label>
+									<select class="dze-tpl-photos" title="<?php esc_attr_e( 'Which of each product\'s photographs travel with this prompt. Photographs picked on a product\'s own panel replace this for that product.', 'dazont-ecom' ); ?>">
+										<option value="all"><?php esc_html_e( 'Every photo', 'dazont-ecom' ); ?></option>
+										<option value="main"><?php esc_html_e( 'Main photo only', 'dazont-ecom' ); ?></option>
+									</select>
 									<select class="dze-tpl-n" title="<?php esc_attr_e( 'Attempts for this prompt, on each product — you keep the good ones at review time.', 'dazont-ecom' ); ?>">
 										<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
 											<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>
@@ -5127,6 +5169,11 @@ Answer with STRICT JSON and nothing else: "
 			// is reserved: it is simply the first image prompt writing the main
 			// image, and it changes the moment the list does.
 			'mainRecipe' => (string) ( self::main_recipe()['id'] ?? '' ),
+			// How many of its own photographs an ordinary run sends, said under
+			// the strip where they are picked.
+			'sourceCap'  => self::source_cap(),
+			// Where the notes about the photographs are changed.
+			'notesUrl'   => class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'settings', 'content' ) . '#dze-photonotes' : '',
 			// How many photographs from outside the shop one run accepts.
 			'maxPasted'  => self::MAX_PASTED,
 			// The weight one request can carry: the browser stops before the
@@ -5344,7 +5391,25 @@ Answer with STRICT JSON and nothing else: "
 				'rfApply'    => __( 'Save selected', 'dazont-ecom' ),
 				'rfDropOld'  => __( 'and delete the originals', 'dazont-ecom' ),
 				'cancel'     => __( 'Cancel', 'dazont-ecom' ),
-				'stepFrom'   => __( 'From which photograph?', 'dazont-ecom' ),
+				'stepFrom'   => __( 'From which photographs?', 'dazont-ecom' ),
+				// WHAT THE PICK MEANS, in one line under the strip — the question the
+				// owner kept asking: « je ne comprends pas comment fonctionne la
+				// re-génération d'image basée sur ce qu'on a ».
+				/* translators: %s: how many photographs an ordinary run sends at most */
+				'srcAllSaid' => __( 'Every photograph of the product is sent — up to %s, the main one first. Click photographs to send only those.', 'dazont-ecom' ),
+				'srcOneSaid' => __( 'Only this photograph is sent: the model works from it alone. What to make of it is the prompt\'s to say.', 'dazont-ecom' ),
+				/* translators: %s: how many photographs were picked */
+				'srcManySaid'=> __( 'These %s photographs are sent, in the order you clicked them: the first one is image 1.', 'dazont-ecom' ),
+				'srcNewSaid' => __( 'The photographs you add here travel with the product\'s own, as more views of the same product.', 'dazont-ecom' ),
+				// SEEING WHAT GOES OUT, BEFORE IT COSTS ANYTHING.
+				'preview'    => __( 'See what will be sent', 'dazont-ecom' ),
+				'previewTip' => __( 'Shows the words the model will read and the pictures it will see, in their order. Nothing is generated and nothing is paid for.', 'dazont-ecom' ),
+				'previewing' => __( 'Reading…', 'dazont-ecom' ),
+				'previewImgs'=> __( 'The pictures, in the order the model sees them', 'dazont-ecom' ),
+				'previewText'=> __( 'The words, exactly as the model reads them', 'dazont-ecom' ),
+				'previewEdit'=> __( 'The notes about the photographs are yours to change', 'dazont-ecom' ),
+				/* translators: %s: the number of the image */
+				'imageN'     => __( 'Image %s', 'dazont-ecom' ),
 				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
 				'stepElse'   => __( 'Photographs from elsewhere', 'dazont-ecom' ),
 				'noRecipes'  => __( 'No image prompt writes here yet. Add one under Settings → Product content → Prompts.', 'dazont-ecom' ),
