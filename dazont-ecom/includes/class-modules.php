@@ -163,7 +163,7 @@ final class DZE_Modules {
 				'default' => 0,
 				'label' => __( 'WPML Translation Module', 'dazont-ecom' ),
 				'desc'  => __( 'Translates products, articles, pages and every translatable taxonomy into the site\'s other languages, through WPML.', 'dazont-ecom' ),
-				'more'  => __( 'A translation desk of its own, built the way WPML\'s own Translation Management is: a dashboard saying where the site stands language by language, a batch you choose and send, and a review before anything is written. WHAT MAY BE TRANSLATED IS WPML\'S ANSWER, never ours — the post types, the taxonomies and the custom fields are read from its settings. WPML\'s own automatic translation bills per word in credits; the same words go through the Anthropic key already configured here for a fraction of that, in the shop\'s voice. One step of undo on every object.', 'dazont-ecom' ),
+				'more'  => __( 'A translation desk built as a copy of WPML\'s own Translation Dashboard: tick what to translate in each kind of content, see per language how many words it sends and what it will cost, send it, and each language turns on its row until it lands — translated in the background, several languages at once, and reviewed before anything is written unless you choose to publish without review. WHAT MAY BE TRANSLATED IS WPML\'S ANSWER, never ours — the post types, the taxonomies and the custom fields are read from its settings. WPML\'s own automatic translation bills per word in credits; the same words go through the Anthropic key already configured here for a fraction of that, in the shop\'s voice. One step of undo on every object.', 'dazont-ecom' ),
 			],
 			'category_content' => [
 				'class' => 'DZE_Category_Content',

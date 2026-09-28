@@ -608,7 +608,8 @@ echo "\nLINTERRUPTEUR NEST QUE SUR LECRAN QUIL COMMANDE\n";
 // y compris dans lediteur dUN produit quon traduit a la main. Un interrupteur
 // de passe nocturne au-dessus de ce travail-la est du mobilier qui gene.
 $sw_src = [
-	'class-translate-screen.php' => "'dashboard' === \$tab && class_exists( 'DZE_Automation' )",
+	// ET PAS DANS L EDITEUR D UN OBJET, qui vit sous le meme onglet.
+	'class-translate-screen.php' => "'dashboard' === \$tab && '' === \$ref && class_exists( 'DZE_Automation' )",
 	// L ecran des promotions le faisait deja, cote evenements seulement.
 	'class-discounts.php'        => "'events' === \$mode && class_exists( 'DZE_Automation' )",
 ];

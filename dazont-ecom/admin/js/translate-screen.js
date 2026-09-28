@@ -1,12 +1,22 @@
 /**
- * Dazont Ecom → WPML Translations: the batch, and the reading before it lands.
+ * Dazont Ecom → WPML Translations.
  *
- * Two presses and nothing else. "Translate the ticked" walks the list ONE
- * OBJECT AT A TIME — a run of forty products in one request either works or
- * times out, and says nothing while it decides which — so the bar can say
- * where it is. "Review" opens the object where it stands, beside what came
- * back and beside what the translation holds today; accept writes the ticked
- * fields and refuse throws the lot away.
+ * « Je veux que ce soit une copie du dashboard WPML. » So it is WPML's
+ * Translation Dashboard, pressed the way WPML's is:
+ *
+ *   1. SELECT ITEMS FOR TRANSLATION — a tick survives paging, searching and
+ *      reloading; « Select All » takes every item the filters match, in every
+ *      section. Each section pages, searches and sorts on its own.
+ *   2. TRANSLATE YOUR CONTENT — appears as soon as something is ticked: per
+ *      language, the words it will send and what that costs, what to do with
+ *      what is already translated, and what to do when it comes back.
+ *   3. IN THE BACKGROUND — one press deposits the lot. The languages on their
+ *      way turn on their rows, and the page asks every few seconds where they
+ *      stand, so each one lands without a reload. While a wheel turns and no
+ *      pass is running, the page starts one: WordPress's scheduler only wakes
+ *      when somebody visits the site.
+ *
+ * Then the editor of one object and the To review list, unchanged.
  *
  * Every word on this screen comes from PHP: hard-coded here they were English
  * on every shop.
@@ -33,238 +43,460 @@
 	function said(r) {
 		return (r && r.data && r.data.message) ? r.data.message : i18n.error;
 	}
+	function num(n) {
+		var v = Number(n) || 0;
+		try { return v.toLocaleString(); } catch (e) { return String(v); }
+	}
+	function money(v) {
+		v = Number(v) || 0;
+		if (v > 0 && v < 0.01) { return i18n.moneyTiny; }
+		return sprintf(i18n.money, v.toFixed(2));
+	}
 
 	// =====================================================================
-	// The batch
+	// The dashboard
 	// =====================================================================
 
-	// LA SÉLECTION SURVIT AU CHANGEMENT DE PAGE.
+	var $dash = $();
+
+	// ---- What is ticked, kept across pages, sections and reloads ----------
 	//
 	// « Changer de page annule la sélection. Sur WPML ça change de page en
-	// ajax, la sélection reste active. »
-	//
-	// On garde les lignes cochées par leur référence, dans le stockage de
-	// l'onglet : la page se recharge, les cases se retrouvent, et une
-	// sélection commencée page une part toujours quand on l'envoie depuis la
-	// page trois. Le stockage est celui de l'ONGLET — il disparaît quand on le
-	// ferme — parce qu'une sélection oubliée depuis hier est un envoi qu'on ne
-	// voulait plus.
-	var KEPT = 'dze-tr-picked:' + (cfg.scope || '');
-	function readKept() {
+	// ajax, la sélection reste active. » It is kept by ref, in the TAB's own
+	// storage — gone when the tab closes, because a selection forgotten since
+	// yesterday is a sending nobody wanted any more.
+	var STORE = 'dze-trd-picked';
+	var picked = {};
+	var pickedN = 0;
+	function loadPicked() {
+		picked = {};
 		try {
-			var raw = window.sessionStorage.getItem(KEPT);
-			return raw ? JSON.parse(raw) : {};
-		} catch (e) { return {}; }
+			var raw = window.sessionStorage.getItem(STORE);
+			var got = raw ? JSON.parse(raw) : {};
+			if (got && typeof got === 'object') { picked = got; }
+		} catch (e) { picked = {}; }
+		pickedN = Object.keys(picked).length;
 	}
-	function writeKept(map) {
-		try { window.sessionStorage.setItem(KEPT, JSON.stringify(map)); } catch (e) { /* privé : tant pis */ }
+	function savePicked() {
+		pickedN = Object.keys(picked).length;
+		try { window.sessionStorage.setItem(STORE, JSON.stringify(picked)); } catch (e) { /* private window: never mind */ }
 	}
-	function remember() {
-		var map = readKept();
-		$('.dze-tr-row').each(function () {
-			var ref = String($(this).data('ref'));
-			if ($(this).find('.dze-tr-pickone').prop('checked')) { map[ref] = 1; }
-			else { delete map[ref]; }
+	function refs() { return Object.keys(picked); }
+	function rowsOf(ref) { return $dash.find('.dze-trd-row[data-ref="' + String(ref) + '"]'); }
+	function syncBoxes($in) {
+		($in || $dash).find('.dze-trd-pick').each(function () { this.checked = !!picked[this.value]; });
+		$dash.find('.dze-trd-sec').each(function () {
+			var $b = $(this).find('.dze-trd-pick');
+			$(this).find('.dze-trd-pickpage').prop('checked', $b.length > 0 && $b.filter(':checked').length === $b.length);
 		});
-		writeKept(map);
 	}
-	function restore() {
-		var map = readKept(), n = 0;
-		$('.dze-tr-row').each(function () {
-			if (map[String($(this).data('ref'))]) {
-				$(this).find('.dze-tr-pickone').prop('checked', true);
-				n++;
+	function changed() {
+		savePicked();
+		syncBoxes();
+		showBar();
+		scheduleCount();
+	}
+	function showBar() {
+		var n = pickedN;
+		$('#dze-trd-selbar').prop('hidden', n === 0);
+		$('#dze-trd-selcount').text(n === 1 ? i18n.oneSelected : sprintf(i18n.nSelected, num(n)));
+		// STEP 2 APPEARS ONCE SOMETHING IS TICKED, as it does in WPML.
+		$('#dze-trd-step2').prop('hidden', n === 0);
+	}
+
+	$(document).on('change', '.dze-trd-pick', function () {
+		if (this.checked) { picked[this.value] = true; } else { delete picked[this.value]; }
+		changed();
+	});
+	$(document).on('change', '.dze-trd-pickpage', function () {
+		var on = this.checked;
+		$(this).closest('.dze-trd-sec').find('.dze-trd-pick').each(function () {
+			this.checked = on;
+			if (on) { picked[this.value] = true; } else { delete picked[this.value]; }
+		});
+		changed();
+	});
+	// UN GESTE QUI NE DIT RIEN EST UN GESTE QUI N'A PAS MARCHÉ : the bar
+	// disappears with the selection, which is the answer.
+	$(document).on('click', '#dze-trd-clearsel', function () {
+		picked = {};
+		changed();
+	});
+	$(document).on('click', '#dze-trd-goto', function () {
+		var el = document.getElementById('dze-trd-step2');
+		if (el && el.scrollIntoView) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+	});
+
+	// ---- One section: its page, its size, its filters, its order ----------
+	function sectionArgs($s) {
+		var f = cfg.filters || {};
+		return {
+			scope: String($s.data('scope') || ''),
+			paged: parseInt($s.data('paged'), 10) || 1,
+			per: parseInt($s.data('per'), 10) || 10,
+			search: String($s.find('.dze-trd-search').val() || ''),
+			term: parseInt($s.find('.dze-trd-term').val(), 10) || 0,
+			orderby: String($s.data('orderby') || 'title'),
+			order: String($s.data('order') || 'asc'),
+			flang: f.flang || '',
+			pstatus: f.pstatus || '',
+			tstatus: f.tstatus || 'todo'
+		};
+	}
+	function loadSection($s) {
+		$s.addClass('is-loading');
+		return post('dze_tr_items', sectionArgs($s)).done(function (r) {
+			if (!r || !r.success) { return; }
+			$s.find('tbody').first().html(r.data.rows || '');
+			$s.find('.tablenav-pages').first().html(r.data.pager || '');
+			$s.find('.dze-trd-seccount').text('(' + (r.data.label || '0') + ')');
+			syncBoxes($s);
+			watch();
+		}).always(function () { $s.removeClass('is-loading'); });
+	}
+	var searchTimer = null;
+	$(document).on('input', '.dze-trd-search', function () {
+		var $s = $(this).closest('.dze-trd-sec');
+		window.clearTimeout(searchTimer);
+		searchTimer = window.setTimeout(function () { $s.data('paged', 1); loadSection($s); }, 400);
+	});
+	$(document).on('keydown', '.dze-trd-search', function (e) {
+		if (e.key !== 'Enter') { return; }
+		e.preventDefault();
+		window.clearTimeout(searchTimer);
+		var $s = $(this).closest('.dze-trd-sec');
+		$s.data('paged', 1);
+		loadSection($s);
+	});
+	$(document).on('change', '.dze-trd-term', function () {
+		var $s = $(this).closest('.dze-trd-sec');
+		$s.data('paged', 1);
+		loadSection($s);
+	});
+	$(document).on('change', '.dze-trd-per', function () {
+		var $s = $(this).closest('.dze-trd-sec');
+		$s.data('per', parseInt($(this).val(), 10) || 10);
+		$s.data('paged', 1);
+		loadSection($s);
+	});
+	$(document).on('click', '.dze-trd-page', function () {
+		var $s = $(this).closest('.dze-trd-sec');
+		$s.data('paged', parseInt($(this).data('page'), 10) || 1);
+		loadSection($s);
+	});
+	$(document).on('click', '.dze-trd-sort', function () {
+		var $s = $(this).closest('.dze-trd-sec');
+		var by = String($(this).data('orderby'));
+		var order = (String($s.data('orderby')) === by && String($s.data('order')) === 'asc') ? 'desc' : 'asc';
+		$s.data('orderby', by);
+		$s.data('order', order);
+		$s.data('paged', 1);
+		$s.find('.dze-trd-sort').removeClass('is-asc is-desc');
+		$(this).addClass('is-' + order);
+		loadSection($s);
+	});
+
+	// ---- Select All: every item the filters match, in every section -------
+	$(document).on('click', '#dze-trd-selectall', function () {
+		var $b = $(this), was = $b.text(), max = parseInt(cfg.pickMax, 10) || 2000, capped = false;
+		var secs = $dash.find('.dze-trd-sec').toArray();
+		$b.prop('disabled', true).text(i18n.selecting);
+		(function next() {
+			if (!secs.length) {
+				$b.prop('disabled', false).text(was);
+				changed();
+				if (capped) { window.alert(sprintf(i18n.capped, num(max))); }
+				return;
 			}
-		});
-		return n;
-	}
-	$(document).on('click', '#dze-tr-clearkept', function () {
-		// UN GESTE QUI NE DIT RIEN EST UN GESTE QUI N'A PAS MARCHÉ.
-		//
-		// « Le nettoyage ne fonctionne pas. Clear the whole selection. 0
-		// réaction. » Il décochait pourtant bien — mais après un envoi les
-		// cases sont DÉJÀ vides, donc rien ne bougeait à l'écran. Et le mot
-		// « selection » se lisait comme « la file », qu'il ne touche pas.
-		var n = Object.keys(readKept()).length;
-		writeKept({});
-		$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
-		remember();
-		bill();
-		$('#dze-tr-sendstate').text(sprintf(i18n.cleared, n));
+			var $s = $(secs.shift());
+			post('dze_tr_items', $.extend(sectionArgs($s), { refs: 1 })).done(function (r) {
+				var list = (r && r.success && r.data && r.data.refs) || [];
+				for (var i = 0; i < list.length; i++) {
+					if (!picked[list[i]]) {
+						if (pickedN >= max) { capped = true; break; }
+						picked[list[i]] = true;
+						pickedN++;
+					}
+				}
+			}).always(next);
+		}());
 	});
 
-	$(document).on('change', '#dze-tr-all', function () {
-		$('.dze-tr-pickone').prop('checked', this.checked);
-		remember();
-		bill();
-	});
-	$(document).on('click', '#dze-tr-selall', function () {
-		$('.dze-tr-pickone, #dze-tr-all').prop('checked', true);
-		remember();
-		bill();
-	});
-	// #dze-tr-selnone a disparu de l'écran : deux boutons pour décocher, c'était
-	// un de trop. Celui qui reste est #dze-tr-clearkept, plus haut, et il vide
-	// la sélection de TOUTES les pages — qui appuie sur « tout décocher » veut
-	// tout décocher.
-	$(document).on('change', '.dze-tr-pickone, .dze-tr-lang', function () { remember(); bill(); });
-
-	// WHAT THE PRESS IS ABOUT TO DO, BESIDE THE PRESS. Every figure was already
-	// on the screen — the ticked rows, the ticked languages — and they had
-	// never been multiplied: a button reading "Translate" over forty rows and
-	// five languages is two hundred calls nobody counted.
-	function bill() {
-		// COMBIEN EN TOUT, pas combien sur cette page : la selection franchit
-		// les pages, et un chiffre qui ne compte que ce qu on voit ferait
-		// partir plus de lignes qu annonce.
-		var rows = Object.keys(readKept()).length;
-		var langs = $('.dze-tr-lang:checked').length;
-		var $b = $('#dze-tr-bill');
-		if (!$b.length) { return; }
-		$('#dze-tr-selcount').text(sprintf(i18n.nSelected, rows));
-		// CE QUI SERA RÉELLEMENT TRADUIT, ET PAYÉ.
-		//
-		// « Sur WPML, quand un objet est déjà traduit dans 3 langues mais une
-		// langue manque, l'outil demande : retraduire ? Évidemment que non, je
-		// choisis toujours de conserver les traductions existantes. »
-		//
-		// Le moteur le fait déjà : une langue à jour ne coûte pas un appel.
-		// Mais le bandeau annonçait « lignes × langues » — quarante lignes et
-		// cinq langues promettaient deux cents traductions là où douze étaient
-		// dues. On compte donc les drapeaux qui doivent vraiment quelque
-		// chose, parmi les lignes cochées et les langues cochées.
-		var picked = {};
-		$('.dze-tr-lang:checked').each(function () { picked[String($(this).val())] = true; });
-		var owed = 0;
-		$('.dze-tr-pickone:checked').closest('.dze-tr-row').find('.dze-tr-chip').each(function () {
-			var $c = $(this), st = String($c.data('state') || '');
-			if (!picked[String($c.data('lang') || '')]) { return; }
-			if (st === 'missing' || st === 'stale' || st === 'noise') { owed++; }
-		});
-		$b.text(rows && langs ? sprintf(i18n.bill, rows, langs, owed) : i18n.billNone);
+	// ---- Step 2: the words, the cost, the choices -------------------------
+	//
+	// Read from the server a slice at a time and kept per item: ticking one
+	// more row counts that row, not the whole selection again.
+	var words = {};
+	var asking = {};
+	var countTimer = null;
+	var sending = false;
+	function scheduleCount() {
+		render();
+		window.clearTimeout(countTimer);
+		countTimer = window.setTimeout(countWords, 250);
 	}
-	// À L OUVERTURE : ce qui avait été coché revient, PUIS le devis se
-	// calcule dessus. Dans cet ordre, et une fois le tableau posé — appelé
-	// au chargement du script, restore() cherchait des lignes qui n existaient
-	// pas encore.
-	// L ECRAN D UN OBJET, quand on en regarde un. Vide sur les listes.
+	function countWords() {
+		var need = refs().filter(function (r) { return !words[r] && !asking[r]; });
+		if (!need.length) { render(); return; }
+		var slices = [];
+		for (var i = 0; i < need.length; i += 50) { slices.push(need.slice(i, i + 50)); }
+		need.forEach(function (r) { asking[r] = true; });
+		(function next() {
+			if (!slices.length) { render(); return; }
+			var part = slices.shift();
+			post('dze_tr_words', { refs: part }).done(function (r) {
+				var items = (r && r.success && r.data && r.data.items) || {};
+				// AN ITEM THE SERVER DID NOT ANSWER FOR is not something this
+				// site translates any more: it counts for nothing.
+				part.forEach(function (ref) { words[ref] = items[ref] || {}; });
+			}).always(function () {
+				part.forEach(function (ref) { delete asking[ref]; });
+				render();
+				next();
+			});
+		}());
+	}
+	function methods() {
+		var m = {};
+		$('.dze-trd-method').each(function () { m[String($(this).data('lang'))] = String($(this).val()); });
+		return m;
+	}
+	function overwrite() {
+		return $('input[name="dze-trd-existing"]:checked').val() === 'overwrite';
+	}
+	function render() {
+		if (!$dash.length) { return; }
+		var list = refs(), m = methods(), over = overwrite();
+		var loading = false, anyDone = false, auto = 0, work = 0, free = 0, total = 0, bits = [];
+		list.forEach(function (ref) { if (!words[ref]) { loading = true; } });
+		(cfg.langs || []).forEach(function (code) {
+			var w = 0, c = 0, noise = 0, on = m[code] === 'auto';
+			list.forEach(function (ref) {
+				var x = words[ref] && words[ref][code];
+				if (!x) { return; }
+				if (x.s === 'done' || x.s === 'noise') { if (on) { anyDone = true; } }
+				if (x.s === 'noise' && !over) { noise++; }
+				w += over ? (x.a || 0) : (x.o || 0);
+				c += over ? (x.ca || 0) : (x.co || 0);
+			});
+			var $row = $('.dze-trd-pairs tr[data-lang="' + code + '"]');
+			$row.toggleClass('is-off', !on);
+			$row.find('.dze-trd-words').html(loading ? '<span class="dze-trd-spin" aria-hidden="true"></span>' : esc(num(w)));
+			$row.find('.dze-trd-cost').text(loading ? '' : (on ? money(c) : '–'));
+			if (!on) { return; }
+			auto++;
+			if (w > 0) {
+				work++;
+				total += c;
+				bits.push(sprintf(i18n.sumLang, num(w), (cfg.names || {})[code] || code));
+			}
+			if (noise) { work++; free += noise; }
+		});
+		// « Some of the content you want to translate is already translated »
+		// — shown only when it is true, as in WPML.
+		$('#dze-trd-existing').prop('hidden', !anyDone);
+		var ok = false, text = '';
+		if (!list.length) {
+			text = '';
+		} else if (loading) {
+			text = i18n.counting;
+		} else if (!auto) {
+			text = i18n.pickLang;
+		} else if (!work) {
+			text = i18n.nothingOwed;
+		} else {
+			if (free) { bits.push(sprintf(i18n.sumFree, num(free))); }
+			text = bits.join(' · ') + (total > 0 ? ' — ' + sprintf(i18n.sumCost, money(total)) : '');
+			ok = true;
+		}
+		$('#dze-trd-sum').text(text);
+		$('#dze-trd-send').prop('disabled', !ok || sending);
+		$('#dze-trd-reviewsaid').text($('#dze-trd-review').val() === 'publish' ? i18n.publishSaid : i18n.reviewSaid);
+	}
+
+	// THE CHOICES ARE REMEMBERED, AS WPML REMEMBERS THEM — in this browser.
+	// Nothing is set to translate the first time: a default that spends must
+	// be a choice, never an oversight. « Je l'ai envoyé seulement en RU » —
+	// five languages were ticked by default, and the shop paid five times.
+	var METHODS = 'dze-trd-methods', REVIEW = 'dze-trd-review';
+	function restoreChoices() {
+		var kept = {};
+		try { kept = JSON.parse(window.localStorage.getItem(METHODS) || '{}') || {}; } catch (e) { kept = {}; }
+		var only = (cfg.filters && cfg.filters.flang) || '';
+		$('.dze-trd-method').each(function () {
+			var code = String($(this).data('lang'));
+			// FILTERED ON ONE LANGUAGE, the screen was asked about that one.
+			$(this).val(only ? (code === only ? 'auto' : 'none') : (kept[code] === 'auto' ? 'auto' : 'none'));
+		});
+		var rv = '';
+		try { rv = window.localStorage.getItem(REVIEW) || ''; } catch (e) { rv = ''; }
+		$('#dze-trd-review').val(rv === 'publish' ? 'publish' : 'review');
+	}
+	function keepMethods() {
+		try { window.localStorage.setItem(METHODS, JSON.stringify(methods())); } catch (e) { /* never mind */ }
+	}
+	$(document).on('change', '.dze-trd-method', function () { keepMethods(); render(); });
+	$(document).on('change', '#dze-trd-setall', function () {
+		var v = String($(this).val() || '');
+		if (v) { $('.dze-trd-method').val(v); keepMethods(); }
+		$(this).val('');
+		render();
+	});
+	$(document).on('change', 'input[name="dze-trd-existing"]', render);
+	$(document).on('change', '#dze-trd-review', function () {
+		try { window.localStorage.setItem(REVIEW, String($(this).val())); } catch (e) { /* never mind */ }
+		render();
+	});
+
+	// ---- « Translate content » ---------------------------------------------
+	$(document).on('click', '#dze-trd-send', function () {
+		var list = refs(), m = methods();
+		var langs = (cfg.langs || []).filter(function (c) { return m[c] === 'auto'; });
+		if (!list.length || !langs.length || sending) { return; }
+		sending = true;
+		render();
+		var $st = $('#dze-trd-sendsaid').removeClass('is-ko').text(i18n.sending);
+		post('dze_tr_queue', {
+			refs: list,
+			langs: langs,
+			accept: $('#dze-trd-review').val() === 'publish' ? 1 : 0,
+			all: overwrite() ? 1 : 0
+		}).done(function (r) {
+			sending = false;
+			if (!r || !r.success) { $st.addClass('is-ko').text(said(r)); render(); return; }
+			// SENT, SO FORGOTTEN: keeping the selection would send the same
+			// rows again on the next press.
+			picked = {};
+			words = {};
+			changed();
+			$st.text('');
+			$('#dze-trd-sent').remove();
+			var $n = $('<div class="notice notice-success inline" id="dze-trd-sent"><p></p></div>');
+			$n.find('p').text(r.data.message || '');
+			$n.insertBefore('#dze-trd-progress');
+			// THE ROWS SAY IT AT ONCE: their languages start turning without
+			// a reload — « vu, mais seulement après rafraîchissement ».
+			refresh(Object.keys(r.data.sent || {}));
+			queueSaid(r.data.queue);
+			var top = document.getElementById('dze-trd-sent');
+			if (top && top.scrollIntoView) { top.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+		}).fail(function () {
+			sending = false;
+			$st.addClass('is-ko').text(i18n.error);
+			render();
+		});
+	});
+
+	// ---- In the background: the wheels, and where they stand -------------
+	var polling = null, kicking = false, queue = null;
+	function turning() {
+		var out = [];
+		$dash.find('.dze-trd-row').each(function () {
+			if ($(this).find('.dze-trd-spin').length) { out.push(String($(this).data('ref'))); }
+		});
+		return out;
+	}
+	function busy() { return turning().length > 0 || !!(queue && queue.n); }
+	function watch() {
+		if (polling || !busy()) { return; }
+		polling = window.setTimeout(tick, parseInt(cfg.poll, 10) || 8000);
+	}
+	function land(cells) {
+		var again = false;
+		$.each(cells || {}, function (ref, html) {
+			rowsOf(ref).find('.dze-trd-langs').html(html);
+			// ITS STATE CHANGED: if it is ticked, its words are counted again.
+			if (words[ref]) { delete words[ref]; again = again || !!picked[ref]; }
+		});
+		if (again) { scheduleCount(); }
+	}
+	function refresh(list) {
+		var visible = (list || []).filter(function (ref) { return rowsOf(ref).length > 0; });
+		return post('dze_tr_status', { refs: visible }).done(function (r) {
+			if (!r || !r.success) { return; }
+			land(r.data.cells);
+			queueSaid(r.data.queue);
+		}).always(watch);
+	}
+	function tick() {
+		polling = null;
+		refresh(turning());
+	}
+	function queueSaid(q) {
+		if (!q) { return; }
+		queue = q;
+		$('#dze-trd-progress').prop('hidden', !q.n);
+		$('#dze-trd-progn').text(q.n === 1 ? i18n.oneProgress : sprintf(i18n.nProgress, num(q.n)));
+		$('#dze-trd-failed').prop('hidden', !q.errors);
+		if (q.errors) { $('#dze-trd-failedsaid').text(sprintf(i18n.failed, num(q.errors), q.last || '')); }
+		// A PASS THAT WAITS FOR NOBODY. Work is waiting and nothing runs: the
+		// page starts one. The lock on the server makes a second one harmless.
+		if (q.n && !q.busy && !kicking) {
+			kicking = true;
+			post('dze_tr_runqueue', {}).always(function () { kicking = false; });
+		}
+	}
+	$(document).on('click', '.dze-trd-cancel', function () {
+		var $b = $(this), $row = $b.closest('.dze-trd-row');
+		var ref = String($row.data('ref')), lang = String($b.data('lang'));
+		if (!window.confirm(i18n.cancelAsk)) { return; }
+		$b.prop('disabled', true);
+		post('dze_tr_cancel', { ref: ref, lang: lang }).done(function (r) {
+			if (!r || !r.success) { $b.prop('disabled', false); window.alert(said(r)); return; }
+			var cells = {};
+			cells[ref] = r.data.cell || '';
+			land(cells);
+			queueSaid(r.data.queue);
+		}).fail(function () {
+			$b.prop('disabled', false);
+			window.alert(i18n.error);
+		});
+	});
+	$(document).on('click', '#dze-trd-cancelall', function () {
+		if (!window.confirm(i18n.cancelAllAsk)) { return; }
+		var $b = $(this).prop('disabled', true);
+		post('dze_tr_emptyqueue', {}).always(function () {
+			$b.prop('disabled', false);
+			refresh(turning());
+		});
+	});
+
+	$(function () {
+		$dash = $('#dze-trd');
+		if (!$dash.length) { return; }
+		loadPicked();
+		// PICKED ON A WORDPRESS LIST: that selection replaces this one, and
+		// Step 2 is where the page opens.
+		var handed = (cfg.picked || []).length > 0;
+		if (handed) {
+			picked = {};
+			cfg.picked.forEach(function (ref) { picked[String(ref)] = true; });
+			savePicked();
+		}
+		restoreChoices();
+		syncBoxes();
+		showBar();
+		scheduleCount();
+		if (handed) {
+			var el = document.getElementById('dze-trd-step2');
+			if (el && el.scrollIntoView) { el.scrollIntoView({ block: 'start' }); }
+		}
+		// SOMETHING IS ON ITS WAY: ask where it stands straight away.
+		if (turning().length || !$('#dze-trd-progress').prop('hidden')) {
+			polling = window.setTimeout(tick, 1200);
+		}
+	});
+
+	// =====================================================================
+	// The editor of one object
+	// =====================================================================
+
+	// L ECRAN D UN OBJET, quand on en regarde un. Vide ailleurs.
 	//
 	// Elle avait disparu en reecrivant le bouton d envoi : quatre
 	// gestionnaires l appelaient encore, dont « Discard ». Un appel a une
-	// fonction qui n existe pas tue le gestionnaire AVANT sa premiere ligne —
-	// le bouton ne fait rien, la console parle, et l ecran se tait.
+	// fonction qui n existe pas tue le gestionnaire AVANT sa premiere ligne.
 	function editor() { return $('.dze-tr-editor'); }
-
-	// LE PANNEAU DE LA FILE : la faire avancer d un cran, ou la vider.
-	$(document).on('click', '#dze-tr-runqueue', function () {
-		var $b = $(this).prop('disabled', true), $m = $('.dze-tr-queuemsg');
-		$m.text(i18n.sending);
-		post('dze_tr_runqueue', {}).done(function (r) {
-			$m.text((r && r.data && r.data.message) ? r.data.message : '');
-		}).fail(function () { $m.text(i18n.error); })
-		.always(function () { $b.prop('disabled', false); });
-	});
-	$(document).on('click', '#dze-tr-emptyqueue', function () {
-		var $b = $(this).prop('disabled', true), $m = $('.dze-tr-queuemsg');
-		post('dze_tr_emptyqueue', {}).done(function (r) {
-			$m.text((r && r.data && r.data.message) ? r.data.message : '');
-		}).fail(function () { $m.text(i18n.error); })
-		.always(function () { $b.prop('disabled', false); });
-	});
-
-	$(function () { restore(); bill(); });
-
-	// WPML'S OWN GESTURE, ONE LANGUAGE AT A TIME: the plus makes the missing
-	// translation, the arrows bring an out-of-date one back. It runs the SAME
-	// job the batch button runs — one object, one language — because a second
-	// engine beside it is how two screens start disagreeing.
-	$(document).on('click', '.dze-tr-one', function () {
-		var $b = $(this).prop('disabled', true);
-		var $row = $b.closest('.dze-tr-row');
-		var ref = $row.data('ref'), lang = String($b.data('lang') || '');
-		if (!ref || !lang) { $b.prop('disabled', false); return; }
-		var was = $b.html();
-		$b.html(esc(i18n.sending));
-		post('dze_tr_batch', { ref: ref, langs: [lang], accept: $('#dze-tr-autoaccept').prop('checked') ? 1 : 0 }).done(function (r) {
-			if (r && r.success) {
-				var n = (r.data.done || []).length;
-				$b.replaceWith('<span class="dze-tr-chip is-' + (n ? 'held' : 'done') + '">' +
-					esc(n ? i18n.rowHeld : i18n.rowNothing) + '</span>');
-				if (n) { $row.find('.dze-tr-openword').text(i18n.review); }
-				if (n) { $('#dze-tr-sendstate').html(esc(sprintf(i18n.sent, 1)) +
-					(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : '')); }
-				return;
-			}
-			$b.prop('disabled', false).html(was);
-			$('#dze-tr-sendstate').text(said(r));
-		}).fail(function () {
-			$b.prop('disabled', false).html(was);
-			$('#dze-tr-sendstate').text(i18n.error);
-		});
-	});
-
-	// L ENVOI EN MASSE DEPOSE ET REPART.
-	//
-	// « Les traductions en bulk devraient s effectuer en background, je n en
-	// suis pas sur, je n ai pas ose changer de page pendant le chargement. »
-	//
-	// C etait un aller-retour par objet, et il fallait rester la : quarante
-	// pages, quarante requetes, et une seule page lourde suffisait a faire
-	// mourir celle en cours. Une requete maintenant, qui range la selection
-	// et rend la main. Le travail se fait ensuite, tout seul.
-	$(document).on('click', '#dze-tr-send', function () {
-		var $btn = $(this);
-		var langs = $('.dze-tr-lang:checked').length;
-		remember();
-		var refs = Object.keys(readKept());
-		if (!langs) { window.alert(i18n.langFirst); return; }
-		if (!refs.length) { window.alert(i18n.tickFirst); return; }
-		$btn.prop('disabled', true);
-		$('#dze-tr-sendstate').text(i18n.sending);
-		post('dze_tr_queue', {
-			refs: refs,
-			// LES LANGUES COCHEES PARTENT AVEC : sans elles le moteur traduisait
-			// dans les cinq langues du site, soit cinq fois le prix pour qui n en
-			// voulait qu une.
-			langs: $('.dze-tr-lang:checked').map(function () { return $(this).val(); }).get(),
-			accept: $('#dze-tr-autoaccept').prop('checked') ? 1 : 0
-		}).done(function (r) {
-			$btn.prop('disabled', false);
-			if (r && r.success) {
-				// DEPOSEE, DONC OUBLIEE : garder la selection ferait renvoyer les
-				// memes lignes au prochain clic.
-				writeKept({});
-				$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
-				bill();
-				// LA LIGNE LE DIT TOUT DE SUITE, sans rafraichir.
-				//
-				// « in the queue FR DE PL ES RU — vu, mais seulement apres
-				// rafraichissement de la page. » Un ecran qui attend un F5 pour
-				// dire ce qu il vient de faire laisse croire qu il n a rien fait,
-				// et on renvoie tout une deuxieme fois.
-				var codes = $('.dze-tr-lang:checked').map(function () {
-					return String($(this).val()).toUpperCase();
-				}).get().join(' ');
-				refs.forEach(function (ref) {
-					var $row = $('.dze-tr-row').filter(function () {
-						return String($(this).data('ref')) === String(ref);
-					});
-					if (!$row.length || $row.find('.is-queued').length) { return; }
-					$row.find('td').eq(1).append(
-						' <span class="dze-tr-chip is-queued" style="background:#f0f6fc;border:1px solid #c5d9ed;color:#1d4b7d;">' +
-						esc(i18n.rowQueued) + (codes ? ' ' + esc(codes) : '') + '</span>'
-					);
-				});
-				$('#dze-tr-sendstate').html(esc(r.data.message || '') +
-					(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : ''));
-				return;
-			}
-			$('#dze-tr-sendstate').text(said(r));
-		}).fail(function () {
-			$btn.prop('disabled', false);
-			$('#dze-tr-sendstate').text(i18n.error);
-		});
-	});
 
 	$(document).on('click', '#dze-tr-auto, #dze-tr-auto-all', function () {
 		var $e = editor();
@@ -273,7 +505,7 @@
 		// EVERY FIELD IS PAID FOR, so it is asked before it is spent.
 		if (all && !window.confirm(i18n.confirmAll)) { return; }
 		var $b = $(this).prop('disabled', true);
-		var $st = $('#dze-tr-autostate').removeClass('is-ko').text(i18n.sending);
+		var $st = $('#dze-tr-autostate').removeClass('is-ko').text(i18n.translating);
 		post('dze_tr_batch', { ref: $e.data('ref'), langs: [String($e.data('lang'))], all: all ? 1 : 0 })
 			.done(function (r) {
 				$b.prop('disabled', false);

@@ -282,5 +282,23 @@ ok( 'et elle se lit en toutes lettres',
 ok( 'un genre inconnu est rendu tel quel',
 	false !== strpos( DZE_Ai_Usage::unit_label( 'translate:zzz' ), 'zzz' ), true );
 
+echo "\nLES DEUX POINTS D UNE UNITE SURVIVENT A L ENREGISTREMENT\n";
+// unit() passait le nom par sanitize_key(), qui mange les deux points :
+// « translate:post » etait range sous « translatepost », et le coût de la
+// traduction tombait dans « Everything else ». Constate sur Kula en septembre.
+DZE_Ai_Usage::unit( 'translate:product_cat' );
+ok( 'le nom garde ses deux points',        DZE_Ai_Usage::unit_now(), 'translate:product_cat' );
+DZE_Ai_Usage::unit();
+ok( 'et se vide quand on le vide',         DZE_Ai_Usage::unit_now(), '' );
+// ET LES MOIS DEJA ECRITS SONT RELUS : la racine connue est reconnue en tete.
+ok( 'une ancienne cle est rangee dans la traduction', DZE_Ai_Usage::module_of( 'translatepost' ), 'translate' );
+ok( 'et nommee comme la nouvelle',
+	DZE_Ai_Usage::unit_label( 'translateproduct_cat' ), DZE_Ai_Usage::unit_label( 'translate:product_cat' ) );
+ok( 'sans prendre une unite connue pour une ancienne', DZE_Ai_Usage::split_unit( 'translate' ), [ 'translate', '' ] );
+// UNE ESTIMATION SE LIT AUX PRIX DU REGISTRE : un million de jetons Haiku
+// en entree coutent un dollar, en sortie cinq.
+ok( 'une estimation se lit aux prix du registre',
+	round( DZE_Ai_Usage::estimate( 'claude-haiku-4-5', 1000000, 1000000 ), 2 ), 6.0 );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

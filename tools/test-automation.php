@@ -2645,28 +2645,21 @@ ok( 'la file releve ce qui etait deja la',
 ok( 'et le garde avec la ligne',
 	2, substr_count( $dze_q, 'self::with_split(' ) );
 
-echo "\nCE QU ON A DEMANDE A LA MAIN PASSE DEVANT\n";
-// « Manque la possibilite d envoyer des posts en traduction a partir de
-// l option bulk select WordPress native. Plus pratique pour lancer un
-// nouveau shop que le menu Dazont qui casse l ordre des pages et la
-// hierarchie. »
-//
-// La case cochee ne traduit pas sur place — trente pages dans une requete,
-// c est le delai depasse et rien d ecrit : la FAQ en a fait la preuve. Elle
-// donne une place en tete de file, et la passe les prend avant le reste.
+echo "\nCE QU ON A ENVOYE A LA MAIN N EST PAS A LA PASSE AUTOMATIQUE\n";
+// Le tableau de bord a sa propre file, et son propre passage : drain(), qui
+// respecte les langues choisies. La passe automatique la prenait aussi — et la
+// traduisait dans TOUTES les langues dues : du russe demande, cinq langues
+// payees. Elle n y touche plus, ni pour la prendre, ni pour la vider.
 fresh( $ON );
-DZE_Translate::$asked = [ [ 'kind' => 'post', 'id' => 20, 'type' => 'post' ] ];
+DZE_Translate::$asked = [ [ 'kind' => 'post', 'id' => 20, 'type' => 'post', 'langs' => [ 'ru' ] ] ];
 DZE_Translate::$unasked = [];
 $dze_first = DZE_Automation::shortlist( 'translate', 3 );
-ok( 'la demande sort en premier',      (int) ( $dze_first[0]['tid'] ?? 0 ), 20 );
-ok( 'et elle dit pourquoi',            (string) ( $dze_first[0]['why'] ?? '' ), 'asked for by hand' );
-// UNE DEMANDE DEJA HONOREE SORT DE LA FILE plutot que d y tourner a chaque
-// passage : une file qu on ne vide jamais est une file qui grossit.
-DZE_Translate::$asked = [ [ 'kind' => 'post', 'id' => 21, 'type' => 'post' ] ];
-DZE_Translate::$unasked = [];
-DZE_Translate::$shop['post:21:post'] = [ 'marks' => [ 'fr' => 'ok', 'de' => 'ok', 'es' => 'ok' ] ];
-DZE_Automation::shortlist( 'translate', 3 );
-ok( 'une demande honoree est retiree',  count( DZE_Translate::$unasked ) >= 1, true );
+$dze_hand  = array_filter( $dze_first, static fn( $r ) => 'asked for by hand' === ( $r['why'] ?? '' ) );
+ok( 'la demande a la main n est pas prise par la passe', count( $dze_hand ), 0 );
+ok( 'et elle reste dans sa file', count( DZE_Translate::$unasked ), 0 );
+$dze_auto_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-automation.php' );
+ok( 'la passe ne lit plus la file du tableau de bord',
+	false !== strpos( $dze_auto_src, 'DZE_Translate::asked()' ), false );
 DZE_Translate::$asked = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );

@@ -1959,3 +1959,124 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	user-select: all; display: inline-block; padding: 3px 7px;
 	background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px; font-size: 12px;
 }
+
+/* ---------------------------------------------------------------------------
+   WPML Translations — the dashboard, as WPML draws its own.
+
+   « Je veux que ce soit une copie du dashboard WPML. On peut garder tout de
+   même notre style natif WordPress. » Step 1 and Step 2 with WPML's green
+   pill, the grey filter bar, one section per kind, and one icon per language
+   in WPML's own colours: orange for not translated, teal for needs update,
+   green for complete, the wheel while it is on its way.
+   --------------------------------------------------------------------------- */
+.dze-trd { max-width: 1280px; margin-top: 14px; }
+.dze-trd-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 18px 0 12px; }
+.dze-trd-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.dze-trd-step {
+	display: inline-block; padding: 2px 12px; border-radius: 999px;
+	background: rgba(28, 125, 107, .08); color: #1c7d6b; font-size: 13px; line-height: 22px;
+}
+.dze-trd-global {
+	display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+	padding: 14px 16px; margin: 0 0 16px; background: #dde8ee; border-radius: 4px;
+	position: sticky; top: 32px; z-index: 5;
+}
+.dze-trd-global label { font-weight: 400; }
+.dze-trd-global select { min-width: 130px; }
+.dze-trd-clear { display: inline-flex; align-items: center; gap: 2px; color: #b32d2e; text-decoration: none; }
+.dze-trd-clear .dashicons { font-size: 18px; width: 18px; height: 18px; }
+.dze-trd-grow { flex: 1 1 auto; }
+.dze-trd-sec { background: #fff; border: 1px solid #dcdcde; border-radius: 4px; margin: 0 0 14px; }
+.dze-trd-sechead {
+	cursor: pointer; padding: 14px 18px; font-size: 15px; font-weight: 600;
+	list-style: none; display: flex; align-items: baseline; gap: 6px;
+}
+.dze-trd-sechead::-webkit-details-marker { display: none; }
+.dze-trd-sechead::after { content: "\f343"; font-family: dashicons; margin-left: auto; color: #50575e; font-weight: 400; }
+.dze-trd-sec:not([open]) .dze-trd-sechead::after { content: "\f347"; }
+.dze-trd-seccount { font-weight: 400; color: #646970; }
+.dze-trd-secnote { font-weight: 400; font-size: 12px; color: #646970; }
+.dze-trd-secbody { padding: 0 18px 12px; border-top: 1px solid #f0f0f1; }
+.dze-trd-secfilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 12px 0; }
+.dze-trd-secfilters label { display: inline-flex; align-items: center; gap: 8px; }
+.dze-trd-sec.is-loading .dze-trd-table { opacity: .5; pointer-events: none; }
+.dze-trd-table { border-left: 0; border-right: 0; }
+.dze-trd-table th.dze-trd-title, .dze-trd-table td.dze-trd-title { width: auto; }
+.dze-trd-table td.dze-trd-title a { font-size: 14px; }
+.dze-trd-table th.dze-trd-langs, .dze-trd-table td.dze-trd-langs { width: 1%; white-space: nowrap; text-align: center; }
+.dze-trd-table th.dze-trd-date, .dze-trd-table td.dze-trd-date { width: 130px; text-align: right; color: #3c434a; }
+.dze-trd-table td { vertical-align: middle; }
+.dze-trd-sort {
+	background: none; border: 0; padding: 0; font: inherit; font-weight: 600; cursor: pointer; color: #1d2327;
+	display: inline-flex; align-items: center; gap: 2px;
+}
+.dze-trd-sort .dashicons { font-size: 16px; width: 16px; height: 16px; color: #8c8f94; }
+.dze-trd-sort.is-asc .dashicons::before { content: "\f142"; }
+.dze-trd-sort.is-desc .dashicons::before { content: "\f140"; }
+.dze-trd-box { display: inline-block; width: 26px; text-align: center; vertical-align: middle; }
+.dze-trd-flag { display: inline-block; vertical-align: middle; }
+.dze-trd-flagtxt { font-size: 11px; font-weight: 600; color: #50575e; }
+.dze-trd-ico {
+	display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+	padding: 0; border: 0; background: none; text-decoration: none; box-shadow: none; cursor: pointer; border-radius: 50%;
+}
+.dze-trd-ico:focus { box-shadow: 0 0 0 2px #2271b1; outline: 0; }
+.dze-trd-ico .dashicons { font-size: 20px; width: 20px; height: 20px; }
+.dze-trd-ico.is-missing { color: #db552b; }
+.dze-trd-ico.is-stale   { color: #2e7d9a; }
+.dze-trd-ico.is-noise   { color: #2e7d9a; opacity: .6; }
+.dze-trd-ico.is-done    { color: #1c7d6b; }
+.dze-trd-ico.is-review  { color: #135e96; }
+.dze-trd-ico.is-error   { color: #d63638; }
+.dze-trd-ico.is-running { cursor: default; }
+/* THE WHEEL: drawn, not an icon font, so it turns wherever it is printed. */
+.dze-trd-spin {
+	display: inline-block; width: 14px; height: 14px; vertical-align: middle;
+	border: 2px solid #c3d9e3; border-top-color: #2e7d9a; border-radius: 50%;
+	animation: dze-trd-turn .9s linear infinite; box-sizing: border-box;
+}
+.dze-trd-ico.is-running .dze-trd-spin { border-top-color: #1c7d6b; animation-duration: .6s; }
+.dze-trd-cancel:hover .dze-trd-spin { border-color: #f0b1b1; border-top-color: #b32d2e; }
+@keyframes dze-trd-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dze-trd-spin { animation-duration: 3s; } }
+.dze-trd-pager { padding: 8px 0 0; height: auto; }
+.dze-trd-pager .tablenav-pages { float: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 10px; margin: 0; }
+.dze-trd-pager .pagination-links { display: inline-flex; align-items: center; gap: 4px; }
+.dze-trd-pager .paging-input { margin: 0 6px; }
+.dze-trd-perlab { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
+.dze-trd-empty td { color: #646970; padding: 14px 10px; }
+.dze-trd-selbar {
+	position: sticky; bottom: 0; z-index: 6; display: flex; align-items: center; gap: 12px;
+	padding: 10px 16px; margin: 6px 0 0; background: #fff; border: 1px solid #c3c4c7; border-radius: 4px;
+	box-shadow: 0 -2px 8px rgba(0, 0, 0, .06);
+}
+.dze-trd-selcount { font-weight: 600; }
+.dze-trd-selbar .button .dashicons { vertical-align: -4px; }
+.dze-trd-step2 { background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 4px 20px 18px; margin: 22px 0 0; }
+.dze-trd-pairs { max-width: 900px; border-color: #dcdcde; }
+.dze-trd-pairs th { font-weight: 600; }
+.dze-trd-pairs td, .dze-trd-pairs th { vertical-align: middle; }
+.dze-trd-pairs td.dze-trd-src { border-right: 1px solid #f0f0f1; }
+.dze-trd-pairs .dze-trd-num { text-align: right; white-space: nowrap; }
+.dze-trd-pairs tr.is-off td:not(.dze-trd-src) { color: #8c8f94; }
+.dze-trd-pairs tfoot td { color: #50575e; font-size: 12px; }
+.dze-trd-card { max-width: 860px; margin: 14px 0 0; padding: 12px 20px; background: #f6f7f7; border: 1px solid #e0e0e0; border-radius: 4px; }
+.dze-trd-card h4 { margin: 0 0 4px; font-size: 14px; }
+.dze-trd-card p { margin: 0 0 8px; }
+.dze-trd-card label { display: block; margin: 4px 0; }
+.dze-trd-reviewbox { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: #fff; }
+.dze-trd-reviewbox label { display: inline; margin: 0; }
+.dze-trd-summary { background: #fff; font-size: 14px; }
+.dze-trd-sendrow { margin: 16px 0 0; display: flex; align-items: center; gap: 12px; }
+#dze-trd-sendsaid.is-ko { color: #b32d2e; }
+.dze-trd-progress p, .dze-trd-failed p { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.dze-trd-fields { max-width: 1280px; margin: 22px 0 0; }
+.dze-trd-fields h4 { margin: 14px 0 6px; }
+.dze-trd-rule.is-ok { color: #0a7040; }
+.dze-trd-rule.is-warn { color: #b32d2e; }
+.dze-trd-rule.is-gap { color: #8a6d00; }
+.dze-trd-rule.is-off, .dze-trd-rule.is-skip { color: #646970; }
+@media (max-width: 782px) {
+	.dze-trd-global { position: static; }
+	.dze-trd-table th.dze-trd-date, .dze-trd-table td.dze-trd-date { display: none; }
+}

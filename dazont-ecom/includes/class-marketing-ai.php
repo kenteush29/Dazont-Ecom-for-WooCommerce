@@ -1799,24 +1799,13 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — ' . $response->get_error_message(), microtime( true ) - $t0 );
 			throw new RuntimeException( $response->get_error_message() );
 		}
-		$code = wp_remote_retrieve_response_code( $response );
-		$data = json_decode( wp_remote_retrieve_body( $response ), true );
-		if ( $code < 200 || $code >= 300 ) {
-			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
-			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
-			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — HTTP ' . $code . ' — ' . $msg, microtime( true ) - $t0 );
-			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
-		}
-		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
-		$text = '';
-		foreach ( (array) ( $data['content'] ?? [] ) as $block ) {
-			if ( ( $block['type'] ?? '' ) === 'text' ) {
-				$text .= (string) ( $block['text'] ?? '' );
-			}
-		}
-		self::finished( $data, $model, $asked, $text, $t0 );
-		DZE_Ai_Usage::trace( 'anthropic', $model, $asked, trim( $text ), microtime( true ) - $t0 );
-		return trim( $text );
+		return self::answer_of(
+			(int) wp_remote_retrieve_response_code( $response ),
+			json_decode( wp_remote_retrieve_body( $response ), true ),
+			$model,
+			$asked,
+			$t0
+		);
 	}
 
 	/**
@@ -1876,14 +1865,34 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — ' . $response->get_error_message(), microtime( true ) - $t0 );
 			throw new RuntimeException( $response->get_error_message() );
 		}
-		$code = wp_remote_retrieve_response_code( $response );
-		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+		return self::answer_of(
+			(int) wp_remote_retrieve_response_code( $response ),
+			json_decode( wp_remote_retrieve_body( $response ), true ),
+			$model,
+			$asked,
+			$t0
+		);
+	}
+
+	/**
+	 * CE QU'UNE RÉPONSE DIT, lu de la même façon quel que soit le chemin
+	 * qu'elle a pris — un appel seul, un appel avec photos, ou plusieurs à la
+	 * fois. Deux lectures d'une même réponse, c'est deux endroits où l'usage se
+	 * compte différemment.
+	 *
+	 * @param mixed $data La réponse décodée.
+	 * @throws RuntimeException Une erreur du fournisseur, ou une réponse coupée.
+	 */
+	private static function answer_of( int $code, $data, string $model, string $asked, float $t0 ): string {
 		if ( $code < 200 || $code >= 300 ) {
-			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			$msg = is_array( $data ) ? (string) ( $data['error']['message'] ?? '' ) : '';
+			$msg = '' !== $msg ? $msg : 'HTTP ' . $code;
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
 			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — HTTP ' . $code . ' — ' . $msg, microtime( true ) - $t0 );
+			/* translators: %s: the provider's own message */
 			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
 		}
+		$data = is_array( $data ) ? $data : [];
 		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
 		$text = '';
 		foreach ( (array) ( $data['content'] ?? [] ) as $block ) {
@@ -1894,6 +1903,144 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		self::finished( $data, $model, $asked, $text, $t0 );
 		DZE_Ai_Usage::trace( 'anthropic', $model, $asked, trim( $text ), microtime( true ) - $t0 );
 		return trim( $text );
+	}
+
+	/**
+	 * PLUSIEURS APPELS À LA FOIS.
+	 *
+	 * « C'est trop long… Pourquoi prendre autant de temps quand on peut les
+	 * traduire en même temps ? Ça n'a aucun sens. » Une page en cinq langues,
+	 * c'était cinq appels d'une minute l'un après l'autre. Envoyés ensemble, ils
+	 * reviennent dans le temps du plus long.
+	 *
+	 * Chaque réponse est lue par `answer_of()`, comme un appel seul : même
+	 * compte de l'usage, même trace, même refus d'une réponse coupée. Une
+	 * réponse « trop de demandes » (429) ou « surchargé » (529, 5xx) n'est pas
+	 * un échec du texte : elle est redemandée seule, après la pause que le
+	 * fournisseur a indiquée.
+	 *
+	 * @param array<string,array{system:string,user:string,max:int,unit?:string,about?:int}> $asks
+	 *        `unit` et `about` classent chaque appel sur son travail et sur son
+	 *        objet, puisque plusieurs objets partent dans la même vague.
+	 * @return array<string,string|\Throwable> clé => le texte, ou pourquoi il n'est pas venu.
+	 */
+	public static function complete_many( array $asks, string $model = '', int $timeout = 180 ): array {
+		$out = [];
+		if ( ! $asks ) {
+			return $out;
+		}
+		if ( DZE_Ai_Usage::over_budget() ) {
+			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
+		}
+		$key = self::api_key();
+		if ( '' === $key ) {
+			throw new RuntimeException( __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) );
+		}
+		$model = '' !== $model ? $model : self::chosen_model();
+		$lib   = class_exists( '\WpOrg\Requests\Requests' ) ? '\WpOrg\Requests\Requests' : ( class_exists( 'Requests' ) ? 'Requests' : '' );
+		// LA PORTÉE DE L'APPELANT EST RENDUE TELLE QU'ELLE ÉTAIT : chaque
+		// réponse est classée sur son propre travail, puis on remet la sienne.
+		$was_unit  = DZE_Ai_Usage::unit_now();
+		$was_about = DZE_Ai_Usage::about_now();
+		$scope     = static function ( array $a ) use ( $was_unit, $was_about ): void {
+			DZE_Ai_Usage::unit( isset( $a['unit'] ) ? (string) $a['unit'] : $was_unit );
+			DZE_Ai_Usage::about( isset( $a['about'] ) ? (int) $a['about'] : $was_about );
+		};
+		$alone = static function ( array $a ) use ( $model, $timeout, $scope ) {
+			$scope( $a );
+			try {
+				return self::complete( (string) $a['system'], (string) $a['user'], $model, (int) $a['max'], $timeout );
+			} catch ( \Throwable $e ) {
+				return $e;
+			}
+		};
+		try {
+			// UN SEUL APPEL, OU PAS DE QUOI EN ENVOYER PLUSIEURS : le chemin ordinaire.
+			if ( 1 === count( $asks ) || '' === $lib ) {
+				foreach ( $asks as $k => $a ) {
+					$out[ $k ] = $alone( $a );
+				}
+				return $out;
+			}
+			$reqs  = [];
+			$asked = [];
+			foreach ( $asks as $k => $a ) {
+				$asked[ $k ] = "SYSTEM:\n" . $a['system'] . "\n\nUSER:\n" . $a['user'];
+				$reqs[ $k ]  = [
+					'url'     => self::API_URL,
+					'type'    => 'POST',
+					'headers' => [
+						'x-api-key'         => $key,
+						'anthropic-version' => self::API_VERSION,
+						'content-type'      => 'application/json',
+					],
+					'data'    => (string) wp_json_encode( [
+						'model'      => $model,
+						'max_tokens' => max( 64, (int) $a['max'] ),
+						'system'     => (string) $a['system'],
+						'messages'   => [ [ 'role' => 'user', 'content' => (string) $a['user'] ] ],
+					] ),
+				];
+			}
+			$t0  = microtime( true );
+			$got = [];
+			try {
+				$got = (array) $lib::request_multiple( $reqs, [
+					'timeout'         => max( 30, $timeout ),
+					'connect_timeout' => 15,
+					'verify'          => ABSPATH . WPINC . '/certificates/ca-bundle.crt',
+				] );
+			} catch ( \Throwable $e ) {
+				$got = []; // tout repart un par un, plus bas.
+			}
+			$again = [];
+			$pause = 0;
+			foreach ( $asks as $k => $a ) {
+				$r = $got[ $k ] ?? null;
+				if ( ! is_object( $r ) || ! isset( $r->status_code ) ) {
+					// LE TRANSPORT A CÉDÉ POUR CELUI-CI. Un délai dépassé l'est
+					// déjà : le redemander doublerait l'attente pour rien.
+					$why = $r instanceof \Throwable ? $r->getMessage() : '';
+					if ( '' !== $why && false !== stripos( $why, 'timed out' ) ) {
+						$scope( $a );
+						DZE_Health::log( 'anthropic', 'POST /v1/messages', $why );
+						DZE_Ai_Usage::trace( 'anthropic', $model, $asked[ $k ], 'ERROR — ' . $why, microtime( true ) - $t0 );
+						$out[ $k ] = new RuntimeException( $why );
+						continue;
+					}
+					$again[ $k ] = $a;
+					continue;
+				}
+				$code = (int) $r->status_code;
+				if ( 429 === $code || 529 === $code || $code >= 500 ) {
+					$wait        = (int) ( $r->headers['retry-after'] ?? 0 );
+					$pause       = max( $pause, min( 20, max( 2, $wait ) ) );
+					$again[ $k ] = $a;
+					continue;
+				}
+				$scope( $a );
+				try {
+					$out[ $k ] = self::answer_of( $code, json_decode( (string) $r->body, true ), $model, $asked[ $k ], $t0 );
+				} catch ( \Throwable $e ) {
+					$out[ $k ] = $e;
+				}
+			}
+			if ( $again && $pause > 0 ) {
+				sleep( $pause );
+			}
+			foreach ( $again as $k => $a ) {
+				$out[ $k ] = $alone( $a );
+			}
+		} finally {
+			DZE_Ai_Usage::unit( $was_unit );
+			DZE_Ai_Usage::about( $was_about );
+		}
+		// DANS L'ORDRE DEMANDÉ, et chaque clé a sa réponse.
+		$sorted = [];
+		foreach ( array_keys( $asks ) as $k ) {
+			$sorted[ $k ] = $out[ $k ] ?? new RuntimeException( __( 'Nothing came back.', 'dazont-ecom' ) );
+		}
+		return $sorted;
 	}
 
 	private function call_claude( string $system, string $user ): string {

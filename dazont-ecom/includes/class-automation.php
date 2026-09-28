@@ -1068,45 +1068,11 @@ final class DZE_Automation {
 		self::held_reset();
 		$src = (string) DZE_Wpml::default_language();
 		$out = [];
-		// CE QU'ON A DEMANDÉ À LA MAIN PASSE DEVANT.
-		//
-		// La case cochée dans la liste de WordPress ne traduit pas sur place —
-		// trente pages dans une requête, c'est le délai dépassé et rien
-		// d'écrit — elle donne une place en tête de file. C'est ici qu'on la
-		// tient. Voir DZE_Translate::ask().
-		$dze_cibles = [];
-		foreach ( DZE_Wpml::get_active_languages() as $dze_l ) {
-			$dze_c = (string) ( $dze_l['code'] ?? '' );
-			if ( '' !== $dze_c && $dze_c !== $src ) {
-				$dze_cibles[] = $dze_c;
-			}
-		}
-		foreach ( DZE_Translate::asked() as $dze_o ) {
-			if ( count( $out ) >= $n ) {
-				break;
-			}
-			$dze_owed = self::translate_owed( $dze_o, $dze_cibles );
-			if ( ! $dze_owed ) {
-				// Traduit depuis, par nous ou à la main : la demande est
-				// honorée, et elle sort de la file plutôt que d'y tourner.
-				DZE_Translate::unask( $dze_o );
-				continue;
-			}
-			if ( DZE_Translate::waiting( $dze_o ) ) {
-				continue; // déjà produit, il attend un oui ou un non.
-			}
-			$out[] = [
-				'tid'   => (int) $dze_o['id'],
-				'name'  => DZE_Translate::obj_label( $dze_o ),
-				'kind'  => 'term' === (string) ( $dze_o['kind'] ?? '' ) ? 'product_cat' : 'post',
-				'ref'   => DZE_Translate::ref( $dze_o ),
-				'langs' => $dze_owed,
-				'why'   => __( 'asked for by hand', 'dazont-ecom' ),
-			];
-		}
-		if ( count( $out ) >= $n ) {
-			return $out;
-		}
+		// CE QU'ON A ENVOYÉ À LA MAIN N'EST PAS À ELLE. La file du tableau de
+		// bord a son propre passage — `DZE_Translate::drain()` — qui respecte
+		// les langues choisies et « écrire sans relire ». La prendre ici la
+		// traduisait dans TOUTES les langues dues : du russe demandé, cinq
+		// langues payées.
 		// LES TERMES D ABORD, ET SANS COMPTEUR.
 		//
 		// « Pour tout ce qui est critique comme les attributs, categories etc
