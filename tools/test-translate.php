@@ -1560,10 +1560,18 @@ ob_start(); DZE_Translate::instance()->render_page(); $dze_b = (string) ob_get_c
 // 1. WHAT IT HOLDS TODAY, in one line, with the figures.
 ok( 'it opens with what this kind holds today',
 	false !== strpos( $dze_b, 'dze-tr-holds' ), true );
-// 2. ONE BLOCK PER KIND OF WORK, its switch in its own title — the SAME
-// machinery as the product screen, which is why DZE_Hub draws it.
-ok( 'the languages are a block with a take-all in its own heading',
-	(bool) preg_match( '/data-sec="langs".*?dze-sec-tick.*?dze-sec-all/s', $dze_b ), true );
+// 2. LES LANGUES TIENNENT SUR UNE LIGNE, SANS ENCADRE.
+//
+// « What to translate a reduire. Pourquoi utiliser autant de place pour ces
+// si petites cases a cocher ? » Un titre, un encadre, un compteur et une
+// ligne par langue occupaient le haut de l ecran pour cinq cases.
+ok( 'les langues tiennent sur une ligne',
+	false !== strpos( $dze_b, 'dze-tr-langbar' ), true );
+// ET AUCUNE N EST COCHEE D OFFICE : « je l ai envoye seulement en RU » — les
+// cinq l etaient, parce que c etait le defaut, et la boutique payait cinq
+// fois. Un defaut qui depense doit etre un choix.
+ok( 'et aucune n est cochee d office',
+	(bool) preg_match( '/class="dze-tr-lang" value="[a-z]{2}" checked/', $dze_b ), false );
 ok( 'and what is sent with each one is a block of its own',
 	false !== strpos( $dze_b, 'data-sec="fields"' ), true );
 ok( 'each language says how many are short of it',
@@ -2578,12 +2586,17 @@ ok( 'trois echecs et lobjet sort',
 // UNE SEULE LANGUE PAR PASSAGE : un objet part dans cinq langues et chaque
 // langue est un appel dune minute. Le premier essai a depasse les cinq
 // cents secondes sur DEUX articles, tue, rien produit, rien dit.
-ok( 'une seule langue par passage',
-	false !== strpos( $dze_src, 'self::produce( $o, [ $lang ] )' ), true );
+// AUTANT DE LANGUES QUE LE TEMPS EN PERMET : une par passage n etait pas un
+// choix mais une peur, et elle coutait huit minutes pour une page en cinq
+// langues, dont six a attendre le reveil suivant.
+ok( 'le passage travaille sur un budget de temps',
+	false !== strpos( $dze_src, 'self::DRAIN_BUDGET' ), true );
+ok( 'et une langue a la fois, mesuree',
+	false !== strpos( $dze_src, 'self::produce( $o, [ (string) $lang ] )' ), true );
 // LE RENDEZ-VOUS SUIVANT EST PRIS AVANT LE TRAVAIL : un passage qui meurt
 // n executerait jamais la ligne de fin, et la file sarreterait en silence.
 $dze_p_kick = strpos( $dze_src, 'self::kick_drain();', strpos( $dze_src, 'public static function drain' ) );
-$dze_p_work = strpos( $dze_src, 'self::produce( $o, [ $lang ] )' );
+$dze_p_work = strpos( $dze_src, 'self::produce( $o, [ (string) $lang ] )' );
 ok( 'le rendez-vous est pris avant le travail',
 	$dze_p_kick !== false && $dze_p_work !== false && $dze_p_kick < $dze_p_work, true );
 // ET UN VERROU EMPECHE DEUX PASSAGES DE SE CHEVAUCHER : sinon le meme objet

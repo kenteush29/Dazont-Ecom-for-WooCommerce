@@ -618,6 +618,16 @@ final class DZE_Translate {
 	public const DRAIN_STEP = 1;
 
 	/**
+	 * LE TEMPS QU UN PASSAGE S ACCORDE.
+	 *
+	 * Quatre minutes : assez pour enchainer deux ou trois langues quand
+	 * l hebergeur est genereux, assez court pour ne jamais se faire tuer en
+	 * chemin. Un passage tue ne perd rien — ce qui est traduit est depose —
+	 * mais il ne rend pas son verrou et fait attendre le suivant.
+	 */
+	public const DRAIN_BUDGET = 240;
+
+	/**
 	 * LA FILE SE VIDE TOUTE SEULE, EN ARRIÈRE-PLAN.
 	 *
 	 * « Les traductions en bulk devraient s'effectuer en background, je n'en
@@ -729,7 +739,6 @@ final class DZE_Translate {
 			delete_transient( self::LOCK_DRAIN );
 			return;
 		}
-		$lang = (string) reset( $owed );
 		// TROIS ÉCHECS ET L'OBJET SORT. Un texte qui fait tomber le passage à
 		// chaque fois prendrait la file entière en otage : on le perd plutôt
 		// que de tout bloquer, et il reste visible là où on l'a demandé.
@@ -742,22 +751,64 @@ final class DZE_Translate {
 			return;
 		}
 		update_post_meta( (int) $o['id'], '_dze_drain_tries', $essais + 1 );
-		try {
-			$made = self::produce( $o, [ $lang ] );
-			// « Écrire sans relire » voyage avec la demande : voir ask().
-			if ( ! empty( $o['accept'] ) && ! empty( $made['langs'] ) ) {
-				self::accept( $o, (array) $made['langs'] );
+		// AUTANT DE LANGUES QUE LE TEMPS ACCORDÉ EN PERMET.
+		//
+		// « C'est trop long. Pourquoi prendre autant de temps quand on peut les
+		// traduire en même temps ? Ça n'a aucun sens. »
+		//
+		// Une langue par passage n'était pas un choix, c'était une peur : le
+		// premier essai avait dépassé les cinq cents secondes sur deux articles
+		// et s'était fait tuer sans rien produire. La peur était bonne, la règle
+		// était bête — elle coûtait huit minutes pour une page en cinq langues,
+		// dont six à attendre le réveil suivant.
+		//
+		// On travaille donc sur un BUDGET DE TEMPS : tant qu'il reste du temps
+		// pour une langue de plus, on l'enchaîne ; sinon on rend la main et le
+		// passage suivant reprend où on s'est arrêté. Rapide quand l'hébergeur
+		// est généreux, jamais tué quand il ne l'est pas.
+		$debut = microtime( true );
+		foreach ( $owed as $lang ) {
+			try {
+				$made = self::produce( $o, [ (string) $lang ] );
+				// « Écrire sans relire » voyage avec la demande : voir ask().
+				if ( ! empty( $o['accept'] ) && ! empty( $made['langs'] ) ) {
+					self::accept( $o, (array) $made['langs'] );
+				}
+				// Un passage qui a produit remet le compteur à zéro : les trois
+				// essais comptent les échecs D'AFFILÉE, pas les langues.
+				delete_post_meta( (int) $o['id'], '_dze_drain_tries' );
+			} catch ( \Throwable $e ) {
+				self::note_drain_error( $o, $e->getMessage() );
+				break; // une langue qui casse arrête le lot, pas la file.
 			}
-			// Un passage qui a produit remet le compteur à zéro : les trois
-			// essais comptent les échecs D'AFFILÉE, pas les langues.
-			delete_post_meta( (int) $o['id'], '_dze_drain_tries' );
-		} catch ( \Throwable $e ) {
-			self::note_drain_error( $o, $e->getMessage() );
+			// LA LANGUE SUIVANTE NE COMMENCE QUE SI ELLE A LE TEMPS DE FINIR.
+			// On mesure ce que la dernière a coûté plutôt que de le supposer :
+			// une fiche produit et une page de mille mots n'ont rien à voir.
+			$passe = microtime( true ) - $debut;
+			$une   = $passe / max( 1, ( array_search( $lang, $owed, true ) + 1 ) );
+			if ( $passe + $une > self::DRAIN_BUDGET ) {
+				break;
+			}
 		}
 		// Ce qui doit encore une autre langue reste en file pour le passage
 		// suivant ; ce qui ne doit plus rien en sort au passage d'après, par le
 		// test en tête de cette fonction.
-		if ( 1 === count( $owed ) ) {
+		// IL SORT DE LA FILE QUAND IL NE DOIT PLUS RIEN — relu, jamais compté.
+		// Le passage enchaîne maintenant plusieurs langues : compter celles
+		// qu'il DEVAIT au départ le ferait sortir trop tôt ou le ferait rester
+		// pour rien.
+		$reste_du = array_keys( (array) ( self::waiting( $o )['langs'] ?? [] ) );
+		$encore   = false;
+		foreach ( $cibles as $code ) {
+			if ( in_array( $code, $reste_du, true ) ) {
+				continue;
+			}
+			if ( '' !== trim( implode( '', (array) self::obj_stale( $o, $code ) ) ) ) {
+				$encore = true;
+				break;
+			}
+		}
+		if ( ! $encore ) {
 			self::unask( $o );
 		}
 		delete_transient( self::LOCK_DRAIN );
@@ -5230,6 +5281,7 @@ final class DZE_Translate {
 				// ECRIT, PAS EN ATTENTE : une ligne acceptee sans relecture ne
 				// doit pas envoyer le lecteur chercher une file vide.
 				'rowWritten' => __( 'written', 'dazont-ecom' ),
+				'rowQueued'  => __( 'in the queue', 'dazont-ecom' ),
 				// Un geste qui ne dit rien est un geste qui n a pas marche.
 				'cleared'    => __( 'Selection emptied — %s row(s) unticked. The background queue is untouched.', 'dazont-ecom' ),
 				'stopped'    => __( 'Stopped.', 'dazont-ecom' ),

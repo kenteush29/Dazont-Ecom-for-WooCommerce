@@ -1036,19 +1036,30 @@ trait DZE_Translate_Screen {
 		</p>
 
 		<div class="dze-tr-pick dze-cb-controls" data-scope="<?php echo esc_attr( $key ); ?>">
-			<h2><?php esc_html_e( 'What to translate', 'dazont-ecom' ); ?></h2>
-
 			<?php
-			// ---- 2. ONE BLOCK PER KIND OF WORK, its switch in its own title ----
-			DZE_Hub::sec_open( 'langs', __( 'Languages', 'dazont-ecom' ), true, [
-				'all' => true,
-				'tip' => __( 'Tick every language', 'dazont-ecom' ),
-			] );
+			// UN BANDEAU QUI PRENAIT UNE PAGE POUR CINQ CASES.
+			//
+			// « What to translate à réduire. Pourquoi utiliser autant de place
+			// pour ces si petites cases à cocher ? »
+			//
+			// Un titre, un encadré, un compteur et une ligne par langue : cinq
+			// cases occupaient le haut de l'écran. Elles tiennent sur une
+			// ligne — ce qu'on choisit là se lit en deux secondes ou ne se lit
+			// pas.
+			//
+			// ET PLUS AUCUNE N'EST COCHÉE D'OFFICE.
+			//
+			// « Je l'ai envoyé seulement en RU » — les cinq l'étaient, parce
+			// que c'était le défaut. Une boutique qui veut du russe partait
+			// dans cinq langues sans l'avoir demandé : cinq fois le prix, cinq
+			// fois l'attente. Un défaut qui dépense doit être un choix, jamais
+			// un oubli.
 			?>
-				<div class="dze-cb-checks">
+			<p class="dze-tr-langbar" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:10px 0;">
+				<strong style="margin-right:4px;"><?php esc_html_e( 'Translate into:', 'dazont-ecom' ); ?></strong>
 					<?php foreach ( $langs as $dze_code => $dze_name ) : ?>
-						<label class="dze-cb-check dze-tr-langbox" title="<?php echo esc_attr( $dze_name ); ?>">
-							<input type="checkbox" class="dze-tr-lang" value="<?php echo esc_attr( $dze_code ); ?>" checked />
+						<label class="dze-cb-check dze-tr-langbox" style="margin:0;" title="<?php echo esc_attr( $dze_name ); ?>">
+							<input type="checkbox" class="dze-tr-lang" value="<?php echo esc_attr( $dze_code ); ?>" />
 							<span><?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_code ) ); ?>
 								<em class="description"><?php echo esc_html( sprintf(
 									/* translators: %s: how many of this kind are missing that language */
@@ -1058,8 +1069,7 @@ trait DZE_Translate_Screen {
 							</span>
 						</label>
 					<?php endforeach; ?>
-				</div>
-			<?php DZE_Hub::sec_close(); ?>
+			</p>
 
 			<?php
 			// A BLOCK'S OWN CONTROLS LIVE INSIDE IT. What is actually sent for
@@ -1157,7 +1167,7 @@ trait DZE_Translate_Screen {
 		// CE QUI SE PASSE MAINTENANT, en toutes lettres : « ça tourne » et
 		// « c'est arrêté » ne doivent jamais se ressembler.
 		$dit = $occupe
-			? __( 'A page is being translated right now. One language at a time, about a minute and a half each — a page in five languages takes about eight minutes.', 'dazont-ecom' )
+			? __( 'A page is being translated right now. It takes about a minute and a half per language, and a pass chains as many as it can fit.', 'dazont-ecom' )
 			: ( $quand
 				? sprintf(
 					/* translators: %s: how long until the next pass */
@@ -1174,6 +1184,37 @@ trait DZE_Translate_Screen {
 			$occupe ? ' disabled="disabled"' : '',
 			esc_html__( 'Empty the queue — nothing will be translated', 'dazont-ecom' )
 		);
+		// ET LA LISTE, PARCE QU'UN CHIFFRE N'EST PAS UNE LISTE.
+		//
+		// « Je ne vois toujours pas de liste d'attente. C'est confus. » Le
+		// panneau annonçait un nombre ; il voulait voir CE QUI attend, comme
+		// WPML le montre. Repliée par défaut : cent soixante-quatorze lignes
+		// déroulées seraient un autre genre de confusion.
+		if ( $file ) {
+			echo '<details style="margin:0 0 8px;"><summary style="cursor:pointer;">'
+				. esc_html__( 'See what is waiting', 'dazont-ecom' ) . '</summary>';
+			echo '<ul style="margin:8px 0 0 18px;list-style:disc;max-height:260px;overflow:auto;">';
+			foreach ( array_slice( $file, 0, 200 ) as $dze_un ) {
+				$dze_un = (array) $dze_un;
+				$dze_lg = (array) ( $dze_un['langs'] ?? [] );
+				printf(
+					'<li style="margin:0;">%1$s <span class="description">%2$s</span></li>',
+					esc_html( self::obj_label( $dze_un ) ),
+					esc_html( $dze_lg ? strtoupper( implode( ' ', $dze_lg ) ) : __( 'every language', 'dazont-ecom' ) )
+				);
+			}
+			if ( count( $file ) > 200 ) {
+				printf(
+					'<li class="description">%s</li>',
+					esc_html( sprintf(
+						/* translators: %s: how many more are waiting */
+						__( 'and %s more', 'dazont-ecom' ),
+						number_format_i18n( count( $file ) - 200 )
+					) )
+				);
+			}
+			echo '</ul></details>';
+		}
 		if ( $errs ) {
 			printf(
 				'<p class="description" style="margin:0 0 8px;color:#b32d2e;">%s</p>',
