@@ -103,11 +103,10 @@
 		remember();
 		bill();
 	});
-	$(document).on('click', '#dze-tr-selnone', function () {
-		$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
-		remember();
-		bill();
-	});
+	// #dze-tr-selnone a disparu de l'écran : deux boutons pour décocher, c'était
+	// un de trop. Celui qui reste est #dze-tr-clearkept, plus haut, et il vide
+	// la sélection de TOUTES les pages — qui appuie sur « tout décocher » veut
+	// tout décocher.
 	$(document).on('change', '.dze-tr-pickone, .dze-tr-lang', function () { remember(); bill(); });
 
 	// WHAT THE PRESS IS ABOUT TO DO, BESIDE THE PRESS. Every figure was already

@@ -1216,12 +1216,19 @@ trait DZE_Translate_Screen {
 		     gesture. -->
 		<p class="dze-cb-listbar">
 			<span id="dze-tr-selcount" class="description"></span>
+			<?php
+			// DEUX BOUTONS POUR DÉCOCHER, C'ÉTAIT UN DE TROP.
+			//
+			// « Untick everything, all pages — stupide. L'un devrait être
+			// Remove. »
+			//
+			// Il y en avait deux : l'un décochait la page affichée, l'autre
+			// aussi ce qui était gardé des autres pages. La distinction est
+			// vraie et n'intéresse personne : qui appuie sur « tout décocher »
+			// veut TOUT décocher. Un seul bouton, qui fait ce que son mot dit.
+			?>
 			<button type="button" class="button button-small" id="dze-tr-selall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
-			<button type="button" class="button button-small" id="dze-tr-selnone"><?php esc_html_e( 'Unselect all', 'dazont-ecom' ); ?></button>
-			<?php // LA SELECTION GARDEE ENTRE DEUX PAGES SE VIDE D UN GESTE.
-			// « Unselect all » ne decoche que la page affichee — ce qui est juste
-			// — donc il faut une porte de sortie pour tout ce qui a ete coche
-			// ailleurs, sinon un envoi part sur des lignes qu on ne voit plus. ?>
+			<button type="button" class="button button-small" id="dze-tr-clearkept"><?php esc_html_e( 'Unselect all', 'dazont-ecom' ); ?></button>
 			<?php // ACCEPTER SANS RELIRE. « Pas de choix d acceptation
 			// automatique, il faut toujours tout review. Il faut ce choix. »
 			//
@@ -1232,9 +1239,30 @@ trait DZE_Translate_Screen {
 				<input type="checkbox" id="dze-tr-autoaccept" />
 				<?php esc_html_e( 'Write it straight away, without reviewing', 'dazont-ecom' ); ?>
 			</label>
-			<button type="button" class="button button-small" id="dze-tr-clearkept" title="<?php esc_attr_e( 'Unticks the rows kept from the other pages too. This does NOT touch the background queue — that has its own button below.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Untick everything, all pages', 'dazont-ecom' ); ?></button>
 			<span class="dze-cb-barsep"></span>
-			<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'review' ] ) ); ?>" title="<?php esc_attr_e( 'Everything that has come back and is waiting for a yes or a no, whatever kind of thing it is', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Read what came back', 'dazont-ecom' ); ?></a>
+			<?php
+			// LE LIEN DIT OÙ IL VA, ET COMBIEN IL Y A LÀ-BAS.
+			//
+			// « Read what came back — aucune idée. Je comprends même pas le sens
+			// de cette fonction. »
+			//
+			// C'était une jolie phrase pour un lien vers l'onglet « To review ».
+			// Un bouton qui ne nomme pas sa destination est un bouton qu'on
+			// n'ose pas presser, et le chiffre dit s'il y a une raison d'y
+			// aller : zéro, et il n'apparaît pas du tout.
+			$dze_wait = (int) self::review_count();
+			if ( $dze_wait > 0 ) :
+				?>
+				<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'review' ] ) ); ?>" title="<?php esc_attr_e( 'The translations that came back and are waiting for you to accept or refuse them', 'dazont-ecom' ); ?>">
+					<?php
+					printf(
+						/* translators: %s: how many translations wait for a yes or a no */
+						esc_html( _n( 'To review (%s)', 'To review (%s)', $dze_wait, 'dazont-ecom' ) ),
+						esc_html( number_format_i18n( $dze_wait ) )
+					);
+					?>
+				</a>
+			<?php endif; ?>
 		</p>
 		<table class="widefat striped dze-tr-table">
 			<thead><tr>
