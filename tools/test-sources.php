@@ -97,6 +97,7 @@ function wp_remote_retrieve_response_code( $r ) { return is_array( $r ) ? ( $r['
 function wp_remote_retrieve_body( $r ) { return is_array( $r ) ? ( $r['body'] ?? '' ) : ''; }
 function wp_remote_retrieve_header( $r, $h ) { return 'x-fal-billable-units' === $h ? ( $GLOBALS['fal_say']['units'] ?? '' ) : ''; }
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
+if ( ! function_exists( 'taxonomy_exists' ) ) { function taxonomy_exists( $t ) { return false; } }
 class WP_Error {
 	private $msg;
 	public function __construct( $c = '', $m = '' ) { $this->msg = (string) $m; }
@@ -430,6 +431,29 @@ ok( 'the shop\'s words replace ours',
 	trim( DZE_Content::sources_instruction( 3, null, 0, 0, false ) ), 'MY OWN WORDS ABOUT THESE PHOTOGRAPHS.' );
 ok( 'and an emptied note is the default again',
 	trim( DZE_Content::sources_instruction( 1, null, 0, 0, false ) ), $dze_cat['one']['default'] );
+// {images} WORKS IN EVERY NOTE, as the settings screen says — these three
+// were appended raw, token and all.
+$GLOBALS['opts']['dze_content_settings']['photo_notes'] = [ 'many' => 'MY {images} NOTE.', 'one' => 'ONLY {images}.', 'edit' => 'WORK ON {images}.' ];
+ok( '{images} in the note for several photographs',
+	trim( DZE_Content::sources_instruction( 3, null, 0, 0, false ) ), 'MY Images 1 to 3 NOTE.' );
+ok( '{images} in the note for one photograph',
+	trim( DZE_Content::sources_instruction( 1, null, 0, 0, false ) ), 'ONLY Image 1.' );
+ok( '{images} in the note for a retouch',
+	trim( DZE_Content::sources_instruction( 1, null, 0, 0, true ) ), 'WORK ON Image 1.' );
+// THE VARIATION SENTENCES ARE THE SHOP'S TOO, and they name the image that
+// really shows the variation — a pasted one travels after the product's own.
+$GLOBALS['opts']['dze_content_settings']['photo_notes'] = [];
+ok( 'a variation shown by image 3 is said to be image 3',
+	false !== strpos( DZE_Content::variation_instruction( 'pa_color', 'olive-drab', 3 ), 'Image 3 already shows that variation' ), true );
+ok( 'its own photograph first is image 1',
+	false !== strpos( DZE_Content::variation_instruction( 'pa_color', 'olive-drab', true ), 'Image 1 already shows that variation' ), true );
+ok( 'no photograph of it: only the colour changes, and it is named',
+	false !== strpos( DZE_Content::variation_instruction( 'pa_color', 'olive-drab', 0 ), 'only the colour becomes Olive drab' ), true );
+$GLOBALS['opts']['dze_content_settings']['photo_notes'] = [ 'variation_recolour' => 'MAKE IT {variation} ({attribute}).' ];
+ok( 'and the shop\'s own words are the ones sent',
+	trim( DZE_Content::variation_instruction( 'pa_color', 'olive-drab', 0 ) ), 'MAKE IT Olive drab (pa_color).' );
+ok( 'both are in the settings list', isset( $dze_cat['variation_own'], $dze_cat['variation_recolour'] ), true );
+$GLOBALS['opts']['dze_content_settings']['photo_notes'] = [];
 // SAVED LIKE EVERY OTHER SETTING HERE: only what the form carried, and a note
 // left as the default stored as nothing, so the default can still improve.
 $dze_saved = DZE_Content::instance()->sanitize( [ 'photo_notes' => [ 'many' => $dze_cat['many']['default'], 'one' => 'Mine.' ] ] );
@@ -706,7 +730,7 @@ $GLOBALS['opts']['dze_content_settings'] = [
 	'registry' => [
 		// Written before the field existed: it keeps what it has been running
 		// on all along, or a shop updating would silently lose its backdrops.
-		[ 'id' => 'old', 'name' => 'Pack shot', 'type' => 'image', 'output' => 'main', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1 ],
+		[ 'id' => 'old', 'name' => 'Pack shot', 'type' => 'image', 'output' => 'main', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'ratio' => '1:1' ],
 		// Answered: no scene. An EMPTY key is an answer and is not overruled.
 		[ 'id' => 'ugc', 'name' => 'Customer photo', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => '' ],
 		// Answered: that one, by name — reordering the list must not move a
@@ -728,6 +752,10 @@ ok( 'a named scene answers with its place',
 	$dze_t['slate']['scene_i'] ?? 'missing', 1 );
 ok( 'a scene deleted since is no scene',
 	$dze_t['gone']['scene_i'] ?? 'missing', -1 );
+// THE SHAPE SET ON THE PROMPT TRAVELS WITH IT. It was saved and never read
+// back into this list: every image went out as « auto ».
+ok( 'the prompt\'s shape is in the list every screen reads', $dze_t['old']['ratio'] ?? 'missing', '1:1' );
+ok( 'and a prompt with none says none',                      $dze_t['ugc']['ratio'] ?? 'missing', '' );
 
 echo "\nWHAT IS SENT WITH A PROMPT IS READ FROM THE ROW, NEVER WRITTEN BESIDE IT\n";
 // "Impossible de decocher la description produit a envoyer pour le contexte

@@ -90,6 +90,13 @@ final class DZE_Content {
 	public const MAX_SOURCES = 12;
 	/** How many photographs from outside the shop can be sent with one run. */
 	public const MAX_PASTED = 12;
+	/**
+	 * How many of the product's photographs travel when the MAIN image (or one
+	 * colour's image) is remade and nobody picked any: the featured image plus
+	 * two. Six angles sent for that is how a remake came back built on a
+	 * gallery shot. Photographs picked by hand are never cut to it.
+	 */
+	public const MAIN_SOURCES = 3;
 	/** Ceiling on the encoded images in one request body, in bytes. */
 	private const MAX_PAYLOAD = 9437184; // 9 MB.
 	/** The same ceiling, for the modules that build their own request. */
@@ -1568,6 +1575,16 @@ EOT;
 				'when'    => __( 'Sent when a second picture is asked of the same prompt for the same product: the first one travels, so the second is not the same again.', 'dazont-ecom' ),
 				'default' => '{images}: a picture already made for this product with these same instructions. Make a clearly different one — another angle, another distance, another part — and never use it as the reference for the product: the photographs of the product are.',
 			],
+			'variation_own' => [
+				'label'   => __( 'One colour, from its own photograph', 'dazont-ecom' ),
+				'when'    => __( 'Sent when an image is made for one variation and a photograph of that variation travels. {attribute} and {variation} become the attribute and its value — « Colour », « Olive ».', 'dazont-ecom' ),
+				'default' => 'This image is for one variation of the product: {attribute} = {variation}. {images} already shows that variation: keep its colours and its materials exactly as they are.',
+			],
+			'variation_recolour' => [
+				'label'   => __( 'One colour, from photographs of another', 'dazont-ecom' ),
+				'when'    => __( 'Sent when an image is made for one variation that has no photograph of its own: the product\'s photographs show another colour. {attribute} and {variation} as above.', 'dazont-ecom' ),
+				'default' => 'This image is for one variation of the product: {attribute} = {variation}. The photographs show the product in another colourway: the product itself — its shape, its cut, its materials, its stitching, its hardware and every marking — stays exactly the same, and only the colour becomes {variation}. Change nothing else, invent nothing, and do not alter the pattern beyond its colours.',
+			],
 			'scene'   => [
 				'label'   => __( 'The background', 'dazont-ecom' ),
 				'when'    => __( 'Sent when a background is picked; the note written under that background follows it.', 'dazont-ecom' ),
@@ -1611,12 +1628,14 @@ EOT;
 	 */
 	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, bool $only_one = false ): string {
 		$out = "\n\n";
+		// {images} works in EVERY note, as the settings screen says: these
+		// three were appended raw, token and all.
 		if ( $count > 1 ) {
-			$out .= self::photo_note( 'many' );
+			$out .= self::images_named( self::photo_note( 'many' ), 1, $count );
 		} elseif ( $subject_first ) {
-			$out .= self::photo_note( 'edit' );
+			$out .= self::images_named( self::photo_note( 'edit' ), 1, 1 );
 		} else {
-			$out .= self::photo_note( 'one' );
+			$out .= self::images_named( self::photo_note( 'one' ), 1, 1 );
 		}
 		if ( $variants > 0 ) {
 			$out .= "\n" . self::images_named( self::photo_note( 'colours' ), $count + 1, $variants );
@@ -1752,6 +1771,11 @@ EOT;
 				'valid'       => (int) ! empty( $r['valid'] ),
 				'inputs'      => (array) ( $r['inputs'] ?? [ 'title', 'description' ] ),
 				'inputs_meta' => (string) ( $r['inputs_meta'] ?? '' ),
+				// THE SHAPE SET ON THE PROMPT. It was saved from the Shape menu
+				// and never read back into this list, so every image — popup,
+				// bulk, queue, automation — went out as « auto », and a square
+				// catalogue got a portrait main image.
+				'ratio'       => self::clean_ratio( (string) ( $r['ratio'] ?? '' ) ),
 				// THE SCENE IS THE PROMPT'S OWN. It used to be one answer for
 				// the whole shop — default_scene() — applied to every prompt
 				// whatever it asked for, and the sources block tells the model
@@ -1988,9 +2012,13 @@ EOT;
 	 *
 	 * @return array<int, int|string> Attachment ids and fal URLs, mixed.
 	 */
-	public static function avoid_sources( int $pid, string $recipe_id, int $max = 2, string $target = '' ): array {
+	public static function avoid_sources( int $pid, string $recipe_id, int $max = 2, string $target = '', array $skip = [] ): array {
 		$made = self::made_already( $pid, $recipe_id, $target );
 		$out  = [];
+		// A picture already made that now sits in the gallery can travel as
+		// a photograph OF the product: sent again as « not like this », the
+		// model is told to copy it and to avoid it in the same request.
+		$skip = array_map( 'intval', $skip );
 		foreach ( array_reverse( $made['urls'] ) as $url ) {
 			if ( count( $out ) >= $max ) {
 				return $out;
@@ -2002,6 +2030,9 @@ EOT;
 		foreach ( $made['ids'] as $id ) {
 			if ( count( $out ) >= $max ) {
 				return $out;
+			}
+			if ( in_array( (int) $id, $skip, true ) ) {
+				continue;
 			}
 			$out[] = (int) $id;
 		}
@@ -2050,17 +2081,18 @@ EOT;
 	 * precise variation. Without this the model returns the colour it saw, and
 	 * the group that had no photograph still has none.
 	 */
-	public static function variation_instruction( string $attr, string $value, bool $has_own_shot ): string {
+	public static function variation_instruction( string $attr, string $value, $shown_at ): string {
+		// WHICH IMAGE SHOWS THAT VARIATION — its number, or 0 for none. It
+		// was a yes/no, and « yes » always said « Image 1 », also when the
+		// variation was a pasted photograph travelling after the product's
+		// own. These words are the shop's now, like every other sentence
+		// about the photographs.
+		$at    = true === $shown_at ? 1 : max( 0, (int) $shown_at );
 		$label = self::attribute_value_label( $attr, $value );
 		$what  = function_exists( 'wc_attribute_label' ) ? (string) wc_attribute_label( $attr ) : $attr;
-		$out   = "\n\nTHIS IMAGE IS FOR ONE VARIATION OF THE PRODUCT: " . $what . ' = ' . $label . '.';
-		if ( $has_own_shot ) {
-			$out .= ' Image 1 already shows that variation: keep its colours and its materials exactly as they are.';
-		} else {
-			$out .= ' The photographs show the product in another colourway: the product itself — its shape, its cut, its materials, its stitching, its hardware and every marking — stays exactly the same, and only the colour becomes ' . $label . '.'
-				. ' Change nothing else, invent nothing, and do not alter the pattern beyond its colours.';
-		}
-		return $out;
+		$note  = self::photo_note( $at > 0 ? 'variation_own' : 'variation_recolour' );
+		$note  = str_replace( [ '{attribute}', '{variation}' ], [ $what, $label ], $note );
+		return "\n\n" . self::images_named( $note, max( 1, $at ), 1 );
 	}
 
 	/** What is waiting on one product ([] when nothing is). */
@@ -2846,7 +2878,7 @@ Answer with STRICT JSON and nothing else: "
 			<details class="dze-set" id="dze-photonotes">
 			<summary><?php esc_html_e( 'What is said about the photographs — added to every image request', 'dazont-ecom' ); ?></summary>
 			<p class="description" style="max-width:900px;">
-				<?php esc_html_e( 'Every image request carries photographs, and your prompt cannot know how many or in what order. These notes are what tells the model what each picture IS. They follow your prompt, in this order, only when that kind of picture is sent. {images} becomes the numbers of the pictures it is about — « Image 6 », « Images 4 to 5 ». Emptied, a note goes back to its default.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'Every image request carries photographs, and your prompt cannot know how many or in what order. These notes are what tells the model what each picture IS. They follow your prompt, in this order, only when that kind of picture is sent. {images} becomes the numbers of the pictures it is about — « Image 6 », « Images 4 to 5 », in every note. Emptied, a note goes back to its default.', 'dazont-ecom' ); ?>
 			</p>
 			<?php foreach ( self::photo_note_catalog() as $dze_nk => $dze_note ) : ?>
 				<?php $dze_nv = self::photo_note( (string) $dze_nk ); ?>
@@ -4302,10 +4334,11 @@ Answer with STRICT JSON and nothing else: "
 					'srcRow'   => __( 'As the prompt row says', 'dazont-ecom' ),
 					/* translators: %s: number of photographs picked */
 					'srcPicked'=> __( '— %s picked', 'dazont-ecom' ),
-					'srcRowSaid' => __( 'Nothing picked: each prompt row sends what its « Photos sent » column says. Click photographs to send only those, in the order you click them — the first one is image 1.', 'dazont-ecom' ),
-					'srcOneSaid' => __( 'Only this photograph is sent, for every prompt of this product: the model works from it alone.', 'dazont-ecom' ),
+					/* translators: 1: most photographs sent for a gallery image, 2: for a main image */
+					'srcRowSaid' => sprintf( __( 'Nothing picked: each prompt row sends what its « Photos sent » column says — every photo up to %1$s, or %2$s for a main image. Click photographs to send only those, in the order you click them — the first one is image 1.', 'dazont-ecom' ), self::source_cap(), self::MAIN_SOURCES ),
+					'srcOneSaid' => __( 'Only this photograph of the product is sent, for every prompt of this product — with the row\'s background, if it has one: the model works from it alone.', 'dazont-ecom' ),
 					/* translators: %s: number of photographs picked */
-					'srcManySaid'=> __( 'These %s photographs are sent, for every prompt of this product, in the order you clicked them: the first one is image 1.', 'dazont-ecom' ),
+					'srcManySaid'=> __( 'These %s photographs of the product are sent, and no other, for every prompt of this product — with the row\'s background, if it has one — in the order you clicked them: the first one is image 1.', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
 					'confirmClear' => __( 'Take every product out of this list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
@@ -5082,7 +5115,7 @@ Answer with STRICT JSON and nothing else: "
 			'falPostCap' => class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::fal_post_cap() : 0,
 			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
-			'templates'  => array_map( static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'scene' => (int) ( $t['scene_i'] ?? -1 ), 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
+			'templates'  => array_map( static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'scene' => (int) ( $t['scene_i'] ?? -1 ), 'bg' => (int) ( self::scenes()[ (int) ( $t['scene_i'] ?? -1 ) ]['image'] ?? 0 ), 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
 			// The fixed supports/backgrounds, so the whole catalogue can be shot
 			// in the same setting from one screen.
 			'scenes'     => array_map(
@@ -5144,6 +5177,8 @@ Answer with STRICT JSON and nothing else: "
 			// stated on screen, because "which image did it actually use?" is
 			// the first question when a result comes back wrong.
 			'sourceN'    => $pid ? count( self::product_image_ids( $pid ) ) : 0,
+			// What a MAIN image is remade from when nothing is picked.
+			'mainCap'    => self::MAIN_SOURCES,
 			// THE BOX OPENS EMPTY: a note is for the run in front of you, and
 			// one read back from the product would be sent again for ever.
 			'note'       => '',
@@ -5396,10 +5431,11 @@ Answer with STRICT JSON and nothing else: "
 				// owner kept asking: « je ne comprends pas comment fonctionne la
 				// re-génération d'image basée sur ce qu'on a ».
 				/* translators: %s: how many photographs an ordinary run sends at most */
-				'srcAllSaid' => __( 'Every photograph of the product is sent — up to %s, the main one first. Click photographs to send only those.', 'dazont-ecom' ),
-				'srcOneSaid' => __( 'Only this photograph is sent: the model works from it alone. What to make of it is the prompt\'s to say.', 'dazont-ecom' ),
+				/* translators: %s: how many photographs travel at most */
+				'srcAllSaid' => __( 'The product\'s photographs are sent — up to %s, the main one first. Click photographs to send only those.', 'dazont-ecom' ),
+				'srcOneSaid' => __( 'Only this photograph of the product is sent — with the background, if one is chosen: the model works from it alone. What to make of it is the prompt\'s to say.', 'dazont-ecom' ),
 				/* translators: %s: how many photographs were picked */
-				'srcManySaid'=> __( 'These %s photographs are sent, in the order you clicked them: the first one is image 1.', 'dazont-ecom' ),
+				'srcManySaid'=> __( 'These %s photographs of the product are sent, and no other — with the background, if one is chosen — in the order you clicked them: the first one is image 1.', 'dazont-ecom' ),
 				'srcNewSaid' => __( 'The photographs you add here travel with the product\'s own, as more views of the same product.', 'dazont-ecom' ),
 				// SEEING WHAT GOES OUT, BEFORE IT COSTS ANYTHING.
 				'preview'    => __( 'See what will be sent', 'dazont-ecom' ),

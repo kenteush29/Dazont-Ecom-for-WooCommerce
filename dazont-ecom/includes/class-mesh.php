@@ -550,10 +550,38 @@ final class DZE_Mesh {
 		if ( '' !== $host && preg_replace( '/^www\./', '', $host ) !== preg_replace( '/^www\./', '', $home ) ) {
 			return ''; // another site: not ours to weave.
 		}
-		// A RELATIVE ADDRESS IS THIS SITE: '/tactical-pants' is read as the
-		// full address it stands for.
-		if ( '' === $host && 0 === strpos( $url, '/' ) && 0 !== strpos( $url, '//' ) ) {
-			$url = untrailingslashit( (string) get_option( 'home' ) ) . $url;
+		// EVERY ADDRESS OF THIS SITE IS READ ON ITS ONE CANONICAL BASE — the
+		// scheme, host and port of the stored home — before it is looked up:
+		// the graph's keys are written on that base, so a link that differs
+		// only by www, by http or by a protocol-relative '//' was dropped.
+		// A root-relative '/tactical-pants' is read on that base too, and
+		// never after home's own path: the href already carries the install
+		// folder, and adding it again doubled it on a subdirectory install.
+		$dze_h    = wp_parse_url( (string) get_option( 'home' ) );
+		$dze_base = ! empty( $dze_h['host'] )
+			? ( $dze_h['scheme'] ?? 'https' ) . '://' . $dze_h['host'] . ( isset( $dze_h['port'] ) ? ':' . $dze_h['port'] : '' )
+			: '';
+		if ( '' !== $dze_base ) {
+			if ( '' !== $host ) {
+				$dze_p = wp_parse_url( $url );
+				$url   = $dze_base . (string) ( $dze_p['path'] ?? '/' ) . ( isset( $dze_p['query'] ) ? '?' . $dze_p['query'] : '' );
+			} elseif ( 0 === strpos( $url, '/' ) ) {
+				$url = $dze_base . $url;
+			}
+		}
+		// A LINK TO A TRANSLATION IS NOT A LINK TO THE ORIGINAL. With one
+		// directory or one parameter per language every language shares this
+		// host, and '?lang=de' stripped below — or '/de/slug' read by slug —
+		// gave the English page an inbound link it does not have.
+		if ( class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'url_shape' ) && method_exists( 'DZE_Wpml', 'has_marker' ) ) {
+			$dze_shape = DZE_Wpml::url_shape();
+			if ( in_array( (int) $dze_shape['type'], [ 1, 3 ], true ) ) {
+				foreach ( array_keys( (array) apply_filters( 'wpml_active_languages', null, [] ) ) as $dze_code ) {
+					if ( (string) $dze_code !== (string) $dze_shape['default'] && DZE_Wpml::has_marker( $url, (string) $dze_code ) ) {
+						return '';
+					}
+				}
+			}
 		}
 		$key = untrailingslashit( strtok( $url, '#?' ) );
 		if ( isset( $byurl[ $key ] ) ) {
@@ -565,7 +593,10 @@ final class DZE_Mesh {
 			$pid = (int) DZE_Wpml::post_of( $url );
 			if ( $pid ) {
 				$type = (string) get_post_type( $pid );
-				if ( in_array( $type, [ 'post', 'page' ], true ) ) {
+				// Only a page OF THE GRAPH: a translation's id, or a page the
+				// graph does not hold, wrote a link row towards nothing and
+				// inflated the count of links.
+				if ( in_array( $type, [ 'post', 'page' ], true ) && in_array( $type . ':' . $pid, $byurl, true ) ) {
 					return $type . ':' . $pid;
 				}
 			}

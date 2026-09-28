@@ -47,7 +47,7 @@
 		// prompt, was stored as though somebody had chosen it, and never
 		// followed a prompt again.
 		var saved = (Array.isArray(m.tpls) && m.tpls.length ? m.tpls : [ '' ]).map(function (v) {
-			if (v && typeof v === 'object') { return { tpl: v.tpl, n: v.n }; }
+			if (v && typeof v === 'object') { return { tpl: v.tpl, n: v.n, photos: 'main' === v.photos ? 'main' : 'all' }; }
 			return { tpl: v, n: m.imgn };
 		});
 		buildTplRows(saved);

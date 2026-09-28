@@ -1842,14 +1842,17 @@
 		var t = (cfg.templates || []).filter(function (x) { return String(x.id) === String(v); })[0];
 		$('#dze-one-prompt').val(t ? t.prompt : '');
 		$('#dze-one-target').val((t && t.target === 'main') ? 'main' : 'gallery');
-		// A surface is what the MAIN image is shot on. The other recipes work
-		// on a photograph that already has its own, so the question is folded
-		// away rather than asked every time for nothing.
-		var mainish = !!(t && t.target === 'main');
-		$('#dze-one-bgstep').toggle(!!mainish);
-		if (!mainish) { $('#dze-one-bg').val('0'); }
-		else if (!$('#dze-one-bg').val() || $('#dze-one-bg').val() === '0') { $('#dze-one-bg').val(String(defaultBg())); }
+		// THE PROMPT'S OWN BACKGROUND, on screen. It was folded away for the
+		// gallery prompts and sent as « None », while the bulk screen, the
+		// queue and the automation used the background set on the prompt: one
+		// prompt, two different orders depending on the button pressed. Every
+		// prompt now opens on its own answer, and it can be changed here.
+		$('#dze-one-bgstep').show();
+		$('#dze-one-bg').val(String(t ? (t.bg || 0) : defaultBg()));
 		oneDrawBgs();
+		// How many photographs go depends on where the image lands: said
+		// again for this prompt.
+		oneSrcSaid();
 		oneFillSettings(v);
 		if ($('.dze-one-pane[data-pane="data"]').is(':visible')) { oneLoadData(); }
 	}
@@ -1955,20 +1958,26 @@
 	function oneSrcSaid() {
 		var ids = one.srcIds || [];
 		var $said = $('#dze-one-srcsaid');
-		$('.dze-one-srcpick').each(function () {
+		// Read BEFORE the tiles are redrawn: the « elsewhere » tile has no id,
+		// and redrawing it with the others unselected it every time.
+		var outside = $('.dze-one-srcnew').hasClass('is-sel');
+		$('.dze-one-srcpick').not('.dze-one-srcnew').each(function () {
 			var n = ids.indexOf(parseInt($(this).data('id'), 10) || -1);
 			$(this).toggleClass('is-sel', n >= 0).find('.dze-one-srcn').text(n >= 0 && ids.length > 1 ? String(n + 1) : '');
 		});
-		var outside = $('.dze-one-srcnew').hasClass('is-sel');
 		$('.dze-one-srcpick[data-id="0"]').toggleClass('is-sel', !ids.length && !outside);
+		// The real figure: a MAIN image is remade from the featured image and
+		// two more, whatever the shop's figure for a gallery shot.
+		var cap = cfg.sourceCap || 10;
+		if ('main' === $('#dze-one-target').val()) { cap = Math.min(cap, cfg.mainCap || 3); }
 		$said.text(outside ? i18n.srcNewSaid
-			: (!ids.length ? sprintf(i18n.srcAllSaid, cfg.sourceCap || 10)
+			: (!ids.length ? sprintf(i18n.srcAllSaid, cap)
 			: (1 === ids.length ? i18n.srcOneSaid : sprintf(i18n.srcManySaid, ids.length))));
 		one.srcId = ids.length ? ids[0] : 0;
 		// Only ONE photograph of the product can be retired by its own remake.
 		$('#dze-one-replacewrap').toggle(1 === ids.length);
 		if (1 !== ids.length) { $('#dze-one-replace').prop('checked', false); }
-		$('#dze-one-previewbox').hide().empty();
+		oneClearPreview();
 	}
 	$(document).on('click', '.dze-one-srcpick', function () {
 		var raw = String($(this).data('id'));
@@ -2023,6 +2032,9 @@
 		// The tile that opened this box mirrors the set it holds.
 		$('#dze-one-newthumb').attr('src', list[0] || '').toggle(list.length > 0);
 		$('.dze-one-srcnew .dze-one-newmsg').toggle(!list.length);
+		// A photograph pasted, dropped or taken out changes the order: what
+		// was previewed for the last one no longer says what will be sent.
+		oneClearPreview();
 	}
 	// WHAT THIS PRESS WILL SPEND, in the same words the toolbox and the bulk
 	// screen use, from the same price. A text press spends no picture and says
@@ -2085,9 +2097,8 @@
 	});
 	// A new recipe, a new background or a new note is a new order: what was
 	// previewed for the last one is taken away rather than left to mislead.
-	$(document).on('click change', '.dze-one-recipe, .dze-one-bg, #dze-one-note, #dze-one-prompt', function () {
-		$('#dze-one-previewbox').hide().empty();
-	});
+	function oneClearPreview() { $('#dze-one-previewbox').hide().empty(); }
+	$(document).on('click change', '.dze-one-recipe, .dze-one-bg, #dze-one-note, #dze-one-prompt', oneClearPreview);
 
 	function oneShowPasted(dataUri) {
 		var box = onePasteBox();
@@ -2153,6 +2164,9 @@
 
 			src_ids: (one.srcIds || []).slice(), recipe: $('#dze-one-recipe').val() || '',
 			bg: $('#dze-one-bg').val() || 0,
+			// THE NOTE TRAVELS. The box was on screen, said « sent with the
+			// images this run makes », and was never posted.
+			note: String($('#dze-one-note').val() || ''),
 			prompt: undefined === prompt ? ($('#dze-one-prompt').val() || '') : prompt
 		};
 	}
@@ -2180,6 +2194,9 @@
 						}
 						made++;
 						drawSpend(r.data.spend);
+						// The next order can carry this picture as « not like
+						// this »: the preview of the last one is stale.
+						oneClearPreview();
 						// Every attempt is paid for: none of them is thrown away
 						// behind the next one. They line up and you compare.
 						one.tries = one.tries || [];
@@ -2737,7 +2754,8 @@
 		}
 		if (onePastes().length) { return { url: onePastes()[0], caption: i18n.qmSource }; }
 		if (one.srcId) {
-			var $img = $('.dze-one-srcpick.is-sel img').first();
+			// Image 1 — the first one CLICKED, not the first in the strip.
+			var $img = $('.dze-one-srcpick[data-id="' + one.srcId + '"] img').first();
 			var u = $img.attr('data-full') || $img.attr('src') || '';
 			if (u) { return { url: u, caption: i18n.qmSource }; }
 		}
@@ -2811,6 +2829,7 @@
 	}
 	$(document).on('change', '#dze-one-target', function () {
 		$('#dze-one-oldwrap').toggle('main' === $(this).val());
+		oneSrcSaid();
 	});
 	$(document).on('click', '.dze-one-try', function () {
 		var u = String($(this).data('url'));

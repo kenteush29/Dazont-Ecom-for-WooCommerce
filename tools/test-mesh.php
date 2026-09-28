@@ -447,6 +447,17 @@ ok( 'and a link to that other domain is not a page of this graph',
 	DZE_Mesh::resolve( 'https://kula.de/category/boonie-hats/', $byurl ), '' );
 unset( $GLOBALS['request_home'] );
 ok( 'a relative address is this site',  DZE_Mesh::resolve( '/category/boonie-hats/', $byurl ), 'product_cat:12' );
+// THE SAME PAGE BY ANOTHER SPELLING OF THE SAME SITE: www, plain http, or a
+// protocol-relative address. The graph is keyed on one canonical base, and a
+// category — which no slug lookup rescues — was dropped from it.
+ok( 'www is the same site, and the same page', DZE_Mesh::resolve( 'https://www.kula.test/category/boonie-hats/', $byurl ), 'product_cat:12' );
+ok( 'so is plain http',                          DZE_Mesh::resolve( 'http://kula.test/category/boonie-hats/', $byurl ), 'product_cat:12' );
+ok( 'and an address without a scheme',           DZE_Mesh::resolve( '//kula.test/category/boonie-hats/', $byurl ), 'product_cat:12' );
+// A ROOT-RELATIVE ADDRESS IS READ FROM THE HOST, never after home's own path:
+// on a shop installed in /shop the folder is already in the href.
+$GLOBALS['opts']['home'] = 'https://kula.test/shop';
+ok( 'a root-relative address is not given the install folder twice', DZE_Mesh::resolve( '/category/boonie-hats/', $byurl ), 'product_cat:12' );
+$GLOBALS['opts']['home'] = 'https://kula.test';
 unset( $GLOBALS['opts']['home'] );
 
 echo "\nThe shop, read once\n";

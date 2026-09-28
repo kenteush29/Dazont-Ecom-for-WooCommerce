@@ -1548,7 +1548,10 @@ final class DZE_Automation {
 
 	/** The date a resting page is due again, in the shop's own words. */
 	private static function back_said( int $back ): string {
-		return $back > 0 ? date_i18n( (string) get_option( 'date_format' ), $back ) : '';
+		// wp_date(), not date_i18n(): this is a real timestamp, and
+		// date_i18n() reads it as local wall time — the UTC day, a day early
+		// in the evening on a shop east of Greenwich.
+		return $back > 0 ? (string) wp_date( (string) get_option( 'date_format' ), $back ) : '';
 	}
 
 	/** @return array{queued:int,recent:int} */

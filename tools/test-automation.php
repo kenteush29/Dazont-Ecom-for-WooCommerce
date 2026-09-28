@@ -75,6 +75,7 @@ function plugins_url( $p = '', $f = '' ) { return 'https://kula.test/wp-content/
 function current_time( $t ) { return 'Y-m-d' === $t ? gmdate( 'Y-m-d' ) : gmdate( 'Y-m-d H:i:s' ); }
 function human_time_diff( $a, $b = 0 ) { return '2 hours'; }
 function date_i18n( $f, $t = 0 ) { return gmdate( (string) $f, (int) $t ); }
+function wp_date( $f, $t = null ) { return gmdate( (string) $f, (int) $t ); }
 function number_format_i18n( $n ) { return (string) $n; }
 $GLOBALS['hooked'] = [];
 function add_action( ...$a ) { $GLOBALS['hooked'][] = (string) ( $a[0] ?? '' ); }
