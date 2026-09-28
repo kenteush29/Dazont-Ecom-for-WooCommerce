@@ -147,6 +147,14 @@
 	// calcule dessus. Dans cet ordre, et une fois le tableau posé — appelé
 	// au chargement du script, restore() cherchait des lignes qui n existaient
 	// pas encore.
+	// L ECRAN D UN OBJET, quand on en regarde un. Vide sur les listes.
+	//
+	// Elle avait disparu en reecrivant le bouton d envoi : quatre
+	// gestionnaires l appelaient encore, dont « Discard ». Un appel a une
+	// fonction qui n existe pas tue le gestionnaire AVANT sa premiere ligne —
+	// le bouton ne fait rien, la console parle, et l ecran se tait.
+	function editor() { return $('.dze-tr-editor'); }
+
 	// LE PANNEAU DE LA FILE : la faire avancer d un cran, ou la vider.
 	$(document).on('click', '#dze-tr-runqueue', function () {
 		var $b = $(this).prop('disabled', true), $m = $('.dze-tr-queuemsg');
