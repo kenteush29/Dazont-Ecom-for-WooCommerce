@@ -470,6 +470,16 @@ final class DZE_Translate {
 	public const RELINK_SWEEP = 40;
 
 	/**
+	 * CE QU ON TRADUIT EN CE MOMENT, pour que la depense le dise.
+	 *
+	 * « Pour la traduction : x produits, x articles de blog, x taxonomies. »
+	 * Tout tombait dans un seul seau « translate » : soixante-deux dollars
+	 * sans savoir sur quoi. Le genre de l objet voyage donc avec l unite —
+	 * « translate:product » — et le tableau des couts le detaille.
+	 */
+	private static string $subject = '';
+
+	/**
 	 * ET CE QUI A ETE TRADUIT AVANT QUE LA CIBLE NE LE SOIT.
 	 *
 	 * « A-t-on un systeme qui pourra mettre a jour ensuite l url cible ? Pour
@@ -3071,6 +3081,18 @@ final class DZE_Translate {
 	 * @return array{langs:array<string,array<string,string>>,skipped:string[],errors:array<string,string>,cost:bool}
 	 */
 	public static function produce( array $o, array $langs, bool $all = false, string $only = '' ): array {
+		// Le genre de l objet, le temps de cette production : voir $subject.
+		$avant          = self::$subject;
+		self::$subject  = sanitize_key( (string) ( $o['type'] ?? '' ) );
+		try {
+			return self::produce_now( $o, $langs, $all, $only );
+		} finally {
+			self::$subject = $avant;
+		}
+	}
+
+	/** Le travail lui-meme. Voir produce(), qui l encadre. */
+	private static function produce_now( array $o, array $langs, bool $all = false, string $only = '' ): array {
 		$out     = [ 'langs' => [], 'skipped' => [], 'errors' => [], 'cost' => false ];
 		// ONE FIELD AT A TIME, FOR CALIBRATING. "Pour un calibrage plus facile
 		// il faut un bouton traduire par bloc." Judging a change to the
@@ -4032,7 +4054,7 @@ final class DZE_Translate {
 		// unused room costs nothing, a ceiling reached costs the whole call.
 		$max = (int) min( 8000, max( 1000, ( mb_strlen( implode( '', $texts ) ) * 1.2 ) + 800 ) );
 
-		DZE_Ai_Usage::unit( 'translate' );
+		DZE_Ai_Usage::unit( 'translate' . ( '' !== self::$subject ? ':' . self::$subject : '' ) );
 		try {
 			$raw = DZE_Marketing_Ai::complete( $system, $user, self::model(), $max, 180 );
 		} finally {
@@ -4371,6 +4393,22 @@ final class DZE_Translate {
 	 */
 	public function ajax_batch(): void {
 		$this->screen_guard();
+		// UNE TRADUCTION PREND LE TEMPS QU ELLE PREND.
+		//
+		// « La traduction de la page FAQ ne fonctionne pas. Je ne comprends pas
+		// pourquoi. » Le moteur, lui, la traduisait tres bien : quarante-neuf
+		// champs, huit mille cinq cents caracteres, zero erreur — en
+		// CINQUANTE-HUIT SECONDES. Cette requete-ci n avait aucune limite posee
+		// et tournait donc sous celle du serveur web, qui l arretait en chemin.
+		// Rien ne s affichait, rien ne disait pourquoi.
+		//
+		// Et le travail CONTINUE si le navigateur renonce : ce qui est paye au
+		// modele est alors garde en attente au lieu d etre perdu. « Je n ai pas
+		// ose changer de page pendant le chargement » — desormais on peut.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 600 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- l hebergeur peut refuser.
+		}
+		ignore_user_abort( true );
 		$o = self::from_ref( isset( $_POST['ref'] ) ? sanitize_text_field( wp_unslash( $_POST['ref'] ) ) : '' );
 		if ( ! $o ) {
 			wp_send_json_error( [ 'message' => __( 'That is not something WPML translates on this site.', 'dazont-ecom' ) ] );

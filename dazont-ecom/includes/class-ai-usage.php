@@ -603,6 +603,51 @@ final class DZE_Ai_Usage {
 		}
 	}
 
+	/**
+	 * A QUEL MODULE CHAQUE UNITE APPARTIENT.
+	 *
+	 * « Pour le comptage des operations, c est un chaos total. Je ne
+	 * comprends pas. Il faudrait mieux developper, par module. »
+	 *
+	 * Une liste de dix-huit unites a plat ne dit pas ou part l argent : il
+	 * faut additionner de tete « cat_links » et « mesh_pick » pour savoir ce
+	 * que coute le maillage. Le tableau les groupe donc sous le module qui
+	 * les depense, avec son total, et le detail reste dessous.
+	 *
+	 * Une unite qu on aurait oublie de ranger tombe dans « le reste » plutot
+	 * que de disparaitre : un compte qui ne tombe pas juste est un compte
+	 * qu on cesse de croire.
+	 *
+	 * @return array<string,array{label:string,units:array<int,string>}>
+	 */
+	public static function modules(): array {
+		return [
+			'products'  => [ 'label' => __( 'Product content', 'dazont-ecom' ), 'units' => [ 'product_img', 'product_text', 'product_shot', 'feature_pick' ] ],
+			'translate' => [ 'label' => __( 'Translation', 'dazont-ecom' ), 'units' => [ 'translate' ] ],
+			'linking'   => [ 'label' => __( 'Internal linking', 'dazont-ecom' ), 'units' => [ 'cat_links', 'post_links', 'mesh_pick', 'cat_pick' ] ],
+			'categories'=> [ 'label' => __( 'Category content', 'dazont-ecom' ), 'units' => [ 'cat_desc', 'cat_sift' ] ],
+			'marketing' => [ 'label' => __( 'Marketing', 'dazont-ecom' ), 'units' => [ 'calendar', 'promo_plan', 'promo_email', 'promo_email_img', 'promo_i18n', 'hero_image' ] ],
+			'rest'      => [ 'label' => __( 'Everything else', 'dazont-ecom' ), 'units' => [ 'prompt_draft', 'sourcing', 'store_context', 'background', 'other' ] ],
+		];
+	}
+
+	/** Le module d une unite, « rest » pour ce qui n a pas ete range. */
+	public static function module_of( string $unit ): string {
+		static $map = null;
+		if ( null === $map ) {
+			$map = [];
+			foreach ( self::modules() as $id => $one ) {
+				foreach ( (array) $one['units'] as $u ) {
+					$map[ $u ] = $id;
+				}
+			}
+		}
+		// Une unite detaillee — « translate:product » — appartient au module de
+		// sa racine : on range sur ce qui precede les deux points.
+		$racine = (string) strtok( $unit, ':' );
+		return $map[ $unit ] ?? ( $map[ $racine ] ?? 'rest' );
+	}
+
 	/** Human labels for the units the plugin charges to. */
 	public static function units(): array {
 		return [
@@ -614,7 +659,7 @@ final class DZE_Ai_Usage {
 			'product_text'=> __( 'Product texts (one run)', 'dazont-ecom' ),
 			'product_img' => __( 'Product image', 'dazont-ecom' ),
 			'feature_pick'=> __( 'Choosing the photograph of a block', 'dazont-ecom' ),
-			'translate'   => __( 'Product translation (one language)', 'dazont-ecom' ),
+			'translate'   => __( 'Translation (one language)', 'dazont-ecom' ),
 			'calendar'    => __( 'Marketing calendar', 'dazont-ecom' ),
 			'promo_i18n'  => __( 'Promotion translations (one event)', 'dazont-ecom' ),
 			'promo_plan'  => __( 'Promotion campaign plan', 'dazont-ecom' ),
@@ -625,6 +670,43 @@ final class DZE_Ai_Usage {
 			'sourcing'    => __( 'Sourcing analysis', 'dazont-ecom' ),
 			'other'       => __( 'Everything else', 'dazont-ecom' ),
 		];
+	}
+
+	/**
+	 * LE LIBELLE D UNE UNITE, y compris quand elle porte son detail.
+	 *
+	 * « J aimerais pouvoir mieux maitriser mes couts, grace a des
+	 * informations plus digestes et precises. » Une unite peut desormais
+	 * nommer ce sur quoi elle a travaille — « translate:product » — et cette
+	 * fonction rend « Translation — products » plutot que la cle nue.
+	 *
+	 * Un genre inconnu est rendu tel quel : mieux vaut un mot technique
+	 * qu une ligne qui ne dit rien.
+	 */
+	public static function unit_label( string $unit ): string {
+		$noms = self::units();
+		if ( isset( $noms[ $unit ] ) ) {
+			return (string) $noms[ $unit ];
+		}
+		if ( false === strpos( $unit, ':' ) ) {
+			return $unit;
+		}
+		[ $racine, $quoi ] = explode( ':', $unit, 2 );
+		$mots = [
+			'product'      => __( 'products', 'dazont-ecom' ),
+			'post'         => __( 'articles', 'dazont-ecom' ),
+			'page'         => __( 'pages', 'dazont-ecom' ),
+			'product_cat'  => __( 'product categories', 'dazont-ecom' ),
+			'product_tag'  => __( 'product tags', 'dazont-ecom' ),
+			'category'     => __( 'categories', 'dazont-ecom' ),
+			'post_tag'     => __( 'tags', 'dazont-ecom' ),
+		];
+		return sprintf(
+			/* translators: 1: the kind of work, 2: what it worked on */
+			__( '%1$s — %2$s', 'dazont-ecom' ),
+			(string) ( $noms[ $racine ] ?? $racine ),
+			(string) ( $mots[ $quoi ] ?? $quoi )
+		);
 	}
 
 	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0, bool $ko = false, string $why = '' ): void {
@@ -852,7 +934,7 @@ final class DZE_Ai_Usage {
 			$div   = $runs ?: $calls;
 			$out[] = [
 				'unit'  => (string) $unit,
-				'label' => (string) ( $labels[ $unit ] ?? $unit ),
+				'label' => self::unit_label( (string) $unit ),
 				'runs'  => $div,
 				'calls' => $calls,
 				'cost'  => round( $cost, 4 ),
@@ -1136,20 +1218,54 @@ final class DZE_Ai_Usage {
 			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>'
 			. '</tr></thead><tbody>';
 		$named = 0.0;
+		// GROUPÉ PAR MODULE. « Pour le comptage des opérations, c'est un chaos
+		// total. Il faudrait mieux développer, par module. »
+		//
+		// Dix-huit unités à plat ne disent pas où part l'argent : il fallait
+		// additionner de tête « cat_links » et « mesh_pick » pour savoir ce que
+		// coûte le maillage. On lit maintenant le total du module d'abord, son
+		// détail ensuite — jamais l'inverse.
+		$par_module = [];
 		foreach ( $rows as $r ) {
-			$named += (float) $r['cost'];
+			$par_module[ self::module_of( (string) ( $r['unit'] ?? 'other' ) ) ][] = $r;
+		}
+		$poids = [];
+		foreach ( $par_module as $mid => $liste ) {
+			$poids[ $mid ] = array_sum( array_column( $liste, 'cost' ) );
+		}
+		arsort( $poids );
+		$noms = self::modules();
+		foreach ( array_keys( $poids ) as $mid ) {
+			$liste = $par_module[ $mid ];
+			usort( $liste, static fn( array $x, array $y ): int => $y['cost'] <=> $x['cost'] );
+			$somme = array_sum( array_column( $liste, 'cost' ) );
 			printf(
-				'<tr><td>%1$s</td><td style="text-align:right;"><strong>$%2$s</strong></td>'
-					. '<td style="text-align:right;">%3$s</td><td style="text-align:right;">$%4$s</td>'
-					. '<td style="text-align:right;">%5$s</td>'
-					. '<td style="text-align:right;color:#646970;">%6$s</td></tr>',
-				esc_html( $r['label'] ),
-				esc_html( number_format( $r['each'], $r['each'] < 0.01 ? 4 : 3 ) ),
-				esc_html( number_format_i18n( $r['runs'] ) ),
-				esc_html( number_format( $r['cost'], 2 ) ),
-				esc_html( self::share_said( (float) $r['cost'], $all ) ),
-				esc_html( number_format_i18n( $r['calls'] ) )
+				'<tr style="background:#f0f0f1;"><td><strong>%1$s</strong></td><td></td>'
+					. '<td style="text-align:right;"><strong>%2$s</strong></td>'
+					. '<td style="text-align:right;"><strong>$%3$s</strong></td>'
+					. '<td style="text-align:right;"><strong>%4$s</strong></td>'
+					. '<td style="text-align:right;color:#646970;">%5$s</td></tr>',
+				esc_html( (string) ( $noms[ $mid ]['label'] ?? $mid ) ),
+				esc_html( number_format_i18n( array_sum( array_column( $liste, 'runs' ) ) ) ),
+				esc_html( number_format( $somme, 2 ) ),
+				esc_html( self::share_said( $somme, $all ) ),
+				esc_html( number_format_i18n( array_sum( array_column( $liste, 'calls' ) ) ) )
 			);
+			foreach ( $liste as $r ) {
+				$named += (float) $r['cost'];
+				printf(
+					'<tr><td style="padding-left:26px;">%1$s</td><td style="text-align:right;">$%2$s</td>'
+						. '<td style="text-align:right;">%3$s</td><td style="text-align:right;">$%4$s</td>'
+						. '<td style="text-align:right;color:#646970;">%5$s</td>'
+						. '<td style="text-align:right;color:#646970;">%6$s</td></tr>',
+					esc_html( $r['label'] ),
+					esc_html( number_format( $r['each'], $r['each'] < 0.01 ? 4 : 3 ) ),
+					esc_html( number_format_i18n( $r['runs'] ) ),
+					esc_html( number_format( $r['cost'], 2 ) ),
+					esc_html( self::share_said( (float) $r['cost'], $all ) ),
+					esc_html( number_format_i18n( $r['calls'] ) )
+				);
+			}
 		}
 		// WHAT NOBODY CLAIMED. The shares add up to the month or they do not,
 		// and a reader who cannot see the difference is a reader working out
