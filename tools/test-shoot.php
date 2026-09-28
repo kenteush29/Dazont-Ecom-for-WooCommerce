@@ -77,6 +77,7 @@ final class DZE_Shoot_Host {
 	const MAX_PAYLOAD = 20000000;
 	const MAX_PASTED  = 12;
 	const MAX_SOURCES = 10;
+	const MAIN_SOURCES = 3;
 
 	public static function fal_key() { return 'fal-key'; }
 	public static function image_templates() { return $GLOBALS['tpls']; }
@@ -104,7 +105,7 @@ final class DZE_Shoot_Host {
 	public static function attribute_value_label( ...$a ) { return 'Olive'; }
 	public static function variation_instruction( ...$a ) { return "\nVARIATION LINE."; }
 	public static function variation_line( ...$a ) { return ''; }
-	public static function avoid_sources( ...$a ) { return $GLOBALS['avoid'] ?? []; }
+	public static function avoid_sources( ...$a ) { $GLOBALS['avoid_args'] = $a; return $GLOBALS['avoid'] ?? []; }
 	// The real signature: the product, the variation group, and the note typed
 	// for THIS RUN. The gate reads back what was handed to it.
 	public static function note_lines( ...$a ) { $GLOBALS['noted'] = $a; return "\nNOTE LINE." . ( '' !== (string) ( $a[2] ?? '' ) ? ' ' . $a[2] : '' ); }
@@ -197,6 +198,12 @@ echo "The recipe chosen is the recipe used\n";
 ok( 'the first one, when asked for',    false !== strpos( $GLOBALS['sent']['prompt'], 'MAIN PROMPT' ), true );
 ok( 'and it lands on the main image',   $GLOBALS['filed']['target'] ?? '', 'main' );
 ok( 'with its own ratio',               $GLOBALS['sent']['ratio'], '1:1' );
+
+// NO PROMPT MAKES THE MAIN IMAGE: the shipped words, and nothing of the
+// first gallery prompt — not its words, not its ratio.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0, 'no_template' => 1, 'custom_prompt' => 'SHIPPED MAIN WORDS', 'target' => 'main' ] );
+ok( 'with no prompt of its own, the shipped words go', false !== strpos( (string) ( $GLOBALS['sent']['prompt'] ?? '' ), 'SHIPPED MAIN WORDS' ), true );
+ok( 'and no prompt of the shop lends its ratio', $GLOBALS['sent']['ratio'] ?? '', 'auto' );
 
 echo "A NOTE IS FOR THE RUN IN FRONT OF YOU, NOT FOR EVER\n";
 // "Ne mets pas de ruban sur le tshirt ! répètes le meme design, c'est tout !"
@@ -303,12 +310,11 @@ ok( 'a picked photograph is the only one of the product',
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_id' => 12 ] );
 ok( 'and it goes out alone with nothing pasted',
 	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG12/full' ] );
-// An id that answers for no image is dropped rather than sent: the product's
-// own order stands.
+// AN ID THAT ANSWERS FOR NO IMAGE IS REFUSED, not replaced by every
+// photograph: that is paying for an order nobody gave.
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_id' => 999 ] );
-ok( 'an id that answers for nothing is dropped',
-	$GLOBALS['sent']['sources'], [
-		'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large' ] );
+ok( 'an id that answers for nothing is refused', '' !== $err, true );
+ok( 'and nothing is sent',                      $GLOBALS['sent'], [] );
 
 // SEVERAL PHOTOGRAPHS PICKED, IN THE ORDER THEY WERE PICKED. « J'aimerais
 // re-générer des images basées sur l'image en pièce jointe » — a supplier's
@@ -325,8 +331,29 @@ ok( 'one picked beyond what an ordinary run sends still goes, alone',
 	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG13/full' ] );
 // A PHOTOGRAPH OF ANOTHER PRODUCT IS NEVER SENT, whatever the screen posts.
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_ids' => [ 555 ] ] );
-ok( 'a picture that is not of this product is ignored',
-	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large' ] );
+ok( 'a picture that is not of this product is refused', '' !== $err, true );
+ok( 'and nothing at all goes',                          $GLOBALS['sent'], [] );
+// ONE GONE OUT OF TWO IS STILL A DIFFERENT ORDER: refused, and said.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_ids' => [ 13, 555 ] ] );
+ok( 'one pick gone out of two is refused too', $GLOBALS['sent'], [] );
+ok( 'saying how many are gone',                false !== strpos( $err, '1 of the photographs' ), true );
+// PICKED BY HAND, NEVER CUT: a main image is remade from the featured image
+// and two more only when nobody picked.
+$GLOBALS['own_ids'] = [ 11, 12, 13, 16 ];
+$GLOBALS['images'][16] = true;
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0, 'src_ids' => [ 16, 13, 12, 11 ] ] );
+ok( 'four picked for the main image, four sent', count( (array) ( $GLOBALS['sent']['sources'] ?? [] ) ), 4 );
+ok( 'in the order they were picked', $GLOBALS['sent']['sources'][0] ?? '', 'data:image/jpeg;base64,IMG16/full' );
+// PICKED PHOTOGRAPHS TRAVEL ALONE: no « not like this » picture behind them.
+$GLOBALS['avoid'] = [ 12 ];
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_ids' => [ 13 ] ] );
+ok( 'no picture already made rides behind a pick', $GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG13/full' ] );
+// Without a pick it does, and it is never one of the photographs sent as
+// the product: the photographs that travel are handed over to be skipped.
+$GLOBALS['avoid_args'] = null;
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1 ] );
+ok( 'the photographs that travel are named to the avoid list', array_map( 'intval', (array) ( $GLOBALS['avoid_args'][4] ?? [] ) ), [ 11, 12 ] );
+unset( $GLOBALS['avoid'] );
 // A COLOUR'S OWN PHOTOGRAPH IS STILL THIS PRODUCT'S. The picker shows it, its
 // colour written on the tile; dropping it in silence sent every photograph.
 $GLOBALS['colour_ids'] = [ 14 ];

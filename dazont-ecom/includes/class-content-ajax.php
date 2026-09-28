@@ -728,7 +728,6 @@ trait DZE_Content_Ajax {
 		$in = [
 			'post'     => $pid,
 			'template' => null === $idx ? 0 : $idx,
-			'scene'    => $scene,
 			'pastes'   => isset( $_POST['pastes'] ) ? (array) $_POST['pastes'] : [],
 			'src_ids'  => isset( $_POST['src_ids'] ) ? array_map( 'absint', (array) $_POST['src_ids'] ) : [],
 			'src_id'   => isset( $_POST['src_id'] ) ? absint( $_POST['src_id'] ) : 0,
@@ -737,6 +736,12 @@ trait DZE_Content_Ajax {
 			'stash'    => 1,
 			'dry'      => ! empty( $_POST['dry'] ) ? 1 : 0,
 		];
+		// THE BACKGROUND, when the popup said one — « None » included. Said
+		// nothing, the prompt's own background is used, exactly as the bulk
+		// screen, the queue and the automation use it.
+		if ( isset( $_POST['bg'] ) ) {
+			$in['scene'] = $scene;
+		}
 		// WHAT WAS TYPED FOR THIS RUN, when it is not the prompt as saved: the
 		// box opens on the saved words, and sending those back as « typed »
 		// would hide which prompt made the picture.
@@ -751,6 +756,10 @@ trait DZE_Content_Ajax {
 				$in['custom_prompt'] = wp_slash( self::quick_prompt() );
 			}
 			$in['target'] = 'main';
+			// And NOTHING of that gallery prompt either: its inputs, its
+			// other colours and its name on the result were the first
+			// gallery prompt's, while its words were not.
+			$in['no_template'] = 1;
 		}
 		// phpcs:enable
 		if ( function_exists( 'set_time_limit' ) ) {
@@ -892,6 +901,9 @@ trait DZE_Content_Ajax {
 		}
 		$templates = self::image_templates();
 		$tpl       = $templates[ $idx ] ?? $templates[0] ?? null;
+		if ( ! empty( $in['no_template'] ) && '' !== $custom ) {
+			$tpl = null;
+		}
 		if ( ! $tpl && '' === $custom ) {
 			throw new RuntimeException( __( 'No image template configured.', 'dazont-ecom' ) );
 		}
@@ -982,9 +994,19 @@ trait DZE_Content_Ajax {
 		// from is often the last picture of the gallery. A colour's own
 		// photograph counts: the picker shows it, with its colour written on
 		// the tile, and a pick that is dropped in silence sends everything.
+		$dze_asked = count( $src_ids );
 		if ( $src_ids ) {
 			$dze_own = self::product_image_ids( $pid );
 			$src_ids = array_values( array_filter( $src_ids, static fn( $one ) => in_array( (int) $one, $dze_own, true ) && wp_attachment_is_image( (int) $one ) ) );
+		}
+		// A PICK THAT IS NO LONGER ON THE PRODUCT IS REFUSED, not replaced:
+		// falling back to every photograph is paying for an order nobody
+		// gave. Said before anything is sent — the preview says it too.
+		if ( $dze_asked && count( $src_ids ) < $dze_asked ) {
+			throw new RuntimeException( 1 === $dze_asked
+				? __( 'The photograph you picked is no longer on this product — pick again.', 'dazont-ecom' )
+				/* translators: %s: how many of the picked photographs are gone */
+				: sprintf( __( '%s of the photographs you picked are no longer on this product — pick again.', 'dazont-ecom' ), $dze_asked - count( $src_ids ) ) );
 		}
 		if ( $src_ids ) {
 			$product_ids = array_slice( $src_ids, 0, self::MAX_SOURCES );
@@ -1094,8 +1116,10 @@ trait DZE_Content_Ajax {
 				// MAIN photograph sends the featured image plus two — six angles
 				// sent for that is how a remake came back built on a gallery
 				// shot, in a setting of its own. A gallery shot takes the lot.
-				$ids_out = ( 'main' === $target || 0 === strpos( $target, 'variation:' ) )
-					? array_slice( $product_ids, 0, 3 )
+				// Photographs picked by hand are never cut: the screen says
+				// « these N are sent », and it is the owner's order.
+				$ids_out = ( ! $src_ids && ( 'main' === $target || 0 === strpos( $target, 'variation:' ) ) )
+					? array_slice( $product_ids, 0, self::MAIN_SOURCES )
 					: $product_ids;
 				foreach ( $ids_out as $i => $aid ) {
 					try {
@@ -1144,7 +1168,10 @@ trait DZE_Content_Ajax {
 			// the whole subject and its neighbours are exactly the confusion to
 			// keep out.
 			$variants = 0;
-			if ( '' === $v_value && $tpl && self::wants_variants( self::registry_row( (string) ( $tpl['id'] ?? '' ) ) ) ) {
+			// PICKED PHOTOGRAPHS TRAVEL ALONE: the screen says « only these »,
+			// and other colours added behind them were a second answer the
+			// owner never saw.
+			if ( ! $src_ids && '' === $v_value && $tpl && self::wants_variants( self::registry_row( (string) ( $tpl['id'] ?? '' ) ) ) ) {
 				foreach ( $this->variant_images( $pid, $product_ids ) as $uri ) {
 					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
 						break;
@@ -1161,7 +1188,7 @@ trait DZE_Content_Ajax {
 			// different ones — and never on a variation, where the whole point
 			// is one image per colour.
 			$avoid = 0;
-			if ( '' === $src && 'main' !== $target && '' === $v_value ) {
+			if ( '' === $src && ! $src_ids && 'main' !== $target && '' === $v_value ) {
 				// ONE, not two, and not four before that. These are images the
 				// model MADE: every one of them is a chance for a detail it
 				// invented last time to come back as a reference this time, and
@@ -1170,7 +1197,7 @@ trait DZE_Content_Ajax {
 				// further from the product with each attempt. One says "not
 				// like this" as clearly as two did, and contaminates half as
 				// much.
-				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 1, $target ) as $ref ) {
+				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 1, $target, (array) ( $ids_out ?? [] ) ) as $ref ) {
 					if ( is_int( $ref ) ) {
 						// One already on the product: read from disk, and only
 						// while the request body stays a sane size.
@@ -1212,7 +1239,10 @@ trait DZE_Content_Ajax {
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
-				$prompt .= self::variation_instruction( $v_attr, $v_value, $v_own || '' !== $paste );
+				// WHICH IMAGE shows that variation: its own photograph leads
+				// the product's; a pasted one travels after them.
+				$dze_v_at = $v_own ? 1 : ( $dze_paste_n > 0 ? $product_count - $dze_paste_n + 1 : 0 );
+				$prompt  .= self::variation_instruction( $v_attr, $v_value, $dze_v_at );
 			}
 			// What the owner knows and no photograph shows — about the product,
 			// and about this variation when there is one.
