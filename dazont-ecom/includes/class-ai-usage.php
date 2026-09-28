@@ -1178,6 +1178,42 @@ final class DZE_Ai_Usage {
 		if ( ! preg_match( '/^\d{4}-\d{2}$/', $month ) ) {
 			$month = gmdate( 'Y-m' );
 		}
+		// QUEL MOIS ON REGARDE.
+		//
+		// « Sur cet écran, il faudrait un sélecteur de période. Par défaut le
+		// mois en cours. Ce serait bien d'avoir la visibilité du mois précédent
+		// aussi. »
+		//
+		// L'adresse savait déjà lire un mois, mais rien sur l'écran ne
+		// permettait d'en changer : la donnée était là, hors d'atteinte. Le
+		// menu ne propose que les mois qui ont quelque chose à montrer — un
+		// mois vide est une page blanche et une question de plus.
+		$mois = array_values( array_filter(
+			array_keys( $data ),
+			static fn( $k ): bool => 1 === preg_match( '/^\d{4}-\d{2}$/', (string) $k )
+		) );
+		rsort( $mois );
+		if ( count( $mois ) > 1 ) {
+			printf(
+				'<form method="get" style="margin:12px 0;display:flex;align-items:center;gap:8px;">'
+					. '<input type="hidden" name="page" value="%1$s" />'
+					. '<label for="dze-ai-month">%2$s</label>'
+					. '<select name="dze_month" id="dze-ai-month" onchange="this.form.submit();">',
+				// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only navigation.
+				esc_attr( isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '' ),
+				esc_html__( 'Period', 'dazont-ecom' )
+			);
+			foreach ( array_slice( $mois, 0, max( 1, $limit ) ) as $un ) {
+				$t = strtotime( $un . '-01' );
+				printf(
+					'<option value="%1$s"%2$s>%3$s</option>',
+					esc_attr( (string) $un ),
+					selected( $month, $un, false ),
+					esc_html( $t ? date_i18n( 'F Y', $t ) : (string) $un )
+				);
+			}
+			echo '</select></form>';
+		}
 		self::render_summary();
 		self::render_units( $month );
 		self::render_models( $month );

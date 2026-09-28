@@ -140,6 +140,23 @@
 	// calcule dessus. Dans cet ordre, et une fois le tableau posé — appelé
 	// au chargement du script, restore() cherchait des lignes qui n existaient
 	// pas encore.
+	// LE PANNEAU DE LA FILE : la faire avancer d un cran, ou la vider.
+	$(document).on('click', '#dze-tr-runqueue', function () {
+		var $b = $(this).prop('disabled', true), $m = $('.dze-tr-queuemsg');
+		$m.text(i18n.sending);
+		post('dze_tr_runqueue', {}).done(function (r) {
+			$m.text((r && r.data && r.data.message) ? r.data.message : '');
+		}).fail(function () { $m.text(i18n.error); })
+		.always(function () { $b.prop('disabled', false); });
+	});
+	$(document).on('click', '#dze-tr-emptyqueue', function () {
+		var $b = $(this).prop('disabled', true), $m = $('.dze-tr-queuemsg');
+		post('dze_tr_emptyqueue', {}).done(function (r) {
+			$m.text((r && r.data && r.data.message) ? r.data.message : '');
+		}).fail(function () { $m.text(i18n.error); })
+		.always(function () { $b.prop('disabled', false); });
+	});
+
 	$(function () { restore(); bill(); });
 
 	// WPML'S OWN GESTURE, ONE LANGUAGE AT A TIME: the plus makes the missing
