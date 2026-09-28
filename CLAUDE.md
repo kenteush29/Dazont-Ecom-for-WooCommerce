@@ -2319,28 +2319,65 @@ whose screen has not been thought through yet.
   button added by a later script is not bound by a direct `.on()`. All of it is
   pressed in a browser — the placement, the press, and that the page never
   moves.
-- **WPML'S OWN GESTURE ON THE ROW: the plus and the arrows.** "Avec le bouton +
-  pour créer une traduction d'une langue précise. Le bouton actualiser pour
-  actualiser une traduction qui n'est plus à jour." A language chip that is
-  owed IS the button, and pressing it runs the SAME job the batch button runs
-  for that one language — never a second engine. A chip WPML is satisfied with
-  is not a button, and must not look like one.
-- **THE BATCH IS A SCREEN OF ITS OWN, IN THE SHAPE EVERY OTHER ONE WEARS.**
-  "Send a batch — incomplet et pas bon pour l'UI. Ici je verrais plutôt une
-  liste séparée comme avec les produits… Utiliser le même type de dashboard que
-  pour les bulk content generation." It unfolded UNDER the dashboard table, so
-  choosing what to send meant reading the figures again every time. It is a
-  tab — Dashboard · Batch · To review — built from the same five parts as the
-  product bulk screen and from the same `DZE_Hub`: what this kind holds today
-  in one line with the figures; one BLOCK per kind of work with its switch in
-  its own heading (the languages, with a take-all, and what is sent with each
-  one); ONE button that runs what is ticked, with the BILL beside it — rows ×
-  languages, the figure nobody had ever multiplied — and a Stop; the list with
-  the bulk screen's own bar; and **Look** on every row, **Review** once
-  something waits, opening the SAME panel, with Accept and Cancel where there
-  is something to decide and neither where there is not. The batch tab carries
-  no figure: a number there would have to answer "for which kind?", which the
-  tab bar cannot ask.
+- **THE TRANSLATION DASHBOARD IS WPML'S, BY THE OWNER'S DECISION.** "Je veux
+  que ce soit une copie du dashboard WPML. Regardes le code, copies… Cette
+  demande implique aussi de dégager la batch list, qui ne sert à rien." The
+  batch tab is gone. The dashboard is WPML's Translation Dashboard, read off
+  its own code (`vendor/wpml/wpml/public/js/dashboard.js`) and drawn in
+  WordPress's clothes — a deliberate exception to "the Dazont Ecom line", which
+  the owner chose over it:
+  - **Step 1, Select items for translation**: WPML's global filters (source
+    language fixed, translated to, publication status, translation status with
+    « Not completed » as the default, Filter, Clear filters, Select All), then
+    one section per kind with its own title filter, taxonomy term filter,
+    sortable table and AJAX pager. One icon per language, WPML's own states:
+    ⓘ not translated, arrows needs update, tick complete, eye needs review,
+    warning failed, and a turning wheel while a language is on its way.
+  - **Step 2, Translate your content**, only once something is ticked: per
+    target language the words it sends, a method (Do nothing / Translate
+    automatically), the estimated cost at the register's own prices
+    (`DZE_Ai_Usage::estimate()`), « Leave / Overwrite existing translations »
+    only when something ticked is already translated, « Review before
+    publishing / Publish without review », a summary and ONE button.
+  - **Step 3, in the background**: the button deposits (`send()` → `ask()`);
+    `drain()` translates; the page polls `dze_tr_status` and replaces each
+    row's icons as languages land, and starts a pass itself when the queue
+    holds work and none is running. Nobody has to open a queue.
+  The WordPress list bulk action no longer sends: it opens Step 2 with those
+  items ticked, so there is ONE way of sending and it always shows the cost.
+- **A DEFAULT THAT SPENDS IS A CHOICE, NEVER AN OVERSIGHT.** Five languages
+  were ticked by default and the owner, who wanted Russian, paid five times —
+  "je l'ai envoyé seulement en RU". Every language starts on « Do nothing »;
+  the choice is then remembered in the browser, as WPML remembers it, and a
+  « translated to » filter preselects that one language. The server refuses a
+  send with no language rather than reading "none" as "all".
+- **LANGUAGES ARE TRANSLATED AT THE SAME TIME.** "Pourquoi prendre autant de
+  temps quand on peut les traduire en même temps ? Ça n'a aucun sens." It made
+  none: one call per language, one after the other. `produce_set()` gathers
+  every (object, language) of a round, `translate_many()` sends every call of
+  every task in waves of `PARALLEL` through `DZE_Marketing_Ai::complete_many()`
+  (WordPress's own Requests, `request_multiple`), and each answer is read by
+  the same `answer_of()` as a single call — same usage record, same trace, same
+  refusal of a cut-off answer. A call that fails in the wave goes straight to
+  its HALVES, never asked again whole; a 429/529 is asked again alone after
+  the pause the provider gives. Measured on Kula: three calls together 0.87 s,
+  one alone 0.65 s.
+- **A LANGUAGE THAT ARRIVES LATER MUST NOT THROW AWAY THE ONE BEFORE.** "De
+  toutes les catégories que j'ai envoyées, je ne vois que Alien patches DE sur
+  la liste review." Each pass stored ITS language as the whole waiting record,
+  so only the last survived. `produce_set()` merges into what waits: a
+  language that comes back again replaces its own fields and nothing else.
+- **THE QUEUE CARRIES WHAT WAS CHOSEN, AND ONLY THE QUEUE'S OWN PASS TAKES
+  FROM IT.** A request keeps its languages, « publish without review » and
+  « overwrite »; a new language for a queued object joins its request instead
+  of being dropped as a duplicate; a language leaves the request as soon as it
+  is done; three passes with nothing and the request leaves, saying why on the
+  row. The nightly automation used to take hand-sent requests too and
+  translate them into EVERY owed language — it no longer touches that queue.
+- **`sanitize_key()` EATS COLONS.** `DZE_Ai_Usage::unit()` passed
+  "translate:post" through it and stored "translatepost", which no module
+  claimed: the translation money landed in « Everything else ». The unit keeps
+  its colon now and `split_unit()` still reads the old keys.
 - **A FILTER THAT ANSWERS NOTHING IS NOT AN ANSWER — sixth time.**
   `wpml_active_languages` is a filter, and in admin-ajax it answered NOTHING —
   so `obj_targets()` was empty, `produce()` skipped every language in silence,

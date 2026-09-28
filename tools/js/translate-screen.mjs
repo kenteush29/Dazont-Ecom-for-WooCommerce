@@ -46,74 +46,90 @@ function dump( which ) {
 		[ join( here, '..', 'test-translate.php' ), 'dazont-ecom', '--dump-screen=' + which ],
 		{ encoding: 'utf8', cwd: root, stdio: [ 'ignore', 'pipe', 'ignore' ] } ) );
 }
-const dash   = dump( 'batch' );
+const dash   = dump( 'dashboard' );
 const review = dump( 'review' );
 const editor = dump( 'editor' );
 // The plugin's own config, with only the address the harness has to answer on
 // replaced. Retyping the rest is how a gate goes green while proving nothing.
 const cfg = Object.assign( {}, dash.cfg, { ajaxUrl: 'http://dze.test/ajax' } );
 
+// WHAT THE FAKE SERVER ANSWERS, in the shapes the plugin's own handlers send.
+const cellQueued = '<span class="dze-trd-box" data-lang="fr" data-state="stale"><a class="dze-trd-ico is-stale" href="#"><span class="dashicons dashicons-update"></span></a></span>'
+	+ '<span class="dze-trd-box" data-lang="de" data-state="queued"><button type="button" class="dze-trd-ico is-queued dze-trd-cancel" data-lang="de"><span class="dze-trd-spin"></span></button></span>';
+const cellBack = '<span class="dze-trd-box" data-lang="fr" data-state="stale"><a class="dze-trd-ico is-stale" href="#"><span class="dashicons dashicons-update"></span></a></span>'
+	+ '<span class="dze-trd-box" data-lang="de" data-state="missing"><a class="dze-trd-ico is-missing" href="#"><span class="dashicons dashicons-info-outline"></span></a></span>';
+const wordsOf = {
+	'term:7:product_cat': { fr: { s: 'stale', o: 12, a: 20, co: 0.001, ca: 0.002 }, de: { s: 'missing', o: 20, a: 20, co: 0.002, ca: 0.002 } },
+	'term:8:product_cat': { fr: { s: 'done', o: 0, a: 10, co: 0, ca: 0.001 }, de: { s: 'missing', o: 10, a: 10, co: 0.001, ca: 0.001 } },
+	'term:9:product_cat': { fr: { s: 'missing', o: 5, a: 5, co: 0.0005, ca: 0.0005 }, de: { s: 'missing', o: 5, a: 5, co: 0.0005, ca: 0.0005 } },
+};
+
 const browser = await chromium.launch();
 for ( const [ label, jq ] of jqs ) {
 	console.log( `\njQuery ${label}` );
 	const page = await browser.newPage();
 	const errors = [], sent = [];
-	// The review list's object IS holding something; the batch list's first row
-	// is not, which is what makes one say Review and the other Look.
-	let holding = false;
 	// When set, the fake server refuses every batch — the way a shop with no
 	// key or WPML silent answers.
 	let failing = false;
+	// Whether the queue still holds the language that was sent.
+	let queued = false;
+	// The review list's object IS holding something.
+	let holding = false;
+	let before = 0;
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 	page.on( 'dialog', d => d.accept() );
 
 	await page.route( 'http://dze.test/ajax', async route => {
 		const q = new URLSearchParams( route.request().postData() || '' );
+		const act = q.get( 'action' );
 		sent.push( {
-			action: q.get( 'action' ), nonce: q.get( 'nonce' ), ref: q.get( 'ref' ),
-			post: q.get( 'post' ),
+			action: act, nonce: q.get( 'nonce' ), ref: q.get( 'ref' ), lang: q.get( 'lang' ),
+			refs: q.getAll( 'refs[]' ), langs: q.getAll( 'langs[]' ),
+			accept: q.get( 'accept' ), all: q.get( 'all' ), wantRefs: q.get( 'refs' ),
+			per: q.get( 'per' ), paged: q.get( 'paged' ), search: q.get( 'search' ), tstatus: q.get( 'tstatus' ),
+			how: q.get( 'how' ),
 			// What a save actually puts on the wire, field by field.
 			keepTitle: q.get( 'keep[fr][title]' ), keepVar: q.get( 'keep[fr][var:701]' ),
-			how: q.get( 'how' ), langs: q.getAll( 'langs[]' ),
-			// What a decision actually puts on the wire, field by field.
-			keepFr: q.get( 'keep[fr][name]' ), keepFrDesc: q.get( 'keep[fr][description]' )
 		} );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
-		if ( 'dze_tr_batch' === q.get( 'action' ) && failing ) {
+		const queue = () => ( { n: queued ? 1 : 0, busy: queued, errors: 0, last: '', review: 0 } );
+		if ( 'dze_tr_words' === act ) {
+			const items = {};
+			q.getAll( 'refs[]' ).forEach( r => { if ( wordsOf[ r ] ) { items[ r ] = wordsOf[ r ]; } } );
+			return json( { items } );
+		}
+		if ( 'dze_tr_items' === act && q.get( 'refs' ) ) {
+			return json( { refs: Object.keys( wordsOf ), found: 3 } );
+		}
+		if ( 'dze_tr_items' === act ) {
+			return json( {
+				rows: '<tr class="dze-trd-row" data-ref="term:9:product_cat"><th scope="row" class="check-column"><input type="checkbox" class="dze-trd-pick" value="term:9:product_cat" /></th><td class="dze-trd-title"><a href="#">Knee pads</a></td><td class="dze-objid-td">9</td><td class="dze-trd-langs">' + cellBack + '</td></tr>',
+				pager: '<span class="displaying-num">1 item</span>', found: 1, label: '1',
+			} );
+		}
+		if ( 'dze_tr_queue' === act && failing ) {
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: false, data: { message: 'No Anthropic key.' } } ) } );
 		}
-		if ( 'dze_tr_batch' === q.get( 'action' ) ) {
-			return json( { label: 'Balaclavas', done: [ 'fr' ], skipped: [], errors: {},
+		if ( 'dze_tr_queue' === act ) {
+			queued = true;
+			return json( { queued: 1, sent: { 'term:7:product_cat': [ 'de' ] }, queue: queue(), message: '1 item sent to translation.' } );
+		}
+		if ( 'dze_tr_status' === act ) {
+			const cells = {};
+			q.getAll( 'refs[]' ).forEach( r => { cells[ r ] = queued && 'term:7:product_cat' === r ? cellQueued : cellBack; } );
+			return json( { cells, queue: queue() } );
+		}
+		if ( 'dze_tr_cancel' === act ) {
+			queued = false;
+			return json( { cell: cellBack, queue: queue(), message: 'Taken out of the queue.' } );
+		}
+		if ( 'dze_tr_batch' === act ) {
+			return json( { label: 'Field shirt', done: [ 'fr' ], skipped: [], errors: {},
 				texts: { fr: { title: 'Chemise de terrain', content: '<p>Une chemise.</p>', 'var:701': 'Olive, fermeture noire.' } } } );
 		}
-		if ( 'dze_tr_panel' === q.get( 'action' ) && 'term:7:product_cat' === q.get( 'ref' ) && !holding ) {
-			// NOTHING WAITING ON IT: the server answers with what the object
-			// holds today, and the panel offers nothing to press.
-			return json( {
-				look: true,
-				label: 'Balaclavas',
-				edit: 'https://kula.test/wp-admin/term.php?tag_ID=7',
-				source: { name: 'Balaclavas', description: 'Warm ones.' },
-				labels: { name: 'Name', description: 'Description' },
-				langs: { fr: { name: 'Français', texts: {}, current: { name: 'Cagoules' }, exists: true, mine: true, edit: '' } }
-			} );
-		}
-		if ( 'dze_tr_panel' === q.get( 'action' ) ) {
-			return json( {
-				label: 'Balaclavas',
-				edit: 'https://kula.test/wp-admin/term.php?tag_ID=7',
-				source: { name: 'Balaclavas', description: 'Warm ones.' },
-				labels: { name: 'Name', description: 'Description' },
-				langs: { fr: {
-					name: 'Français',
-					texts: { name: 'Cagoules', description: 'Des chaudes.' },
-					current: { name: 'Cagoule', description: '' },
-					exists: true, mine: true, edit: 'https://kula.test/x'
-				} }
-			} );
-		}
-		if ( 'dze_tr_decide' === q.get( 'action' ) ) {
+		if ( 'dze_tr_decide' === act ) {
 			return json( { written: { fr: 8 }, errors: {}, left: 0, refused: 'refuse' === q.get( 'how' ),
 				warnings: { fr: 'This product\'s variations are still missing on the translation.' } } );
 		}
@@ -125,146 +141,125 @@ for ( const [ label, jq ] of jqs ) {
 		+ `<script>window.dzeTrScreen=${JSON.stringify( cfg )};</script>`
 		+ `<script>${readFileSync( join( js, 'translate-screen.js' ), 'utf8' )}</script></head>`
 		+ `<body>${body}</body></html>`;
+	const hidden = sel => page.evaluate( s => { const el = document.querySelector( s ); return el ? el.hidden : null; }, sel );
+	const settle = () => page.waitForTimeout( 450 );
 
-	// ---- THE DASHBOARD, AND THE BATCH IT SENDS ----
+	// ---- STEP 1: SELECT ITEMS FOR TRANSLATION ----
 	await page.route( 'http://dze.test/dash', r => r.fulfill( { contentType: 'text/html', body: serve( dash.html ) } ) );
 	await page.goto( 'http://dze.test/dash', { waitUntil: 'domcontentloaded' } );
-	ok( 'the dashboard runs without an error', errors, [] );
-
-	// WHAT WPML SAYS IS TRANSLATABLE IS WHAT IS ON THE SCREEN, and nothing
-	// else: a type WPML would refuse to link must never be offered.
-	ok( 'the categories of the shop are listed',
-		await page.locator( '.dze-tr-row' ).count(), 2 );
-	ok( 'each says where it stands in each language',
-		await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-chip' ).count(), 2 );
-	ok( 'and "not translated" is not dressed as "up to date"',
-		await page.locator( '.dze-tr-chip.is-missing' ).count() > 0, true );
-
-	// ---- THE BAR, THE BILL AND "LOOK" — the shape the bulk screen wears ----
-	// "Utiliser le même type de dashboard que pour les bulk content
-	// generation." Same bar, same words, same order, and the same two-word
-	// button on every row. Only a browser can multiply what is on the page.
-	await page.click( '#dze-tr-selall' );
-	ok( 'Select all takes every row',
-		await page.locator( '.dze-tr-pickone:checked' ).count(), 2 );
-	ok( 'and the bar says how many are ticked',
-		( await page.textContent( '#dze-tr-selcount' ) || '' ).includes( '2' ), true );
-	// WHAT THE PRESS IS ABOUT TO DO: rows times languages. Every figure was
-	// already on the screen and none had ever been multiplied.
-	ok( 'the bill multiplies the rows by the languages',
-		( await page.textContent( '#dze-tr-bill' ) || '' ).includes( '4' ), true );
-	await page.uncheck( '.dze-tr-lang[value="de"]' );
-	ok( 'and follows a language being dropped',
-		( await page.textContent( '#dze-tr-bill' ) || '' ).includes( '2' ), true );
-	await page.click( '#dze-tr-selnone' );
-	ok( 'Unselect all drops the lot',
-		await page.locator( '.dze-tr-pickone:checked' ).count(), 0 );
-	ok( 'and the bill says nothing is ticked',
-		await page.textContent( '#dze-tr-bill' ), cfg.i18n.billNone );
-
-	// ONE TICK PER BLOCK, IN ITS OWN HEADING — the same class and the same
-	// handler as every other screen with blocks.
-	ok( 'the languages block has a take-all in its heading',
-		await page.locator( '[data-sec="langs"] .dze-sec-head .dze-sec-all' ).count(), 1 );
-
-	// ONE SCREEN PER OBJECT, and the row is the way to it — never a panel
-	// unfolding inside the list beside a popup on the product page.
-	let before = sent.length;
-	ok( 'the row is a link, not a panel that unfolds',
-		await page.locator( '.dze-tr-row' ).nth( 0 ).locator( 'a.dze-tr-open' ).count(), 1 );
-	ok( 'and it points at the one translation screen',
-		( await page.locator( '.dze-tr-row' ).nth( 0 ).locator( 'a.dze-tr-open' ).getAttribute( 'href' ) || '' )
-			.includes( 'ref=term%3A7%3Aproduct_cat' ), true );
-	ok( 'no panel row is left in the list at all',
-		await page.locator( '.dze-tr-panel' ).count(), 0 );
-	ok( 'and nothing was asked of the server to say so', sent.length, before );
-
-	// A press with nothing ticked says so rather than doing nothing.
-	before = sent.length;
-	await page.click( '#dze-tr-send' );
-	ok( 'a press with nothing ticked sends nothing', sent.length, before );
-
-	// The real gesture: tick a row, tick the languages that are already on,
-	// press, and read back WHAT WENT ON THE WIRE.
-	await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-pickone' ).check();
-	await page.uncheck( '.dze-tr-lang[value="de"]' ).catch( () => {} );
-	await page.click( '#dze-tr-send' );
-	const ranBatch = await page.waitForFunction(
-		() => /\S/.test( ( document.querySelector( '#dze-tr-progcount' ) || {} ).textContent || '' ),
-		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
-	ok( 'the batch reports where it is', ranBatch, true );
-	const batch = sent.filter( s => 'dze_tr_batch' === s.action );
-	ok( 'exactly the ticked object was sent', batch.length, 1 );
-	// THE REQUEST CARRIES THE OBJECT IT IS ABOUT. A "Fix" button once shipped
-	// never sending the id of its own row, and the screen looked fine.
-	ok( 'and it names that object', ( batch[0] || {} ).ref, 'term:7:product_cat' );
-	ok( 'with its nonce', ( batch[0] || {} ).nonce, cfg.nonce );
-	// AND ONLY THE LANGUAGES THAT ARE TICKED. Unticking one and still paying
-	// for it is money spent on a decision nobody took.
-	ok( 'and only the languages ticked', ( batch[0] || {} ).langs, [ 'fr' ] );
-	ok( 'the run says what it finished with',
-		( await page.textContent( '#dze-tr-sendstate' ) || '' ).length > 0, true );
-	// A BATCH THAT FINISHES AND LEAVES EVERY LINE AS IT WAS is a press nobody
-	// can tell worked: "Rien à jour sur la page. La je ne comprends pas quoi
-	// faire en fait. Comment je vérifies le contenu ?" The row that was sent
-	// says what came back ON ITSELF, and the sentence at the bottom carries a
-	// way to it rather than naming a tab.
-	const rowSaid = await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-state' ).textContent();
-	ok( 'the row that was sent says what came back',
-		( rowSaid || '' ).includes( cfg.i18n.rowHeld ), true );
-	ok( 'and no longer says it is not translated',
-		( rowSaid || '' ).includes( 'not translated' ), false );
-	ok( 'the row left alone is untouched',
-		( await page.locator( '.dze-tr-row' ).nth( 1 ).locator( '.dze-tr-state' ).textContent() || '' ).includes( cfg.i18n.rowHeld ), false );
-	ok( 'and the way to read what came back is offered',
-		await page.locator( `#dze-tr-sendstate a[href="${cfg.reviewUrl}"]` ).count(), 1 );
-	ok( 'nothing was raised sending a batch', errors, [] );
-
-	// A RUN THAT FAILED IS NOT A RUN THAT HAD NOTHING TO DO. With no key or
-	// WPML silent every row failed, and the screen said "nothing was spent,
-	// they are up to date".
-	failing = true;
-	await page.locator( '.dze-tr-row' ).nth( 1 ).locator( '.dze-tr-pickone' ).check();
-	await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-pickone' ).uncheck().catch( () => {} );
-	await page.click( '#dze-tr-send' );
-	const failedRun = await page.waitForFunction(
-		word => ( ( document.querySelector( '#dze-tr-sendstate' ) || {} ).textContent || '' ).includes( word ),
-		'failed', { timeout: 6000 } ).then( () => true ).catch( () => false );
-	ok( 'a run whose every row failed says so', failedRun, true );
-	ok( 'and never that nothing had moved',
-		( ( await page.textContent( '#dze-tr-sendstate' ) ) || '' ).includes( cfg.i18n.nothingNew ), false );
-	failing = false;
-	// A SECTION THAT REWRITES THE LIST PUTS IT BACK: the failed run replaced
-	// the chips on its rows, and the next section presses one of them.
+	await page.evaluate( () => { try { sessionStorage.clear(); localStorage.clear(); } catch ( e ) {} } );
 	await page.goto( 'http://dze.test/dash', { waitUntil: 'domcontentloaded' } );
+	ok( 'the dashboard runs without an error', errors, [] );
+	ok( 'the categories that need work are listed', await page.locator( '.dze-trd-row' ).count(), 2 );
+	ok( 'each row carries one icon per language',
+		await page.locator( '.dze-trd-row' ).nth( 0 ).locator( '.dze-trd-langs .dze-trd-box' ).count(), 2 );
+	ok( 'Step 2 waits until something is ticked', await hidden( '#dze-trd-step2' ), true );
 
-	// WPML'S OWN GESTURE, ONE LANGUAGE AT A TIME. The plus makes the missing
-	// translation, the arrows bring an out-of-date one back — and it runs the
-	// SAME job the batch button runs, never a second engine.
-	ok( 'a language that is owed is a button',
-		await page.locator( '.dze-tr-row' ).nth( 1 ).locator( 'button.dze-tr-one' ).count() > 0, true );
-	before = sent.length;
-	await page.locator( '.dze-tr-row' ).nth( 1 ).locator( 'button.dze-tr-one[data-lang="fr"]' ).click();
-	await page.waitForFunction(
-		() => !document.querySelectorAll( '.dze-tr-row' )[1].querySelector( 'button.dze-tr-one[data-lang="fr"]' ),
-		null, { timeout: 6000 } ).catch( () => {} );
-	const one = sent.slice( before ).filter( s => 'dze_tr_batch' === s.action );
-	ok( 'pressing it sends exactly one job', one.length, 1 );
-	ok( 'for the object of its own row', ( one[0] || {} ).ref, 'term:8:product_cat' );
-	// AND ONLY THAT LANGUAGE. The other flag on the same row was not pressed
-	// and must not be paid for.
-	ok( 'and only the language pressed', ( one[0] || {} ).langs, [ 'fr' ] );
-	ok( 'the chip says what came back',
-		( await page.locator( '.dze-tr-row' ).nth( 1 ).locator( '.dze-tr-state' ).textContent() || '' ).includes( cfg.i18n.rowHeld ), true );
-	ok( 'the other language of that row is still offered',
-		await page.locator( '.dze-tr-row' ).nth( 1 ).locator( 'button.dze-tr-one[data-lang="de"]' ).count(), 1 );
-	ok( 'nothing was raised pressing a flag', errors, [] );
+	// ---- TICK ONE: THE BAR AND STEP 2 APPEAR, THE WORDS ARE COUNTED ----
+	await page.locator( '.dze-trd-row' ).nth( 0 ).locator( '.dze-trd-pick' ).check();
+	await settle();
+	ok( 'ticking shows Step 2', await hidden( '#dze-trd-step2' ), false );
+	ok( 'and the bar says one is selected', ( await page.textContent( '#dze-trd-selcount' ) || '' ).trim(), cfg.i18n.oneSelected );
+	const asked = sent.filter( s => 'dze_tr_words' === s.action );
+	ok( 'the words of the ticked row are asked for', ( asked[ asked.length - 1 ] || {} ).refs, [ 'term:7:product_cat' ] );
+	ok( 'with the nonce', ( asked[ asked.length - 1 ] || {} ).nonce, cfg.nonce );
+	// NOTHING IS SET TO TRANSLATE UNTIL SOMEBODY SAYS SO: « je l'ai envoyé
+	// seulement en RU » — five languages were ticked by default.
+	ok( 'no language is set to translate by default',
+		await page.$$eval( '.dze-trd-method', els => els.map( e => e.value ) ), [ 'none', 'none' ] );
+	ok( 'so the button cannot be pressed', await page.isDisabled( '#dze-trd-send' ), true );
+	ok( 'and the summary says what is missing', ( await page.textContent( '#dze-trd-sum' ) || '' ).trim(), cfg.i18n.pickLang );
+	ok( 'the words to translate are shown per language',
+		( await page.textContent( '.dze-trd-pairs tr[data-lang="de"] .dze-trd-words' ) || '' ).trim(), '20' );
 
+	// ---- CHOOSE GERMAN ----
+	await page.selectOption( '.dze-trd-method[data-lang="de"]', 'auto' );
+	ok( 'choosing a language enables the button', await page.isDisabled( '#dze-trd-send' ), false );
+	ok( 'the summary names the words and the language',
+		( await page.textContent( '#dze-trd-sum' ) || '' ).includes( '20' ), true );
+	ok( 'and a language that does nothing costs nothing',
+		( await page.textContent( '.dze-trd-pairs tr[data-lang="fr"] .dze-trd-cost' ) || '' ).trim(), '–' );
+	// « Some of the content you want to translate is already translated » —
+	// only when it is true.
+	ok( 'the « already translated » box stays hidden when nothing is', await hidden( '#dze-trd-existing' ), true );
 
-	// THE TICK AT THE TOP TAKES THE LOT — on this screen like every other.
-	await page.check( '#dze-tr-all' );
-	ok( 'the heading tick takes every row',
-		await page.locator( '.dze-tr-pickone:checked' ).count(), 2 );
+	// ---- TRANSLATE CONTENT ----
+	await page.click( '#dze-trd-send' );
+	const sentGone = await page.waitForFunction( () => document.querySelector( '#dze-trd-step2' ).hidden, null, { timeout: 6000 } )
+		.then( () => true ).catch( () => false );
+	const q = sent.filter( s => 'dze_tr_queue' === s.action );
+	ok( 'one request deposits the lot', q.length, 1 );
+	ok( 'the ticked object', ( q[0] || {} ).refs, [ 'term:7:product_cat' ] );
+	ok( 'into the language chosen and no other', ( q[0] || {} ).langs, [ 'de' ] );
+	ok( 'waiting for review, as it was set', ( q[0] || {} ).accept, '0' );
+	ok( 'and leaving existing translations alone', ( q[0] || {} ).all, '0' );
+	ok( 'the selection is forgotten once sent', sentGone, true );
+	ok( 'the page says what happened', ( await page.textContent( '#dze-trd-sent' ) || '' ).includes( '1 item sent' ), true );
+	// THE ROW SAYS IT AT ONCE, without a reload.
+	const turned = await page.waitForFunction(
+		() => !!document.querySelector( '.dze-trd-row[data-ref="term:7:product_cat"] .dze-trd-spin' ),
+		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	ok( 'the language sent turns on its row at once', turned, true );
+	ok( 'the background line shows', await hidden( '#dze-trd-progress' ), false );
+	ok( 'nothing was raised sending', errors, [] );
+
+	// ---- TAKE IT BACK BEFORE IT COSTS ANYTHING ----
+	await page.click( '.dze-trd-row[data-ref="term:7:product_cat"] .dze-trd-cancel' );
+	const back = await page.waitForFunction(
+		() => !document.querySelector( '.dze-trd-row[data-ref="term:7:product_cat"] .dze-trd-spin' ),
+		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	const c = sent.filter( s => 'dze_tr_cancel' === s.action );
+	ok( 'the wheel takes that language back', ( c[0] || {} ).lang, 'de' );
+	ok( 'of that row', ( c[0] || {} ).ref, 'term:7:product_cat' );
+	ok( 'and the row stops turning', back, true );
+	ok( 'the background line goes', await hidden( '#dze-trd-progress' ), true );
+
+	// ---- SELECT ALL, EVERY SECTION, EVERY PAGE ----
+	await page.click( '#dze-trd-selectall' );
+	await page.waitForFunction( () => !document.querySelector( '#dze-trd-selectall' ).disabled, null, { timeout: 6000 } ).catch( () => {} );
+	ok( 'Select All asks every ref the filters match',
+		sent.filter( s => 'dze_tr_items' === s.action && s.wantRefs ).length, 1 );
+	ok( 'and takes them all, off this page too',
+		( await page.textContent( '#dze-trd-selcount' ) || '' ).includes( '3' ), true );
+	await settle();
+	// « Leave / Overwrite » appears because one of them is complete in French.
+	await page.selectOption( '#dze-trd-setall', 'auto' );
+	ok( '« Set all » sets every language', await page.$$eval( '.dze-trd-method', els => els.map( e => e.value ) ), [ 'auto', 'auto' ] );
+	ok( 'the « already translated » box appears when it is true', await hidden( '#dze-trd-existing' ), false );
+	const leave = ( await page.textContent( '.dze-trd-pairs tr[data-lang="fr"] .dze-trd-words' ) || '' ).trim();
+	await page.check( 'input[name="dze-trd-existing"][value="overwrite"]' );
+	const over = ( await page.textContent( '.dze-trd-pairs tr[data-lang="fr"] .dze-trd-words' ) || '' ).trim();
+	ok( 'leaving what is translated counts only what is owed', leave, '17' );
+	ok( 'overwriting counts every word', over, '35' );
+
+	// ---- A SECTION PAGES ON ITS OWN, AND THE TICKS SURVIVE ----
+	await page.selectOption( '.dze-trd-sec .dze-trd-per', '20' );
+	await page.waitForFunction( () => !!document.querySelector( '.dze-trd-row[data-ref="term:9:product_cat"]' ), null, { timeout: 6000 } ).catch( () => {} );
+	const it = sent.filter( s => 'dze_tr_items' === s.action && !s.wantRefs );
+	ok( 'the section asks for its new page size', ( it[ it.length - 1 ] || {} ).per, '20' );
+	ok( 'through the dashboard\'s own filters', ( it[ it.length - 1 ] || {} ).tstatus, cfg.filters.tstatus );
+	ok( 'a row ticked elsewhere is still ticked when it comes into view',
+		await page.isChecked( '.dze-trd-row[data-ref="term:9:product_cat"] .dze-trd-pick' ), true );
+	// AND A RELOAD FORGETS NOTHING: the ticks and the choices come back.
+	await page.goto( 'http://dze.test/dash', { waitUntil: 'domcontentloaded' } );
+	await settle();
+	ok( 'the selection survives a reload', ( await page.textContent( '#dze-trd-selcount' ) || '' ).includes( '3' ), true );
+	ok( 'and so do the choices', await page.$$eval( '.dze-trd-method', els => els.map( e => e.value ) ), [ 'auto', 'auto' ] );
+	await page.click( '#dze-trd-clearsel' );
+	ok( 'Clear selection empties it', await hidden( '#dze-trd-selbar' ), true );
+
+	// A SEND THE SERVER REFUSES SAYS WHY, and keeps the selection.
+	failing = true;
+	await page.locator( '.dze-trd-row' ).nth( 1 ).locator( '.dze-trd-pick' ).check();
+	await settle();
+	await page.click( '#dze-trd-send' );
+	const refused = await page.waitForFunction(
+		() => /No Anthropic key/.test( ( document.querySelector( '#dze-trd-sendsaid' ) || {} ).textContent || '' ),
+		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	ok( 'a refused send says why', refused, true );
+	ok( 'and keeps what was ticked', await hidden( '#dze-trd-step2' ), false );
+	failing = false;
+	ok( 'nothing was raised on the dashboard', errors, [] );
 
 	// ---- THE ONE TRANSLATION SCREEN, PER OBJECT ----
 	// "Cet écran c'est encore du custom. Je veux un seul écran pour chaque type
@@ -292,7 +287,7 @@ for ( const [ label, jq ] of jqs ) {
 			const t = ( ( document.querySelector( '#dze-tr-autostate' ) || {} ).textContent || '' ).trim();
 			return t.length > 0 && t !== busy;
 		},
-		cfg.i18n.sending, { timeout: 6000 } ).then( () => true ).catch( () => false );
+		cfg.i18n.translating, { timeout: 6000 } ).then( () => true ).catch( () => false );
 	ok( 'the automatic pass answered', autoDone, true );
 	const made = sent.slice( before ).filter( x => 'dze_tr_batch' === x.action );
 	ok( 'pressing Translate sends one job', made.length, 1 );

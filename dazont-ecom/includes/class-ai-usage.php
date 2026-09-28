@@ -58,7 +58,26 @@ final class DZE_Ai_Usage {
 
 	/** Names the unit of work about to be charged ('' clears it). */
 	public static function unit( string $unit = '' ): void {
-		self::$unit = sanitize_key( $unit );
+		// sanitize_key() would eat the colon of "translate:product": the unit
+		// names its module AND what it worked on.
+		self::$unit = strtolower( (string) preg_replace( '/[^A-Za-z0-9_:\-]/', '', $unit ) );
+	}
+
+	/** The unit of work being charged right now, so a caller can put it back. */
+	public static function unit_now(): string {
+		return self::$unit;
+	}
+
+	/**
+	 * WHAT A JOB WILL COST, BEFORE IT IS SENT — at the same prices the register
+	 * charges once it is done, so an estimate and a bill can never be read from
+	 * two different tables.
+	 *
+	 * @return float Dollars.
+	 */
+	public static function estimate( string $model, int $tokens_in, int $tokens_out ): float {
+		[ $p_in, $p_out ] = self::price( '' !== $model ? $model : 'anthropic' );
+		return ( max( 0, $tokens_in ) * $p_in + max( 0, $tokens_out ) * $p_out ) / 1000000;
 	}
 
 	/**
@@ -644,8 +663,35 @@ final class DZE_Ai_Usage {
 		}
 		// Une unite detaillee — « translate:product » — appartient au module de
 		// sa racine : on range sur ce qui precede les deux points.
-		$racine = (string) strtok( $unit, ':' );
+		$racine = self::split_unit( $unit )[0];
 		return $map[ $unit ] ?? ( $map[ $racine ] ?? 'rest' );
+	}
+
+	/**
+	 * LA RACINE ET LE DETAIL D UNE UNITE, y compris sous son ancienne forme.
+	 *
+	 * unit() passait le nom par sanitize_key(), qui mange les deux points :
+	 * « translate:post » etait range sous « translatepost », et quatre dollars
+	 * de traduction ce mois-ci atterrissaient dans « Everything else ». Le nom
+	 * garde ses deux points desormais ; les mois deja ecrits sont relus en
+	 * reconnaissant une racine connue en tete de cle.
+	 *
+	 * @return array{0:string,1:string}
+	 */
+	public static function split_unit( string $unit ): array {
+		if ( false !== strpos( $unit, ':' ) ) {
+			[ $racine, $quoi ] = explode( ':', $unit, 2 );
+			return [ (string) $racine, (string) $quoi ];
+		}
+		if ( isset( self::units()[ $unit ] ) ) {
+			return [ $unit, '' ];
+		}
+		foreach ( [ 'translate' ] as $connue ) {
+			if ( 0 === strpos( $unit, $connue ) && strlen( $unit ) > strlen( $connue ) ) {
+				return [ $connue, (string) substr( $unit, strlen( $connue ) ) ];
+			}
+		}
+		return [ $unit, '' ];
 	}
 
 	/** Human labels for the units the plugin charges to. */
@@ -688,10 +734,10 @@ final class DZE_Ai_Usage {
 		if ( isset( $noms[ $unit ] ) ) {
 			return (string) $noms[ $unit ];
 		}
-		if ( false === strpos( $unit, ':' ) ) {
+		[ $racine, $quoi ] = self::split_unit( $unit );
+		if ( '' === $quoi ) {
 			return $unit;
 		}
-		[ $racine, $quoi ] = explode( ':', $unit, 2 );
 		$mots = [
 			'product'      => __( 'products', 'dazont-ecom' ),
 			'post'         => __( 'articles', 'dazont-ecom' ),

@@ -74,6 +74,19 @@ function get_transient( $k ) { return $GLOBALS['tr'][ $k ] ?? false; }
 function set_transient( $k, $v, $t = 0 ) { $GLOBALS['tr'][ $k ] = $v; return true; }
 function delete_transient( $k ) { unset( $GLOBALS['tr'][ $k ] ); return true; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
+function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; }
+function mysql2date( $f, $d ) { return '' === (string) $d ? '' : date( (string) $f, strtotime( (string) $d ) ); }
+function get_post_status_object( $s ) {
+	$l = [ 'publish' => 'Published', 'private' => 'Private', 'draft' => 'Draft' ];
+	return isset( $l[ $s ] ) ? (object) [ 'label' => $l[ $s ] ] : null;
+}
+function get_current_user_id() { return 7; }
+function date_i18n( $f, $t = false ) { return date( (string) $f, false === $t ? time() : (int) $t ); }
+// THE SCHEDULER, and what it was asked: a queue that is filled and never
+// woken is the silent failure these checks exist for.
+$GLOBALS['cron'] = [];
+function wp_next_scheduled( $hook ) { return $GLOBALS['cron'][ $hook ] ?? false; }
+function wp_schedule_single_event( $t, $hook, $a = [] ) { $GLOBALS['cron'][ $hook ] = (int) $t; return true; }
 
 // --- A shop with one product and its French translation --------------------
 $GLOBALS['posts'] = [];
@@ -159,6 +172,7 @@ class DZE_Tr_Test_Wpdb {
 	public $postmeta = 'wp_postmeta';
 	public $termmeta = 'wp_termmeta';
 	public $terms         = 'wp_terms';
+	public $term_relationships = 'wp_term_relationships';
 	public $term_taxonomy = 'wp_term_taxonomy';
 	/** The page of work the screen asks WPML's tables for. */
 	public array $todo_ids = [];
@@ -173,11 +187,21 @@ class DZE_Tr_Test_Wpdb {
 	public array $waiting_terms = [];
 	public array $rows = [];        // translation_id => element_id
 	public array $written = [];     // every update() to icl_translation_status
+	public function esc_like( $t ) { return addcslashes( (string) $t, '_%\\' ); }
 	public function prepare( $q, ...$a ) {
-		foreach ( $a as $one ) {
-			$q = preg_replace( '/%[ds]/', is_int( $one ) ? (string) $one : "'" . $one . "'", (string) $q, 1 );
+		// ONE PASS OVER THE PLACEHOLDERS, like WordPress: a value holding « %s »
+		// — a title filter, '%shirt%' — is never read as the next placeholder.
+		if ( 1 === count( $a ) && is_array( $a[0] ) ) {
+			$a = $a[0];
 		}
-		return $q;
+		$i = 0;
+		return preg_replace_callback( '/%[ds]/', static function ( $m ) use ( &$i, $a ) {
+			if ( ! array_key_exists( $i, $a ) ) {
+				return $m[0];
+			}
+			$one = $a[ $i++ ];
+			return is_int( $one ) ? (string) $one : "'" . $one . "'";
+		}, (string) $q );
 	}
 	/**
 	 * ONE ROW. `term_row()` reads a term from the tables rather than through
@@ -327,7 +351,8 @@ class DZE_Marketing_Ai {
 	const MENU_SLUG = 'dazont-ecom-ai';
 	const MODELS = [ 'claude-haiku-4-5-20251001' => 'Haiku 4.5', 'claude-opus-5' => 'Opus 5' ];
 	public static function complete( $sys, $user, $model = '', $max = 0, $t = 0 ) {
-		$GLOBALS['calls'][] = $user;
+		$GLOBALS['calls'][]     = $user;
+		$GLOBALS['last_system'] = $sys;
 		// By default nothing is ever paid for: a check that expects silence
 		// must FAIL loudly if a call is made. The batch checks below set an
 		// answer on purpose, and read back what was actually sent.
@@ -341,6 +366,23 @@ class DZE_Marketing_Ai {
 			throw new RuntimeException( 'The gate never pays a provider.' );
 		}
 		return (string) $GLOBALS['model_answer'];
+	}
+	/**
+	 * SEVERAL AT ONCE, as the real one sends them — here one after the other,
+	 * with the size of each wave written down: « at the same time » is what
+	 * these checks are about.
+	 */
+	public static function complete_many( $asks, $model = '', $t = 0 ) {
+		$GLOBALS['waves'][] = count( $asks );
+		$out = [];
+		foreach ( $asks as $k => $a ) {
+			try {
+				$out[ $k ] = self::complete( $a['system'], $a['user'], $model, $a['max'], $t );
+			} catch ( \Throwable $e ) {
+				$out[ $k ] = $e;
+			}
+		}
+		return $out;
 	}
 }
 class DZE_Ai_Usage {
@@ -359,6 +401,10 @@ class DZE_Ai_Usage {
 	// back with nothing" — which is a true sentence about a fault that only
 	// ever existed in this file.
 	public static function finished( $unit, $n = 1 ) {}
+	// THE SAME PRICES AS THE REGISTER, so an estimate can be told from nothing.
+	public static function estimate( $model, $in, $out ) { return ( $in * 1.0 + $out * 5.0 ) / 1000000; }
+	public static function unit_now() { return ''; }
+	public static function about_now() { return 0; }
 }
 class DZE_Content {
 	public static function seo_keys() {
@@ -513,7 +559,19 @@ function get_post_type_object( $type ) {
 	$known = [ 'product' => 'Products', 'post' => 'Posts', 'page' => 'Pages', 'acme_doc' => 'Documents' ];
 	return isset( $known[ $type ] ) ? (object) [ 'public' => true, 'labels' => (object) [ 'name' => $known[ $type ] ] ] : null;
 }
-function get_object_taxonomies( $type ) { return 'product' === $type ? [ 'product_cat', 'product_type', 'pa_colour' ] : [ 'post_tag' ]; }
+function get_object_taxonomies( $type, $output = 'names' ) {
+	$names = 'product' === $type ? [ 'product_cat', 'product_type', 'pa_colour' ] : [ 'post_tag' ];
+	if ( 'objects' !== $output ) {
+		return $names;
+	}
+	// AS WORDPRESS HANDS THEM: an object per taxonomy, saying whether it is
+	// a tree — the one a list is filtered by.
+	$out = [];
+	foreach ( $names as $n ) {
+		$out[ $n ] = (object) [ 'name' => $n, 'hierarchical' => 'product_cat' === $n, 'public' => 'product_type' !== $n, 'show_ui' => 'product_type' !== $n ];
+	}
+	return $out;
+}
 // A VARIABLE PRODUCT'S CHILDREN. The variations carry words of their own, in
 // their excerpt, and none of it was ever sent.
 function get_children( $args = [] ) {
@@ -656,7 +714,7 @@ if ( '' !== $dze_dump ) {
 		$GLOBALS['product_type'][700] = 'variable';
 		$GLOBALS['translated'][700]['fr'] = 800;
 		$GLOBALS['post_lang'][800] = 'fr';
-		$_GET = [ 'tab' => 'batch', 'ref' => 'post:700:product', 'lang' => 'fr' ];
+		$_GET = [ 'tab' => 'dashboard', 'ref' => 'post:700:product', 'lang' => 'fr' ];
 		$GLOBALS['loc'] = [];
 		DZE_Translate::instance()->screen_assets( 'toplevel_page_' . DZE_Translate::MENU_SLUG );
 		ob_start();
@@ -664,7 +722,7 @@ if ( '' !== $dze_dump ) {
 		echo wp_json_encode( [ 'html' => (string) ob_get_clean(), 'cfg' => $GLOBALS['loc']['dzeTrScreen'] ?? [] ] );
 		exit( 0 );
 	}
-	$_GET['tab'] = 'review' === $dze_dump ? 'review' : ( 'dashboard' === $dze_dump ? 'dashboard' : 'batch' );
+	$_GET = [ 'tab' => 'review' === $dze_dump ? 'review' : 'dashboard' ];
 	if ( 'review' === $dze_dump ) {
 		$held = wp_json_encode( [
 			'at'    => time(),
@@ -674,7 +732,9 @@ if ( '' !== $dze_dump ) {
 		$GLOBALS['termmeta'][7]['_dze_tr_wait'] = $held;
 		$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $held ] ];
 	} else {
-		$_GET['scope'] = 'term:product_cat';
+		// THE DASHBOARD, ON THE CATEGORIES ALONE: every row the gate presses
+		// is one this harness put there.
+		$GLOBALS['opts']['dze_translate_settings']['scope'] = [ 'term:product_cat' ];
 		// THE LIST IS WHAT WPML'S TABLES ANSWER. The screen the browser gate
 		// presses has to be the screen the shop gets, rows included.
 		$GLOBALS['wpdb']->todo_ids = [ 7, 8 ];
@@ -1157,7 +1217,7 @@ ok( 'marked with words that moved is work',
 DZE_Translate::remember( 8, DZE_Translate::obj_read( $cat2 ), $cat2 );
 ok( 'marked with nothing moved is named as such',
 	DZE_Translate::state_of( $cat2, [ 'fr' ], $marks ), [ 'fr' => 'noise' ] );
-ok( 'and it says so in words',            DZE_Translate::state_said( 'noise' ), 'marked, nothing moved' );
+ok( 'and it says so in words',            DZE_Translate::state_said( 'noise' ), 'needs update — no words changed, closing it costs nothing' );
 // WPML could not be asked at all: the honest answer is the one thing still
 // knowable, never "everything has moved".
 ok( 'with no answer from WPML, only existence is claimed',
@@ -1195,58 +1255,109 @@ for ( $i = 100; $i < 160; $i++ ) {
 	$GLOBALS['terms'][ $i ] = [ 'name' => 'Filler ' . $i, 'description' => '', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 2000 + $i ];
 }
 // Only Balaclavas needs work, and WPML's tables are the ones that say so.
+// THE DASHBOARD SHOWS ONE SECTION PER KIND THE SHOP TRANSLATES: here the
+// categories alone, so every row on the page is one this check put there.
+$dze_scope_was = $GLOBALS['opts']['dze_translate_settings']['scope'] ?? null;
+$GLOBALS['opts']['dze_translate_settings']['scope'] = [ 'term:product_cat' ];
 $GLOBALS['wpdb']->todo_ids = [ 7 ];
 $GLOBALS['wpdb']->todo_sql = [];
-$GLOBALS['paginate']       = [];
-$_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat' ];
+$_GET = [];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_page = (string) ob_get_clean();
 
-// A PAGE WPML IS SATISFIED WITH HAS NOTHING TO DO ON THIS SCREEN.
+// A PAGE WPML IS SATISFIED WITH HAS NOTHING TO DO ON THIS SCREEN — WPML's own
+// « Not completed », which is where its dashboard opens too.
 ok( 'the marked category is listed',      false !== strpos( $dze_page, 'Balaclavas' ), true );
 ok( 'and the satisfied one is not',       false !== strpos( $dze_page, 'Plate carriers' ), false );
+ok( 'the dashboard opens on « Not completed »',
+	(bool) preg_match( '#<option value="todo"\s+selected=\'selected\'>Not completed</option>#', $dze_page ), true );
 // A FIGURE AND THE ROWS UNDER IT ANSWER THE SAME QUESTION. One row of work in
-// a taxonomy of sixty-two means one page, not three.
-ok( 'the narrowing happens in the query that pages',
-	false !== strpos( $dze_page, '1 needs work' ), true );
-ok( 'and no pager is drawn over a single row',
-	false !== strpos( $dze_page, 'dze-pager' ), false );
-ok( 'the sixty the screen has nothing to say about are not counted',
-	(int) ( $GLOBALS['paginate']['total'] ?? 0 ), 0 );
+// a taxonomy of sixty-two means one item, not three pages.
+ok( 'the section counts what the query found, not the taxonomy',
+	false !== strpos( $dze_page, '<span class="dze-trd-seccount">(1)</span>' ), true );
+ok( 'and its pager says so, with no page to turn',
+	[ false !== strpos( $dze_page, '<span class="displaying-num">1 item</span>' ), false !== strpos( $dze_page, 'pagination-links' ) ],
+	[ true, false ] );
 // AND THE QUESTION IT ASKED: the source language, the target languages, and
 // the narrowing itself. A call that asks the wrong thing cannot pass this.
 $dze_ask = implode( ' ', $GLOBALS['wpdb']->todo_sql );
 ok( 'it asked WPML for the source language',  false !== strpos( $dze_ask, "language_code = 'en'" ), true );
 ok( 'named the taxonomy the way WPML does',   false !== strpos( $dze_ask, "'tax_product_cat'" ), true );
-ok( 'and narrowed to what is missing or marked',
-	false !== strpos( $dze_ask, 'HAVING' ), true );
-ok( 'the way to everything is offered',   false !== strpos( $dze_page, 'Show them all' ), true );
-// WPML'S OWN COUNT, beside the missing one: two different piles of work.
-ok( "WPML's count of what is owed is on the dashboard",
-	false !== strpos( $dze_page, '14 to update' ), true );
-// THE FLAG SAYS THE LANGUAGE, ONCE. It carries the code inside it already.
-ok( 'the language is drawn as a flag',    false !== strpos( $dze_page, 'dze-lang-code' ), true );
-ok( 'and its native name is not repeated beside it',
-	false !== strpos( $dze_page, '</span> Français' ), false );
+ok( 'and narrowed to what is missing or marked, whatever the automatic pass is set to',
+	false !== strpos( $dze_ask, 'HAVING COUNT( DISTINCT t.language_code ) < 2 OR MAX( COALESCE( s.needs_update, 0 ) ) = 1' ), true );
+// WPML'S GLOBAL FILTERS, IN WPML'S ORDER, and « Select All » beside them.
+ok( 'the source language is shown and cannot be changed',
+	(bool) preg_match( '#<select id="dze-trd-src" disabled="disabled"[^>]*>\s*<option>English</option>#', $dze_page ), true );
+ok( 'the four filters are there',
+	[ false !== strpos( $dze_page, 'name="flang"' ), false !== strpos( $dze_page, 'name="pstatus"' ), false !== strpos( $dze_page, 'name="tstatus"' ), false !== strpos( $dze_page, '>Filter</button>' ) ],
+	[ true, true, true, true ] );
+ok( 'with « Translation in progress » among the statuses',
+	false !== strpos( $dze_page, '<option value="progress" >Translation in progress</option>' ), true );
+ok( '« Select All » is beside them',      substr_count( $dze_page, 'id="dze-trd-selectall"' ), 1 );
+ok( '« Clear filters » only appears once something is filtered',
+	false !== strpos( $dze_page, 'Clear filters' ), false );
+// THE FLAG SAYS THE LANGUAGE, ONCE — in the column head, the flag alone.
+ok( 'each language column is headed by its flag',
+	substr_count( $dze_page, 'class="dze-trd-flag dze-trd-flagtxt" title="Français"' ) >= 1, true );
 // AND MEDIA IS NOWHERE ON IT.
 ok( 'media is not on the screen',         false !== stripos( $dze_page, 'attachment' ), false );
+// THE BATCH LIST IS GONE: « dégager la batch list, qui ne sert à rien ».
+ok( 'the batch list is gone',
+	[ false !== strpos( $dze_page, 'tab=batch' ), false !== strpos( $dze_page, 'dze-tr-langbar' ), false !== strpos( $dze_page, 'id="dze-tr-send"' ) ],
+	[ false, false, false ] );
+ok( 'and so is its tab',                  isset( DZE_Translate::tabs()['batch'] ), false );
 
 // Everything, when it is asked for — the SAME query without the narrowing,
 // never a second reading: two readings of one list is how a count and the rows
 // under it start disagreeing.
-$_GET['all'] = 1;
+$_GET = [ 'tstatus' => 'all' ];
 $GLOBALS['wpdb']->todo_ids = [ 7, 8 ];
 $GLOBALS['wpdb']->todo_sql = [];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_all = (string) ob_get_clean();
 ok( 'asked for everything, the satisfied one is back',
 	false !== strpos( $dze_all, 'Plate carriers' ), true );
 ok( 'and the way back to the work is offered',
-	false !== strpos( $dze_all, 'Only what needs work' ), true );
+	false !== strpos( $dze_all, 'Clear filters' ), true );
 $dze_ask_all = implode( ' ', $GLOBALS['wpdb']->todo_sql );
 ok( 'it is the same query with the narrowing dropped',
 	[ false !== strpos( $dze_ask_all, 'tax_product_cat' ), false !== strpos( $dze_ask_all, 'HAVING' ) ],
 	[ true, false ] );
+// THE OTHER THREE STATUSES ARE THE SAME QUERY, NARROWED THEIR OWN WAY.
+foreach ( [
+	'update'   => 'HAVING MAX( COALESCE( s.needs_update, 0 ) ) = 1',
+	'complete' => 'HAVING NOT ( COUNT( DISTINCT t.language_code ) < 2 ) AND NOT ( MAX( COALESCE( s.needs_update, 0 ) ) = 1 )',
+] as $dze_st => $dze_having ) {
+	$GLOBALS['wpdb']->todo_sql = [];
+	$dze_f = DZE_Translate::filters( [ 'tstatus' => $dze_st ] );
+	DZE_Translate::section_page( DZE_Translate::scope()['term:product_cat'], $dze_f, DZE_Translate::section_args( [] ) );
+	ok( '« ' . $dze_st . ' » narrows the same query', false !== strpos( implode( ' ', $GLOBALS['wpdb']->todo_sql ), $dze_having ), true );
+}
+// « TRANSLATED TO » ONE LANGUAGE ASKS ABOUT THAT ONE ONLY.
+$GLOBALS['wpdb']->todo_sql = [];
+DZE_Translate::section_page( DZE_Translate::scope()['term:product_cat'], DZE_Translate::filters( [ 'flang' => 'de' ] ), DZE_Translate::section_args( [] ) );
+$dze_ask_de = implode( ' ', $GLOBALS['wpdb']->todo_sql );
+ok( 'filtered on one language, the query is about that language',
+	[ false !== strpos( $dze_ask_de, "IN ( 'de' )" ), false !== strpos( $dze_ask_de, "'fr'" ) ], [ true, false ] );
+// A LANGUAGE THE SITE DOES NOT HAVE IS NOT A FILTER.
+ok( 'an unknown language is dropped', DZE_Translate::filters( [ 'flang' => 'xx' ] )['flang'], '' );
+ok( 'an unknown status falls back to « Not completed »', DZE_Translate::filters( [ 'tstatus' => 'nope' ] )['tstatus'], 'todo' );
+// A SECTION'S OWN CONTROLS: its title filter, its category, its order.
+$GLOBALS['wpdb']->todo_sql = [];
+DZE_Translate::todo_page( [ 'kind' => 'post', 'type' => 'product' ], 'en', [ 'fr' ], 2, 20, true, [
+	'mode' => 'todo', 'search' => 'shirt', 'term' => 1007, 'status' => 'private', 'orderby' => 'date', 'order' => 'desc',
+] );
+$dze_ask_p = implode( ' ', $GLOBALS['wpdb']->todo_sql );
+ok( 'the title filter is in the query',   false !== strpos( $dze_ask_p, "p.post_title LIKE '%shirt%'" ), true );
+ok( 'and the category too',               false !== strpos( $dze_ask_p, 'dze_in.term_taxonomy_id = 1007' ), true );
+ok( 'and the publication status',         false !== strpos( $dze_ask_p, "p.post_status = 'private'" ), true );
+ok( 'sorted by date, newest first',       false !== strpos( $dze_ask_p, 'ORDER BY p.post_date DESC' ), true );
+ok( 'on the page it was asked for',       false !== strpos( $dze_ask_p, 'LIMIT 20 OFFSET 20' ), true );
+// « SELECT ALL » TAKES EVERY REF AT ONCE, without an object per id.
+$GLOBALS['wpdb']->todo_ids = [ 7, 8 ];
+$dze_refs = DZE_Translate::section_page( DZE_Translate::scope()['term:product_cat'], DZE_Translate::filters( [] ), array_merge( DZE_Translate::section_args( [] ), [ 'per' => 2000 ] ), true );
+ok( '« Select All » answers refs, and how many match', $dze_refs, [ [ 'term:7:product_cat', 'term:8:product_cat' ], 2 ] );
 $_GET = [];
 foreach ( range( 100, 159 ) as $dze_i ) { unset( $GLOBALS['terms'][ $dze_i ] ); }
+if ( null === $dze_scope_was ) { unset( $GLOBALS['opts']['dze_translate_settings']['scope'] ); } else { $GLOBALS['opts']['dze_translate_settings']['scope'] = $dze_scope_was; }
 
 echo "\nWhat this site does about media is READ from WPML, never decided here\n";
 // "Tu ne devrais rien faire toi-même mais utiliser les réglages natifs WPML.
@@ -1317,33 +1428,45 @@ $GLOBALS['translated'][900]['fr'] = 901;
 ok( 'and with WPML answering, it is found',
 	DZE_Translate::obj_translation( $dze_rig, 'fr' ), 901 );
 
-echo "\nWPML'S OWN THREE MARKS\n";
-// "Utiliser les symboles wpml servant déjà à ilustrer ces status." A plus for
-// what does not exist, a pencil for what WPML is happy with, two arrows for
-// what it wants again — the marks anybody who has used WPML already reads.
-ok( 'not translated is a plus',      DZE_Translate::state_icon( 'missing' ), 'dashicons-plus-alt2' );
-ok( 'up to date is a pencil',        DZE_Translate::state_icon( 'done' ),    'dashicons-edit' );
-ok( 'asking for an update is arrows',DZE_Translate::state_icon( 'stale' ),   'dashicons-update' );
-// A LONE ICON IS A SYMBOL YOU HAVE TO LEARN: the word stays beside it.
-ok( 'and the word is still printed beside it',
-	false !== strpos( $dze_page, 'dashicons-plus-alt2' ) && false !== strpos( $dze_page, 'not translated' ), true );
+echo "\nWPML'S OWN SYMBOLS, READ OFF ITS DASHBOARD\n";
+// "Utiliser les symboles wpml servant déjà à ilustrer ces status." Read off
+// WPML's own code: an orange ⓘ for not translated, two arrows for needs
+// update, a tick for complete, an eye for needs review.
+ok( 'not translated is WPML\'s ⓘ',     DZE_Translate::state_icon( 'missing' ), 'dashicons-info-outline' );
+ok( 'complete is a tick',              DZE_Translate::state_icon( 'done' ),    'dashicons-yes-alt' );
+ok( 'asking for an update is arrows',  DZE_Translate::state_icon( 'stale' ),   'dashicons-update' );
+ok( 'waiting for review is an eye',    DZE_Translate::state_icon( 'review' ),  'dashicons-visibility' );
+// A LONE ICON IS A SYMBOL YOU HAVE TO LEARN: it says its language and its
+// state on hover, and to a screen reader.
+ok( 'each icon names its language and where it stands',
+	false !== strpos( $dze_page, 'title="Deutsch: not translated"' ), true );
+// AND IT IS THE WAY INTO THAT LANGUAGE: the one translation screen, opened
+// on that object in that language.
+ok( 'an icon opens that language of that object',
+	(bool) preg_match( '#<a class="dze-trd-ico is-missing" href="[^"]*tab=dashboard&(amp;)?ref=term%3A7%3Aproduct_cat&(amp;)?lang=de"#', $dze_page ), true );
 
 echo "\nWHAT CAME BACK, ON THE ROW IT WAS SENT FROM\n";
 // "Le post n'est pas passé automatiquement dans 'to review'. Sur la ligne des
-// posts, aucune mention 'x to review'."
+// posts, aucune mention 'x to review'." WPML says it where it says everything
+// else: on the language itself, with its « needs review » icon.
 $GLOBALS['wpdb']->review_posts = [ [ 't' => 'product', 'n' => 3 ] ];
 $GLOBALS['wpdb']->review_terms = [ [ 't' => 'product_cat', 'n' => 2 ] ];
 ok( 'what waits is counted per kind, in WPML\'s naming',
 	DZE_Translate::review_counts(), [ 'post_product' => 3, 'tax_product_cat' => 2 ] );
+$dze_held_fr = wp_json_encode( [ 'at' => time(), 'langs' => [ 'fr' => [ 'name' => 'Cagoules' ] ], 'src' => [ 'name' => 'Balaclavas' ] ] );
+$GLOBALS['termmeta'][7]['_dze_tr_wait'] = $dze_held_fr;
+$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $dze_held_fr ] ];
+$GLOBALS['wpdb']->todo_ids      = [ 7 ];
 $_GET = [ 'tab' => 'dashboard' ];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_dash = (string) ob_get_clean();
-// The figure AND the way to it, in the same element: "tab=review" alone is on
-// the page whatever happens — it is the tab bar — and a check that passes on
-// broken code is worse than none.
-ok( 'and the dashboard row says so, with the way to read it',
-	(bool) preg_match( '/tab=review[^>]*>\s*2 to review/', $dze_dash ), true );
-$GLOBALS['wpdb']->review_posts = [];
-$GLOBALS['wpdb']->review_terms = [];
+ok( 'the language that came back wears WPML\'s « needs review »',
+	(bool) preg_match( '#data-lang="fr" data-state="review"><a class="dze-trd-ico is-review" href="[^"]*lang=fr"#', $dze_dash ), true );
+ok( 'and the one that did not keeps its own state',
+	false !== strpos( $dze_dash, 'data-lang="de" data-state="missing"' ), true );
+unset( $GLOBALS['termmeta'][7]['_dze_tr_wait'] );
+$GLOBALS['wpdb']->waiting_terms = [];
+$GLOBALS['wpdb']->review_posts  = [];
+$GLOBALS['wpdb']->review_terms  = [];
 
 echo "\nWHAT GETS TRANSLATED, PER KIND — WPML'S RULES, NOT A TICK BOX\n";
 // "Which fields > Incohérence, je ne sais pas ce que ça fait là... Je propose
@@ -1434,7 +1557,7 @@ ok( 'a taxonomy is reported on its own two fields', $dze_term_rep, [ 'Name', 'De
 // AND THE SCREEN DRAWS IT — calling the helper proves the reading and nothing
 // about whether the screen asks for it.
 ok( 'the dashboard prints the reading',
-	false !== strpos( $dze_dash, 'What gets translated' ), true );
+	false !== strpos( $dze_dash, 'What is sent for each kind of content' ), true );
 ob_start(); DZE_Translate::render_settings(); $dze_set = (string) ob_get_clean();
 ok( 'and the settings page no longer asks the shop to choose',
 	false !== strpos( $dze_set, 'Which fields' ), false );
@@ -1531,94 +1654,74 @@ ok( 'and a taxonomy WPML does not translate gets none',
 unset( $_GET['tag_ID'] );
 $GLOBALS['screen'] = null;
 
-echo "\nAND THE SCREEN IT OPENS SHOWS THAT ONE OBJECT, TICKED\n";
-$GLOBALS['wpdb']->marks = [ [ 'src' => 1007, 'lang' => 'fr', 'needs' => 1 ] ];
-$_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat', 'only' => 'term:7:product_cat' ];
-ob_start(); DZE_Translate::instance()->render_page(); $dze_one = (string) ob_get_clean();
-ok( 'the object it was opened for is on the screen',
-	false !== strpos( $dze_one, 'data-ref="term:7:product_cat"' ), true );
-ok( 'and it is already ticked',
-	(bool) preg_match( '/dze-tr-pickone[^>]*checked/', $dze_one ), true );
-ok( 'with nothing else in the way',
-	substr_count( $dze_one, 'class="dze-tr-row"' ), 1 );
-ok( 'and the way back to the whole list',
-	false !== strpos( $dze_one, 'Show everything that needs work' ), true );
-// WPML'S OWN GESTURE, one language at a time.
-ok( 'a language that is owed is a button, not a label',
-	(bool) preg_match( '/<button[^>]*dze-tr-one[^>]*data-lang="fr"/', $dze_one ), true );
+echo "\nA SELECTION MADE ON A WORDPRESS LIST OPENS THE DASHBOARD, TICKED\n";
+// « Send to translation » on the Posts or Products list sent everything, in
+// every language, with no word about the cost. It now opens Step 2 on those
+// items: one way of sending, and it always says what it spends.
+$GLOBALS['posts'][930] = [ 'type' => 'post', 'post_title' => 'MOLLE admin pouch', 'post_content' => '<p>How to set one up.</p>', 'post_excerpt' => '' ];
+$GLOBALS['posts'][931] = [ 'type' => 'post', 'post_title' => 'Pochette MOLLE', 'post_content' => '<p>Comment.</p>', 'post_excerpt' => '' ];
+$GLOBALS['post_lang'][931] = 'fr';
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
+$dze_to = DZE_Translate::instance()->bulk_run( '/wp-admin/edit.php', 'dze_translate', [ 930, 931 ] );
+ok( 'the list opens the dashboard, with what was picked',
+	false !== strpos( $dze_to, 'page=dazont-ecom-translations' ) && false !== strpos( $dze_to, 'picked=1' ), true );
+ok( 'and says one was a translation already', false !== strpos( $dze_to, 'skipped=1' ), true );
+ok( 'the original alone is handed over',      $GLOBALS['tr']['dze_tr_pick_7'] ?? null, [ 'post:930:post' ] );
+ok( 'and nothing was queued by the list itself', DZE_Translate::asked(), [] );
+$_GET = [ 'picked' => '1', 'skipped' => '1' ];
+$GLOBALS['loc'] = [];
+DZE_Translate::instance()->screen_assets( 'toplevel_page_' . DZE_Translate::MENU_SLUG );
+ok( 'the page receives that selection',       $GLOBALS['loc']['dzeTrScreen']['picked'] ?? null, [ 'post:930:post' ] );
+ob_start(); DZE_Translate::instance()->render_page(); $dze_pk = (string) ob_get_clean();
+ok( 'and says so where it opens',             false !== strpos( $dze_pk, '1 item picked from the list.' ), true );
+ok( 'with the one left out, and why',         false !== strpos( $dze_pk, '1 was a translation already and was left out' ), true );
+ok( 'handed over once, then forgotten',       isset( $GLOBALS['tr']['dze_tr_pick_7'] ), false );
+// THE « TRANSLATE WITH DAZONT ECOM » OF AN EDIT SCREEN still opens the one
+// object — and `only` still ticks it on the dashboard.
+$_GET = [ 'only' => 'term:7:product_cat' ];
+$GLOBALS['loc'] = [];
+DZE_Translate::instance()->screen_assets( 'toplevel_page_' . DZE_Translate::MENU_SLUG );
+ok( 'an address naming one object ticks that one', $GLOBALS['loc']['dzeTrScreen']['picked'] ?? null, [ 'term:7:product_cat' ] );
 $_GET = [];
 
-
-echo "\nTHE BATCH IS A SCREEN OF ITS OWN, IN THE SHAPE EVERY OTHER ONE WEARS\n";
-// "Send a batch — incomplet et pas bon pour l'UI. Ici je verrais plutôt une
-// liste séparée comme avec les produits… Utiliser le même type de dashboard que
-// pour les bulk content generation."
-$GLOBALS['wpdb']->todo_ids = [ 7, 8 ];
+echo "\nSTEP 2 — TRANSLATE YOUR CONTENT, AS WPML ASKS IT\n";
+$GLOBALS['wpdb']->todo_ids = [ 7 ];
 $GLOBALS['wpdb']->marks    = [ [ 'src' => 1007, 'lang' => 'fr', 'needs' => 1 ] ];
-$_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat' ];
-ob_start(); DZE_Translate::instance()->render_page(); $dze_b = (string) ob_get_clean();
-// 1. WHAT IT HOLDS TODAY, in one line, with the figures.
-ok( 'it opens with what this kind holds today',
-	false !== strpos( $dze_b, 'dze-tr-holds' ), true );
-// 2. LES LANGUES TIENNENT SUR UNE LIGNE, SANS ENCADRE.
-//
-// « What to translate a reduire. Pourquoi utiliser autant de place pour ces
-// si petites cases a cocher ? » Un titre, un encadre, un compteur et une
-// ligne par langue occupaient le haut de l ecran pour cinq cases.
-ok( 'les langues tiennent sur une ligne',
-	false !== strpos( $dze_b, 'dze-tr-langbar' ), true );
-// ET AUCUNE N EST COCHEE D OFFICE : « je l ai envoye seulement en RU » — les
-// cinq l etaient, parce que c etait le defaut, et la boutique payait cinq
-// fois. Un defaut qui depense doit etre un choix.
-ok( 'et aucune n est cochee d office',
-	(bool) preg_match( '/class="dze-tr-lang" value="[a-z]{2}" checked/', $dze_b ), false );
-ok( 'and what is sent with each one is a block of its own',
-	false !== strpos( $dze_b, 'data-sec="fields"' ), true );
-ok( 'each language says how many are short of it',
-	(bool) preg_match( '/dze-tr-lang[^>]*value="fr"/', $dze_b ), true );
-// 3. ONE BUTTON THAT RUNS WHAT IS TICKED, with the bill beside it.
-ok( 'one button runs what is ticked',   substr_count( $dze_b, 'id="dze-tr-send"' ), 1 );
-ok( 'and it says what it is about to do', false !== strpos( $dze_b, 'id="dze-tr-bill"' ), true );
-ok( 'a long run can be stopped',        false !== strpos( $dze_b, 'id="dze-tr-stop"' ), true );
-// 4. THE LIST, with the bar the bulk screen wears and Look on every row.
-ok( 'the bar is the bulk screen\'s own', false !== strpos( $dze_b, 'dze-cb-listbar' ), true );
-ok( 'every row offers to be opened', substr_count( $dze_b, 'dze-tr-openword' ), 2 );
-// THE OBJECT'S ID, IN A COLUMN OF ITS OWN, ON EVERY LIST THAT NAMES OBJECTS —
-// the same column, from the same place, as the product bulk screens and the
-// diagnostic. The heading is declared in one place and the cell in another, so
-// BOTH are read here, in the order a reader meets them: a table a column out
-// of step prints every value under the wrong title and raises nothing.
-ok( 'every row carries its own id',   substr_count( $dze_b, 'class="dze-objid"' ), 2 );
-ok( 'the id has a heading of its own, right after the name',
-	(bool) preg_match( '#<th>Name</th>\s*<th class="dze-objid-th">ID</th>#', $dze_b ), true );
-ok( 'and the cell under it is the row\'s own',
-	(bool) preg_match( '#<tr class="dze-tr-row" data-ref="[a-z]+:(\d+):[^"]*">[\s\S]*?</td>\s*<td class="dze-objid-td"><code class="dze-objid"[^>]*>\1</code></td>#', $dze_b ), true );
-ok( 'and says Open when nothing waits on it',
-	false !== strpos( $dze_b, '>Open<' ), true );
-// 5. AND IT IS A WAY TO THE ONE SCREEN, never a panel of its own: two
-// per-object surfaces is how two screens start disagreeing about one object.
-ok( 'the row is a way to the one translation screen',
-	substr_count( $dze_b, 'tab=batch&ref=term%3A7%3Aproduct_cat' ), 1 );
-ok( 'and no panel unfolds inside the list any more',
-	false !== strpos( $dze_b, 'class="dze-tr-panel"' ), false );
-// THE DASHBOARD NO LONGER UNFOLDS THE LIST UNDER ITSELF.
-$_GET = [ 'tab' => 'dashboard', 'scope' => 'term:product_cat' ];
-ob_start(); DZE_Translate::instance()->render_page(); $dze_d = (string) ob_get_clean();
-ok( 'the dashboard no longer unfolds the batch under itself',
-	false !== strpos( $dze_d, 'id="dze-tr-send"' ), false );
-ok( 'it sends you to the batch screen instead',
-	false !== strpos( $dze_d, 'tab=batch' ), true );
-// A ROW THAT HOLDS SOMETHING SAYS **REVIEW**, never Look — the same two words
-// the product bulk screen uses, read from what is actually stored.
-$GLOBALS['termmeta'][7]['_dze_tr_wait'] = wp_json_encode( [ 'at' => time(), 'langs' => [ 'fr' => [ 'name' => 'Cagoules' ] ], 'src' => [ 'name' => 'Balaclavas' ] ] );
-$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $GLOBALS['termmeta'][7]['_dze_tr_wait'] ] ];
-$_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat' ];
-ob_start(); DZE_Translate::instance()->render_page(); $dze_b2 = (string) ob_get_clean();
-ok( 'a row holding something says Review', false !== strpos( $dze_b2, '>Review<' ), true );
-ok( 'and the one beside it still says Open', false !== strpos( $dze_b2, '>Open<' ), true );
-unset( $GLOBALS['termmeta'][7]['_dze_tr_wait'] );
-$GLOBALS['wpdb']->waiting_terms = [];
-$_GET = [];
+$dze_scope_was = $GLOBALS['opts']['dze_translate_settings']['scope'] ?? null;
+$GLOBALS['opts']['dze_translate_settings']['scope'] = [ 'term:product_cat' ];
+$GLOBALS['loc'] = [];
+DZE_Translate::instance()->screen_assets( 'toplevel_page_' . DZE_Translate::MENU_SLUG );
+ob_start(); DZE_Translate::instance()->render_page(); $dze_s2 = (string) ob_get_clean();
+ok( 'Step 1 and Step 2, named as WPML names them',
+	[ false !== strpos( $dze_s2, 'Select items for translation' ), false !== strpos( $dze_s2, 'Translate your content' ) ], [ true, true ] );
+ok( 'Step 2 waits, hidden, until something is ticked',
+	false !== strpos( $dze_s2, '<section class="dze-trd-step2" id="dze-trd-step2" hidden>' ), true );
+ok( 'one row per target language',          substr_count( $dze_s2, 'class="dze-trd-method"' ), 2 );
+// A DEFAULT THAT SPENDS MUST BE A CHOICE, NEVER AN OVERSIGHT. « Je l'ai
+// envoyé seulement en RU » — five languages were ticked by default.
+ok( 'and not one is set to translate on its own',
+	(bool) preg_match( '#<option value="auto" selected#', $dze_s2 ), false );
+ok( 'each starts on « Do nothing »',
+	preg_match_all( '#<select class="dze-trd-method"[^>]*>\s*<option value="none">Do nothing</option>#', $dze_s2 ), 2 );
+ok( 'what is already translated is left alone unless asked',
+	false !== strpos( $dze_s2, 'value="leave" checked="checked"' ), true );
+ok( 'and a translation waits for review unless asked',
+	(bool) preg_match( '#<select id="dze-trd-review">\s*<option value="review">#', $dze_s2 ), true );
+ok( 'one button, which cannot be pressed before the choices are made',
+	substr_count( $dze_s2, 'id="dze-trd-send" disabled="disabled"' ), 1 );
+ok( 'the model that translates is named, with the way to change it',
+	false !== strpos( $dze_s2, 'Translation model:' ), true );
+ok( 'the page knows the languages, in the order of the columns',
+	$GLOBALS['loc']['dzeTrScreen']['langs'] ?? null, [ 'fr', 'de' ] );
+// THE ROWS: a tick box carrying the ref, the name, the id, the languages.
+ok( 'every row carries its ref in its tick box',
+	false !== strpos( $dze_s2, 'class="dze-trd-pick" value="term:7:product_cat"' ), true );
+ok( 'and its own id, in the column every list here wears',
+	(bool) preg_match( '#<td class="dze-objid-td"><code class="dze-objid"[^>]*>7</code></td>#', $dze_s2 ), true );
+// NOTHING ON ITS WAY: the line that says so is there, and hidden.
+ok( 'the background line is hidden while nothing is on its way',
+	false !== strpos( $dze_s2, 'id="dze-trd-progress" hidden' ), true );
+if ( null === $dze_scope_was ) { unset( $GLOBALS['opts']['dze_translate_settings']['scope'] ); } else { $GLOBALS['opts']['dze_translate_settings']['scope'] = $dze_scope_was; }
 
 echo "\nA FILTER THAT ANSWERS NOTHING IS NOT AN ANSWER — sixth time\n";
 // The site's own reading: "_dze_tr_wait : 0 ligne… Aucun article n'a de
@@ -1858,11 +1961,11 @@ ok( 'et il le dit plutot que de se taire', ! empty( $dze_bad['errors'] ), true )
 // marquerait tout le reste comme fait.
 $dze_src2 = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
 ok( 'une passe sur un bloc ne solde pas la langue',
-	false !== strpos( $dze_src2, "if ( ! \$all && '' === \$only ) {" ), true );
+	false !== strpos( $dze_src2, "if ( ! \$every && '' === \$only ) {" ), true );
 // ET ELLE SE FOND DANS CE QUI ATTEND au lieu de l ecraser : sinon un bloc
 // rejoue effacerait les autres champs deja traduits et en attente.
 ok( 'et elle se fond dans ce qui attend deja',
-	false !== strpos( $dze_src2, "\$keep[ \$lg ] = array_merge(" ), true );
+	false !== strpos( $dze_src2, "? array_merge( (array) ( \$keep[ \$lg ] ?? [] ), (array) \$fields )" ), true );
 
 echo "\nL APPEL SE RELIT SOUS LE BLOC QU IL A PRODUIT\n";
 // « J'aimerais voir les appels à l'IA par bloc. » Tout etait deja ecrit —
@@ -1942,7 +2045,7 @@ foreach ( [ 'WooCommerce Multilingual', 'Rebuild', 'variations —', 'Attribute 
 }
 // AND THE WAY BACK, because a screen you can only leave by the browser button
 // is a screen that traps you.
-ok( 'there is a way back to the list', false !== strpos( $dze_ed, 'Back to the list' ), true );
+ok( 'there is a way back to the dashboard', false !== strpos( $dze_ed, 'Back to the dashboard' ), true );
 // OPENED WITHOUT A LANGUAGE, IT OPENS ON THE ONE THAT NEEDS WORK.
 $GLOBALS['wpdb']->marks = [];
 $_GET = [ 'tab' => 'batch', 'ref' => 'post:700:product' ];
@@ -2534,83 +2637,254 @@ ok( 'et le corps n APPELLE pas le noyau',
 
 echo "\nACCEPTER SANS RELIRE, QUAND LA BOUTIQUE LE DEMANDE\n";
 // « Pas de choix d acceptation automatique. Il faut toujours tout review.
-// Il faut ce choix. » — La case vit sur l ecran d envoi et voyage avec la
-// demande : c est le geste qui decide, pas un reglage oublie ailleurs.
+// Il faut ce choix. » — Step 2 le pose, comme WPML : « What would you like to
+// do when the translation is finished? », et il voyage avec la demande.
 $dze_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
-ok( 'la demande porte le choix',
+ok( 'la demande de l editeur porte le choix',
 	false !== strpos( $dze_src, "\$sans_relire = ! empty( \$_POST['accept'] )" ), true );
-// ECRIT PAR LE MEME CHEMIN que l acceptation a la main : memes garde-fous,
-// meme reecriture des liens, meme journal. Un second chemin d ecriture est
-// un second endroit ou se tromper.
+// ECRIT PAR LE MEME CHEMIN que l acceptation a la main.
 ok( 'et il ecrit par accept()',
-	false !== strpos( $dze_src, '$ecrit = self::accept( $o, (array) $made["langs"] );' )
-	|| false !== strpos( $dze_src, "\$ecrit = self::accept( \$o, (array) \$made['langs'] );" ), true );
-// ET LA LIGNE DIT « ECRIT » PLUTOT QUE « EN ATTENTE », sinon elle envoie le
-// lecteur chercher une file vide.
-ok( 'le retour distingue ecrit et en attente',
-	false !== strpos( $dze_src, "'written' => \$pose" ), true );
+	false !== strpos( $dze_src, "\$ecrit = self::accept( \$o, (array) \$made['langs'] );" ), true );
+ok( 'la file aussi',
+	false !== strpos( $dze_src, "\$w = self::accept( \$o, (array) \$m['langs'] );" ), true );
 $dze_scr = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate-screen.php' );
-ok( 'la case est sur l ecran',
-	false !== strpos( $dze_scr, 'dze-tr-autoaccept' ), true );
-// DECOCHEE A CHAQUE OUVERTURE : une case qui se souvient d avoir ete cochee
-// un jour ecrit un jour ou on ne voulait plus.
-ok( 'et elle ne se souvient de rien',
-	1 === preg_match( '/id="dze-tr-autoaccept" \/>/', $dze_scr ), true );
+ok( 'le choix est sur l ecran, relecture d abord',
+	(bool) preg_match( '#<select id="dze-trd-review">\s*<option value="review">#', $dze_scr ), true );
 
-echo "\nLA FILE DEMANDEE SE VIDE TOUTE SEULE, EN ARRIERE-PLAN\n";
-// « Les traductions en bulk devraient s effectuer en background, je n en
-// suis pas sur, je n ai pas ose changer de page pendant le chargement. »
-//
-// C etait un aller-retour par objet et il fallait rester la. L ecran depose
-// maintenant en une requete et rend la main ; drain() travaille ensuite.
-$dze_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
+echo "\nLA FILE SE VIDE TOUTE SEULE, ET NE MEURT PAS EN SILENCE\n";
 ok( 'le moteur existe',               method_exists( 'DZE_Translate', 'drain' ), true );
 ok( 'et l ecran depose en une fois',  method_exists( 'DZE_Translate', 'ajax_queue' ), true );
 // LE PIEGE QUI AURAIT TOUT CASSE : WP-Cron ne tourne PAS en admin. Declare
 // apres le garde `is_admin()`, le crochet n existait pas au moment ou le
-// planificateur l appelait — la file se serait remplie sans jamais se
-// vider, en silence.
+// planificateur l appelait.
 $dze_pos_hook  = strpos( $dze_src, 'add_action( self::HOOK_DRAIN' );
 $dze_pos_garde = strpos( $dze_src, 'if ( ! is_admin() ) {' );
 ok( 'le crochet est pose AVANT le garde admin',
 	$dze_pos_hook !== false && $dze_pos_garde !== false && $dze_pos_hook < $dze_pos_garde, true );
-// IL SE REPROGRAMME A CHAQUE PASSAGE, sinon un lot de quarante sarreterait
-// au premier. Et il le fait AVANT de travailler : voir plus bas.
-ok( 'et il se reprogramme a chaque passage',
-	false !== strpos( $dze_src, 'self::kick_drain();' ), true );
-// UN OBJET QUI RESISTE NE FERME PAS LA FILE : trois passages sans rien
-// produire et il sort, sinon un seul texte impossible la bloque pour
-// toujours.
-ok( 'trois echecs et lobjet sort',
-	false !== strpos( $dze_src, 'if ( $essais >= 3 ) {' ), true );
-// UNE SEULE LANGUE PAR PASSAGE : un objet part dans cinq langues et chaque
-// langue est un appel dune minute. Le premier essai a depasse les cinq
-// cents secondes sur DEUX articles, tue, rien produit, rien dit.
-// AUTANT DE LANGUES QUE LE TEMPS EN PERMET : une par passage n etait pas un
-// choix mais une peur, et elle coutait huit minutes pour une page en cinq
-// langues, dont six a attendre le reveil suivant.
-ok( 'le passage travaille sur un budget de temps',
-	false !== strpos( $dze_src, 'self::DRAIN_BUDGET' ), true );
-ok( 'et une langue a la fois, mesuree',
-	false !== strpos( $dze_src, 'self::produce( $o, [ (string) $lang ] )' ), true );
 // LE RENDEZ-VOUS SUIVANT EST PRIS AVANT LE TRAVAIL : un passage qui meurt
-// n executerait jamais la ligne de fin, et la file sarreterait en silence.
-$dze_p_kick = strpos( $dze_src, 'self::kick_drain();', strpos( $dze_src, 'public static function drain' ) );
-$dze_p_work = strpos( $dze_src, 'self::produce( $o, [ (string) $lang ] )' );
+// n executerait jamais la ligne de fin, et la file s arreterait en silence.
+$dze_p_kick = strpos( $dze_src, 'self::kick_drain();', strpos( $dze_src, 'public static function drain(' ) );
+$dze_p_work = strpos( $dze_src, 'self::drain_round( $toutes )' );
 ok( 'le rendez-vous est pris avant le travail',
 	$dze_p_kick !== false && $dze_p_work !== false && $dze_p_kick < $dze_p_work, true );
-// ET UN VERROU EMPECHE DEUX PASSAGES DE SE CHEVAUCHER : sinon le meme objet
-// serait traduit deux fois et paye deux fois.
 ok( 'un seul passage a la fois',
 	false !== strpos( $dze_src, 'get_transient( self::LOCK_DRAIN )' ), true );
-// LE VERROU EXPIRE TOUT SEUL : un passage tue ne le rend jamais, et un
-// verrou coince est une file morte.
 ok( 'et le verrou expire tout seul',
-	false !== strpos( $dze_src, 'self::LOCK_DRAIN, time(), self::LOCK_LIFE' ), true );
-// ET « ECRIRE SANS RELIRE » VOYAGE AVEC LA DEMANDE, pas dans un reglage :
-// deposee aujourd hui, elle doit etre traitee comme on l a voulue.
-ok( 'le choix decriture voyage avec elle',
-	false !== strpos( $dze_src, "'accept' => \$accept ? 1 : 0" ), true );
+	false !== strpos( $dze_src, "self::LOCK_DRAIN, [ 't' => time(), 'refs' => [] ], self::LOCK_LIFE" ), true );
+ok( 'et il est rendu meme si le passage casse',
+	false !== strpos( $dze_src, "} finally {\n\t\t\tdelete_transient( self::LOCK_DRAIN );" ), true );
+
+echo "\nLA FILE GARDE CE QUI A ETE CHOISI, LANGUE PAR LANGUE\n";
+// « Je l'ai envoyé seulement en RU. » Ce qui part dans la file porte ses
+// langues, et une langue de plus rejoint la demande au lieu d'être perdue.
+// A SHOP THAT TRANSLATES ITS ARTICLES, in two languages.
+$GLOBALS['opts']['icl_sitepress_settings'] = [
+	'custom_posts_sync_option' => [ 'product' => 2, 'post' => 1, 'page' => 1 ],
+	'taxonomies_sync_option'   => [ 'product_cat' => 1 ],
+];
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
+$GLOBALS['tr'] = [];
+$GLOBALS['posts'][940] = [ 'type' => 'post', 'post_title' => 'Chest rig guide', 'post_content' => '<p>How to wear one.</p>', 'post_excerpt' => '' ];
+$GLOBALS['posts'][942] = [ 'type' => 'post', 'post_title' => 'Plate carrier sizes', 'post_content' => '<p>Measure the chest first.</p>', 'post_excerpt' => '' ];
+unset( $GLOBALS['meta'][940], $GLOBALS['meta'][942] );
+$o940 = DZE_Translate::obj( 'post', 940, 'post' );
+$o942 = DZE_Translate::obj( 'post', 942, 'post' );
+ok( 'a request is queued',                        DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] ), 1 );
+ok( 'asked twice stays asked once',               DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] ), 0 );
+ok( 'a language more joins the same request',     DZE_Translate::ask( [ $o940 ], false, [ 'de' ] ), 1 );
+ok( 'one request, two languages',
+	array_map( static fn( $e ) => $e['langs'], DZE_Translate::asked() ), [ [ 'fr', 'de' ] ] );
+ok( '« publish without review » is a request of its own', DZE_Translate::ask( [ $o940 ], true, [ 'fr' ] ), 1 );
+ok( 'so there are two',                           count( DZE_Translate::asked() ), 2 );
+ok( 'and each language says it is on its way',
+	array_keys( DZE_Translate::queued_map()['post:940:post'] ?? [] ), [ 'fr', 'de' ] );
+ok( 'one language taken back, from every request', DZE_Translate::cancel( 'post:940:post', 'fr' ), 2 );
+ok( 'the other stays',
+	array_keys( DZE_Translate::queued_map()['post:940:post'] ?? [] ), [ 'de' ] );
+ok( 'a request left with no language leaves the queue', count( DZE_Translate::asked() ), 1 );
+ok( 'the whole row taken back',                   DZE_Translate::cancel( 'post:940:post' ), 1 );
+ok( 'and the queue is empty',                     DZE_Translate::asked(), [] );
+// A REQUEST FROM BEFORE LANGUAGES WERE KEPT meant every language.
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post' ] ];
+ok( 'an old request means every language',        DZE_Translate::asked()[0]['langs'] ?? [], [ 'fr', 'de' ] );
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
+// ONLY FROM THE SOURCE LANGUAGE, whoever asks.
+ok( 'a translation is never queued to be translated',
+	DZE_Translate::ask( [ [ 'kind' => 'post', 'id' => 931, 'type' => 'post' ] ], false, [ 'de' ] ), 0 );
+
+echo "\nUNE LANGUE QUI ARRIVE PLUS TARD NE JETTE PAS CELLE D AVANT\n";
+// « De toutes les catégories que j'ai envoyées, je ne vois que Alien patches
+// DE sur la liste review. » Each language arrived on its own pass, and each
+// pass wrote over what was waiting: only the last one survived.
+$GLOBALS['model_answer_fn'] = static function ( $user ) {
+	preg_match_all( '/^### (\S+) /m', (string) $user, $m );
+	$out = [];
+	foreach ( $m[1] as $k ) { $out[ $k ] = '[' . $k . ']'; }
+	return (string) json_encode( $out );
+};
+$GLOBALS['calls'] = [];
+DZE_Translate::produce( $o940, [ 'fr' ] );
+DZE_Translate::produce( $o940, [ 'de' ] );
+ok( 'both languages wait for review',
+	array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr', 'de' ] );
+ok( 'each with its own text',
+	DZE_Translate::waiting( $o940 )['langs']['fr']['title'] ?? '', '[title]' );
+// And a language asked again replaces ITS OWN fields, nothing else.
+DZE_Translate::produce( $o940, [ 'de' ] );
+ok( 'asked again, a language replaces only itself',
+	array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr', 'de' ] );
+unset( $GLOBALS['meta'][940]['_dze_tr_wait'] );
+
+echo "\nEVERY LANGUAGE OF EVERY OBJECT LEAVES TOGETHER\n";
+// « Pourquoi prendre autant de temps quand on peut les traduire en même
+// temps ? Ça n'a aucun sens. » Two objects in two languages: one wave of four
+// calls, not four calls one after the other.
+$GLOBALS['waves'] = [];
+$GLOBALS['calls'] = [];
+$dze_set = DZE_Translate::produce_set( [
+	'a' => [ 'o' => $o940, 'langs' => [ 'fr', 'de' ] ],
+	'b' => [ 'o' => $o942, 'langs' => [ 'fr', 'de' ] ],
+] );
+ok( 'four calls, in one wave',                    $GLOBALS['waves'], [ 4 ] );
+ok( 'every language of both came back',
+	[ array_keys( $dze_set['a']['langs'] ), array_keys( $dze_set['b']['langs'] ) ], [ [ 'fr', 'de' ], [ 'fr', 'de' ] ] );
+ok( 'each object waits for review in both',
+	[ array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ) ],
+	[ [ 'fr', 'de' ], [ 'fr', 'de' ] ] );
+// A CALL THAT COMES BACK UNUSABLE IN THE WAVE IS NOT ASKED AGAIN WHOLE: it
+// was asked once already, so it goes straight to its halves.
+unset( $GLOBALS['meta'][940]['_dze_tr_wait'], $GLOBALS['meta'][942]['_dze_tr_wait'] );
+$GLOBALS['waves'] = [];
+$GLOBALS['calls'] = [];
+$dze_good = $GLOBALS['model_answer_fn'];
+$GLOBALS['model_answer_fn'] = static function ( $user ) use ( $dze_good ) {
+	// German answers rubbish when both fields travel together, and is fine
+	// one field at a time.
+	if ( false !== strpos( (string) $GLOBALS['last_system'], 'German' ) && substr_count( (string) $user, '### ' ) > 1 ) {
+		return 'not json';
+	}
+	return $dze_good( $user );
+};
+$dze_bad = DZE_Translate::produce_set( [ 'a' => [ 'o' => $o940, 'langs' => [ 'fr', 'de' ] ] ] );
+ok( 'the wave left together',                     $GLOBALS['waves'], [ 2 ] );
+ok( 'and the language that failed whole still arrives, field by field',
+	array_keys( $dze_bad['a']['langs']['de'] ?? [] ), [ 'title', 'content' ] );
+ok( 'for exactly two more calls — its halves, never the whole again', count( $GLOBALS['calls'] ), 4 );
+$GLOBALS['model_answer_fn'] = $dze_good;
+unset( $GLOBALS['meta'][940]['_dze_tr_wait'], $GLOBALS['meta'][942]['_dze_tr_wait'] );
+
+echo "\nWHAT A SELECTION WILL SEND, AND WHAT IT WILL COST\n";
+// Step 2 reads, per language, the words « Leave existing translations »
+// sends and the words « Overwrite » sends — never a multiplication of rows by
+// languages, which promised two hundred translations where twelve were owed.
+$GLOBALS['posts'][950] = [ 'type' => 'post', 'post_title' => 'Guide du chest rig', 'post_content' => '<p>Ancien.</p>', 'post_excerpt' => '' ];
+$GLOBALS['post_lang'][950] = 'fr';
+$GLOBALS['translated'][940]['fr'] = 950;
+DZE_Translate::remember( 950, [ 'title' => 'Chest rig guide', 'content' => '<p>How to wear it.</p>' ], $o940 );
+$GLOBALS['wpdb']->marks = [ [ 'src' => 940, 'lang' => 'fr', 'needs' => 1 ] ];
+$dze_w = DZE_Translate::words_for( [ 'post:940:post' ] )['post:940:post'] ?? [];
+ok( 'a missing language sends every word',        $dze_w['de']['o'] ?? null, 7 );
+ok( 'an outdated one only the words that moved',  $dze_w['fr']['o'] ?? null, 4 );
+ok( 'and says it is outdated',                    $dze_w['fr']['s'] ?? null, 'stale' );
+ok( '« Overwrite » sends every word',             $dze_w['fr']['a'] ?? null, 7 );
+ok( 'and every estimate costs something',
+	( $dze_w['de']['co'] ?? 0 ) > 0 && ( $dze_w['fr']['co'] ?? 0 ) > 0, true );
+ok( 'the whole text costs more than the part that moved',
+	( $dze_w['de']['co'] ?? 0 ) > ( $dze_w['fr']['co'] ?? 0 ), true );
+ok( 'and Cyrillic costs more than Latin for the same text',
+	DZE_Translate::cost_of( 1000, 'ru' ) > DZE_Translate::cost_of( 1000, 'fr' ), true );
+ok( 'words are counted as a reader counts them',  DZE_Translate::count_words( '<p>How to wear it — l\'arme, the M-4.</p>' ), 7 );
+
+echo "\nTRANSLATE CONTENT SENDS WHAT IS OWED, AND NEVER TWICE\n";
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
+$dze_r = DZE_Translate::send( [ $o940 ], [ 'fr', 'de' ], false, false );
+ok( 'what is owed goes',                          $dze_r['sent'], [ 'post:940:post' => [ 'fr', 'de' ] ] );
+ok( 'and the queue is woken',                     false !== wp_next_scheduled( DZE_Translate::HOOK_DRAIN ), true );
+$dze_r = DZE_Translate::send( [ $o940 ], [ 'fr', 'de' ], false, false );
+ok( 'what is already on its way is never sent twice', $dze_r['sent'], [] );
+// A COMPLETE TRANSLATION IS LEFT ALONE — unless « Overwrite » says otherwise.
+$GLOBALS['translated'][942]['fr'] = 951;
+$GLOBALS['posts'][951] = [ 'type' => 'post', 'post_title' => 'Tailles', 'post_content' => '<p>Mesurez.</p>', 'post_excerpt' => '' ];
+$GLOBALS['post_lang'][951] = 'fr';
+$GLOBALS['wpdb']->marks = [ [ 'src' => 940, 'lang' => 'fr', 'needs' => 1 ], [ 'src' => 942, 'lang' => 'fr', 'needs' => 0 ] ];
+$dze_r = DZE_Translate::send( [ $o942 ], [ 'fr' ], false, false );
+ok( 'a complete translation is left alone',       $dze_r['sent'], [] );
+$dze_r = DZE_Translate::send( [ $o942 ], [ 'fr' ], true, true );
+ok( 'unless « Overwrite » is chosen',             $dze_r['sent'], [ 'post:942:post' => [ 'fr' ] ] );
+$dze_last = array_values( array_filter( DZE_Translate::asked(), static fn( $e ) => 942 === (int) $e['id'] ) )[0] ?? [];
+ok( 'and the request carries both choices',       [ $dze_last['all'] ?? null, $dze_last['accept'] ?? null ], [ 1, 1 ] );
+
+echo "\nEACH LANGUAGE OF EACH ROW SAYS WHERE IT STANDS\n";
+$dze_st = DZE_Translate::row_states( [ $o940, $o942 ], [ 'fr', 'de' ] );
+ok( 'a language on its way turns',                $dze_st['post:940:post']['de']['show'] ?? null, 'queued' );
+ok( 'and keeps what WPML says underneath',        $dze_st['post:940:post']['fr']['base'] ?? null, 'stale' );
+set_transient( DZE_Translate::LOCK_DRAIN, [ 't' => time(), 'refs' => [ 'post:940:post' => [ 'fr' ] ] ] );
+$dze_st = DZE_Translate::row_states( [ $o940 ], [ 'fr', 'de' ] );
+ok( 'the one being translated right now says so', $dze_st['post:940:post']['fr']['show'] ?? null, 'running' );
+delete_transient( DZE_Translate::LOCK_DRAIN );
+$GLOBALS['opts'][ DZE_Translate::OPT_DRAIN_ERRORS ] = [ [ 'ref' => 'post:942:post', 'lang' => 'de', 'why' => 'Anthropic API error: Overloaded', 'at' => time() ] ];
+$dze_st = DZE_Translate::row_states( [ $o942 ], [ 'fr', 'de' ] );
+ok( 'a language that failed says so, with why',
+	[ $dze_st['post:942:post']['de']['show'] ?? null, $dze_st['post:942:post']['de']['why'] ?? null ], [ 'error', 'Anthropic API error: Overloaded' ] );
+$dze_cell = DZE_Translate::langs_cell( $o940, DZE_Translate::row_states( [ $o940 ], [ 'fr', 'de' ] ), [ 'fr', 'de' ] );
+ok( 'the wheel of a waiting language is the way to take it back',
+	(bool) preg_match( '#<button type="button" class="dze-trd-ico is-queued dze-trd-cancel" data-lang="de"[^>]*><span class="dze-trd-spin"#', $dze_cell ), true );
+$GLOBALS['opts'][ DZE_Translate::OPT_DRAIN_ERRORS ] = [];
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
+
+echo "\nTHE QUEUE EMPTIES ITSELF, SEVERAL OBJECTS AND LANGUAGES AT ONCE\n";
+// « Tout est traduit en background. » drain() takes a round from the head
+// of the queue, sends it in one wave, and each object leaves the queue
+// language by language as soon as its own are done.
+unset( $GLOBALS['translated'][940], $GLOBALS['translated'][942] );
+unset( $GLOBALS['meta'][940]['_dze_tr_wait'], $GLOBALS['meta'][942]['_dze_tr_wait'] );
+$GLOBALS['wpdb']->marks = [];
+$GLOBALS['waves'] = [];
+$GLOBALS['calls'] = [];
+DZE_Translate::ask( [ $o940, $o942 ], false, [ 'fr', 'de' ] );
+DZE_Translate::drain();
+ok( 'the queue is empty',                         DZE_Translate::asked(), [] );
+ok( 'every language of both left in one wave',    $GLOBALS['waves'], [ 4 ] );
+ok( 'and both wait for review in both languages',
+	[ array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ) ],
+	[ [ 'fr', 'de' ], [ 'fr', 'de' ] ] );
+ok( 'the lock is given back',                     get_transient( DZE_Translate::LOCK_DRAIN ), false );
+// A LANGUAGE ALREADY WAITING FOR A DECISION IS NEVER PAID FOR TWICE.
+$GLOBALS['calls'] = [];
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+ok( 'a language waiting for review is not translated again', count( $GLOBALS['calls'] ), 0 );
+ok( 'and the request that asked for it is closed', DZE_Translate::asked(), [] );
+// A LANGUAGE THAT FAILS STAYS, AND SAYS WHY; THREE PASSES AND IT LEAVES.
+unset( $GLOBALS['meta'][940]['_dze_tr_wait'] );
+$GLOBALS['model_answer_fn'] = static function () { throw new RuntimeException( 'Anthropic API error: Overloaded' ); };
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+ok( 'a language that failed stays in the queue',  array_keys( DZE_Translate::queued_map()['post:940:post'] ?? [] ), [ 'fr' ] );
+ok( 'and the reason is kept for the row',         DZE_Translate::drain_errors()['post:940:post']['fr'] ?? '', 'Anthropic API error: Overloaded' );
+ok( 'it is tried once per pass, not in a loop',   DZE_Translate::asked()[0]['tries'] ?? null, 1 );
+DZE_Translate::drain();
+DZE_Translate::drain();
+DZE_Translate::drain();
+ok( 'three passes with nothing and it leaves the queue', DZE_Translate::asked(), [] );
+$GLOBALS['model_answer_fn'] = $dze_good;
+// AND WHEN IT FINALLY COMES BACK, THE REASON GOES WITH IT.
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+ok( 'a language that succeeds clears its reason',  isset( DZE_Translate::drain_errors()['post:940:post']['fr'] ), false );
+// « PUBLISH WITHOUT REVIEW » WRITES, THROUGH THE SAME accept() AS A YES.
+unset( $GLOBALS['meta'][942]['_dze_tr_wait'] );
+$GLOBALS['translated'][942]['de'] = 952;
+$GLOBALS['posts'][952] = [ 'type' => 'post', 'post_title' => 'Größen', 'post_content' => '<p>Alt.</p>', 'post_excerpt' => '' ];
+$GLOBALS['post_lang'][952] = 'de';
+DZE_Translate::ask( [ $o942 ], true, [ 'de' ] );
+DZE_Translate::drain();
+ok( 'published without review, it is written',    (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), '[title]' );
+ok( 'and nothing waits for a decision in that language', isset( DZE_Translate::waiting( $o942 )['langs']['de'] ), false );
+unset( $GLOBALS['meta'][940]['_dze_tr_wait'], $GLOBALS['meta'][942]['_dze_tr_wait'] );
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
+$GLOBALS['opts'][ DZE_Translate::OPT_DRAIN_ERRORS ] = [];
+unset( $GLOBALS['model_answer_fn'] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

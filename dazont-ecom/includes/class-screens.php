@@ -96,7 +96,6 @@ final class DZE_Screens {
 				'module' => 'translate',
 				'tabs'   => [
 					'dashboard' => [ 'label' => __( 'Dashboard', 'dazont-ecom' ) ],
-					'batch'     => [ 'label' => __( 'Batch', 'dazont-ecom' ) ],
 					'review'    => [ 'label' => __( 'To review', 'dazont-ecom' ) ],
 					// CE QUI A ETE TRADUIT. « Comment voir le resultat des
 					// traductions, quelles pages ? » On ne pouvait pas : rien ne
