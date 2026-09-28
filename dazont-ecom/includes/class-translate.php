@@ -505,7 +505,7 @@ final class DZE_Translate {
 	 * @param array<int,array{kind:string,id:int,type:string}> $objets
 	 * @return int combien ont été mis en file.
 	 */
-	public static function ask( array $objets, bool $accept = false ): int {
+	public static function ask( array $objets, bool $accept = false, array $langs = [] ): int {
 		$file = (array) get_option( self::OPT_ASKED, [] );
 		$vu   = [];
 		foreach ( $file as $un ) {
@@ -521,6 +521,13 @@ final class DZE_Translate {
 				// reglage : deposee aujourd hui, elle doit etre traitee comme on
 				// l a voulue aujourd hui, meme si la case a change depuis.
 				'accept' => $accept ? 1 : 0,
+				// LES LANGUES COCHEES VOYAGENT AVEC LA DEMANDE.
+				//
+				// Elles etaient tout simplement perdues : l ecran les lisait, la
+				// file ne les gardait pas, et le moteur traduisait dans les CINQ
+				// langues du site. Une boutique qui voulait du russe payait cinq
+				// fois le prix et attendait cinq fois plus longtemps.
+				'langs'  => array_values( array_filter( array_map( 'sanitize_key', $langs ) ) ),
 			];
 			if ( $o['id'] < 1 ) {
 				continue;
@@ -659,12 +666,12 @@ final class DZE_Translate {
 			return;
 		}
 		set_transient( self::LOCK_DRAIN, time(), self::LOCK_LIFE );
-		$cibles = [];
 		$src    = (string) DZE_Wpml::default_language();
+		$toutes = [];
 		foreach ( DZE_Wpml::get_active_languages() as $l ) {
 			$code = (string) ( $l['code'] ?? '' );
 			if ( '' !== $code && $code !== $src ) {
-				$cibles[] = $code;
+				$toutes[] = $code;
 			}
 		}
 		// ON SE REPROGRAMME AVANT DE TRAVAILLER, PAS APRES.
@@ -684,6 +691,13 @@ final class DZE_Translate {
 		self::kick_drain();
 
 		$o = (array) reset( $reste );
+		// LES LANGUES QUE LA DEMANDE PORTAIT, et pas toutes celles du site :
+		// voir ask(). Une demande ancienne, d avant qu on les garde, vaut pour
+		// toutes — c est ce qu elle voulait dire a l epoque.
+		$cibles = array_values( array_intersect( $toutes, (array) ( $o['langs'] ?? [] ) ) );
+		if ( ! $cibles ) {
+			$cibles = $toutes;
+		}
 		// CE QUI ATTEND DÉJÀ UN OUI OU UN NON N EST PAS À REFAIRE.
 		//
 		// Le test portait sur l objet ENTIER : des qu une seule langue etait
@@ -4876,6 +4890,7 @@ final class DZE_Translate {
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- screen_guard() l'a vérifié.
 		$refs   = isset( $_POST['refs'] ) ? (array) wp_unslash( $_POST['refs'] ) : [];
 		$accept = ! empty( $_POST['accept'] );
+		$langs  = isset( $_POST['langs'] ) ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['langs'] ) ) : [];
 		// phpcs:enable
 		$objs = [];
 		foreach ( $refs as $ref ) {
@@ -4887,7 +4902,7 @@ final class DZE_Translate {
 		if ( ! $objs ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing was ticked that this site translates.', 'dazont-ecom' ) ] );
 		}
-		$n = self::ask( $objs, $accept );
+		$n = self::ask( $objs, $accept, $langs );
 		self::kick_drain();
 		wp_send_json_success( [
 			'queued'  => $n,
@@ -5215,6 +5230,8 @@ final class DZE_Translate {
 				// ECRIT, PAS EN ATTENTE : une ligne acceptee sans relecture ne
 				// doit pas envoyer le lecteur chercher une file vide.
 				'rowWritten' => __( 'written', 'dazont-ecom' ),
+				// Un geste qui ne dit rien est un geste qui n a pas marche.
+				'cleared'    => __( 'Selection emptied — %s row(s) unticked. The background queue is untouched.', 'dazont-ecom' ),
 				'stopped'    => __( 'Stopped.', 'dazont-ecom' ),
 			],
 		] );

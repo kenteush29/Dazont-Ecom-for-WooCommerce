@@ -79,10 +79,18 @@
 		return n;
 	}
 	$(document).on('click', '#dze-tr-clearkept', function () {
+		// UN GESTE QUI NE DIT RIEN EST UN GESTE QUI N'A PAS MARCHÉ.
+		//
+		// « Le nettoyage ne fonctionne pas. Clear the whole selection. 0
+		// réaction. » Il décochait pourtant bien — mais après un envoi les
+		// cases sont DÉJÀ vides, donc rien ne bougeait à l'écran. Et le mot
+		// « selection » se lisait comme « la file », qu'il ne touche pas.
+		var n = Object.keys(readKept()).length;
 		writeKept({});
 		$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
 		remember();
 		bill();
+		$('#dze-tr-sendstate').text(sprintf(i18n.cleared, n));
 	});
 
 	$(document).on('change', '#dze-tr-all', function () {
@@ -208,6 +216,10 @@
 		$('#dze-tr-sendstate').text(i18n.sending);
 		post('dze_tr_queue', {
 			refs: refs,
+			// LES LANGUES COCHEES PARTENT AVEC : sans elles le moteur traduisait
+			// dans les cinq langues du site, soit cinq fois le prix pour qui n en
+			// voulait qu une.
+			langs: $('.dze-tr-lang:checked').map(function () { return $(this).val(); }).get(),
 			accept: $('#dze-tr-autoaccept').prop('checked') ? 1 : 0
 		}).done(function (r) {
 			$btn.prop('disabled', false);

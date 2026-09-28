@@ -1172,7 +1172,7 @@ trait DZE_Translate_Screen {
 				. ' <span class="dze-tr-queuemsg description" style="margin-left:8px;"></span></p>',
 			esc_html__( 'Run one now', 'dazont-ecom' ),
 			$occupe ? ' disabled="disabled"' : '',
-			esc_html__( 'Empty the queue', 'dazont-ecom' )
+			esc_html__( 'Empty the queue — nothing will be translated', 'dazont-ecom' )
 		);
 		if ( $errs ) {
 			printf(
@@ -1232,7 +1232,7 @@ trait DZE_Translate_Screen {
 				<input type="checkbox" id="dze-tr-autoaccept" />
 				<?php esc_html_e( 'Write it straight away, without reviewing', 'dazont-ecom' ); ?>
 			</label>
-			<button type="button" class="button button-small" id="dze-tr-clearkept" title="<?php esc_attr_e( 'Forget what was ticked on the other pages too', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Clear the whole selection', 'dazont-ecom' ); ?></button>
+			<button type="button" class="button button-small" id="dze-tr-clearkept" title="<?php esc_attr_e( 'Unticks the rows kept from the other pages too. This does NOT touch the background queue — that has its own button below.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Untick everything, all pages', 'dazont-ecom' ); ?></button>
 			<span class="dze-cb-barsep"></span>
 			<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'review' ] ) ); ?>" title="<?php esc_attr_e( 'Everything that has come back and is waiting for a yes or a no, whatever kind of thing it is', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Read what came back', 'dazont-ecom' ); ?></a>
 		</p>
@@ -1263,7 +1263,14 @@ trait DZE_Translate_Screen {
 					<?php endif; ?>
 				</td></tr>
 			<?php endif; ?>
-			<?php foreach ( $objects as $o ) : ?>
+<?php
+			// CE QUI EST DEJA EN FILE, lu une fois pour toute la page.
+			$dze_enfile = [];
+			foreach ( self::asked() as $dze_un ) {
+				$dze_enfile[ self::ref( (array) $dze_un ) ] = (array) $dze_un;
+			}
+			?>
+						<?php foreach ( $objects as $o ) : ?>
 				<?php
 				$state   = self::state_of( $o, array_keys( $langs ), $marks );
 				// LES DEUX FILTRES, appliques a la ligne. Une langue demandee
@@ -1292,6 +1299,35 @@ trait DZE_Translate_Screen {
 					<td class="check-column"><input type="checkbox" class="dze-tr-pickone" <?php checked( (bool) $only ); ?> /></td>
 					<td>
 						<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( self::obj_label( $o ) ); ?></strong></a>
+						<?php
+						// EN FILE, ET LA LIGNE LE DIT.
+						//
+						// « S'il y a une liste d'attente, où est-elle ? Je ne la vois
+						// même pas. Et si certains posts sont dedans, ça devrait être
+						// marqué directement dans le module, le statut. »
+						//
+						// Il avait cent soixante-quatorze objets en file et la liste
+						// n'en montrait aucun signe : rien ne distinguait une ligne
+						// déjà envoyée d'une ligne qu'on n'a jamais touchée. On
+						// renvoie donc deux fois la même, et on croit que rien ne
+						// part.
+						if ( isset( $dze_enfile[ $dze_ref ] ) ) :
+							$dze_l = (array) ( $dze_enfile[ $dze_ref ]['langs'] ?? [] );
+							?>
+							<span class="dze-tr-chip is-queued" style="background:#f0f6fc;border:1px solid #c5d9ed;color:#1d4b7d;"
+								title="<?php echo esc_attr( $dze_l
+									? sprintf(
+										/* translators: %s: the languages asked for */
+										__( 'Waiting in the background queue for %s. Nothing to do: it arrives under To review on its own.', 'dazont-ecom' ),
+										strtoupper( implode( ', ', $dze_l ) )
+									)
+									: __( 'Waiting in the background queue. Nothing to do: it arrives under To review on its own.', 'dazont-ecom' ) ); ?>">
+								<?php esc_html_e( 'in the queue', 'dazont-ecom' ); ?>
+								<?php if ( $dze_l ) : ?>
+									<?php echo esc_html( strtoupper( implode( ' ', $dze_l ) ) ); ?>
+								<?php endif; ?>
+							</span>
+						<?php endif; ?>
 					</td>
 					<?php echo wp_kses_post( DZE_Hub::id_td( (int) $o['id'] ) ); ?>
 					<td class="dze-tr-state" style="white-space:nowrap;">
