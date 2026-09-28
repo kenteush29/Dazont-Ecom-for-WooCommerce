@@ -1983,6 +1983,19 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 }
 .dze-trd-global label { font-weight: 400; }
 .dze-trd-global select { min-width: 130px; }
+/* THE FILTERS STAY ON ONE LINE. Every select and text box of this plugin's
+   screens is forced to full width (the rule at the top of this sheet, with
+   !important), which stacked WPML's filter bar into five lines taking half
+   the screen — exactly the « filtres empilés » the owner had already sent
+   back once. On this dashboard the controls size to their words. */
+.dze-admin .dze-trd-global select, .dze-admin .dze-trd-secfilters select, .dze-admin .dze-trd-pager select,
+.dze-admin .dze-trd-pairs select, .dze-admin .dze-trd-reviewbox select {
+	width: auto !important; max-width: 300px !important; display: inline-block; margin: 0; vertical-align: middle;
+}
+.dze-admin .dze-trd-secfilters input[type="search"] { width: 240px !important; display: inline-block; margin: 0; }
+.dze-admin .dze-trd-global label, .dze-admin .dze-trd-secfilters label, .dze-admin .dze-trd-perlab {
+	display: inline-flex; align-items: center; gap: 6px; margin: 0; width: auto;
+}
 .dze-trd-clear { display: inline-flex; align-items: center; gap: 2px; color: #b32d2e; text-decoration: none; }
 .dze-trd-clear .dashicons { font-size: 18px; width: 18px; height: 18px; }
 .dze-trd-grow { flex: 1 1 auto; }
