@@ -1148,6 +1148,16 @@ trait DZE_Translate_Screen {
 			// « Unselect all » ne decoche que la page affichee — ce qui est juste
 			// — donc il faut une porte de sortie pour tout ce qui a ete coche
 			// ailleurs, sinon un envoi part sur des lignes qu on ne voit plus. ?>
+			<?php // ACCEPTER SANS RELIRE. « Pas de choix d acceptation
+			// automatique, il faut toujours tout review. Il faut ce choix. »
+			//
+			// Decochee par defaut, et elle le reste a chaque ouverture : une case
+			// qui se souvient d avoir ete cochee un jour ecrit un jour ou on ne
+			// voulait plus. Le mot dit la consequence, pas le mecanisme. ?>
+			<label style="margin-left:10px;" title="<?php esc_attr_e( 'What comes back is written straight onto the site instead of waiting under To review. The undo is the translation screen of each object.', 'dazont-ecom' ); ?>">
+				<input type="checkbox" id="dze-tr-autoaccept" />
+				<?php esc_html_e( 'Write it straight away, without reviewing', 'dazont-ecom' ); ?>
+			</label>
 			<button type="button" class="button button-small" id="dze-tr-clearkept" title="<?php esc_attr_e( 'Forget what was ticked on the other pages too', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Clear the whole selection', 'dazont-ecom' ); ?></button>
 			<span class="dze-cb-barsep"></span>
 			<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'review' ] ) ); ?>" title="<?php esc_attr_e( 'Everything that has come back and is waiting for a yes or a no, whatever kind of thing it is', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Read what came back', 'dazont-ecom' ); ?></a>

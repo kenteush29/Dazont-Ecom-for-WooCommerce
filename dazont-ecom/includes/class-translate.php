@@ -4610,8 +4610,28 @@ final class DZE_Translate {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() checked it.
 		$only = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
 		$made = self::produce( $o, $langs, $all, $only );
+		// ACCEPTER SANS RELIRE, QUAND LA BOUTIQUE LE DEMANDE.
+		//
+		// « Pas de choix d acceptation automatique. Il faut toujours tout
+		// review. Il faut ce choix. »
+		//
+		// La case vit sur l ecran d envoi et voyage avec la demande : c est le
+		// geste qui decide, pas un reglage oublie ailleurs. Ce qui est ecrit
+		// l est par le MEME chemin que l acceptation a la main — donc les
+		// memes garde-fous, la meme reecriture des liens, le meme journal.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() l a verifie.
+		$sans_relire = ! empty( $_POST['accept'] );
+		$pose = [];
+		if ( $sans_relire && ! empty( $made['langs'] ) ) {
+			$ecrit = self::accept( $o, (array) $made['langs'] );
+			$pose  = array_keys( (array) ( $ecrit['written'] ?? [] ) );
+		}
 		wp_send_json_success( [
 			'label'   => self::obj_label( $o ),
+			// CE QUI A ETE ECRIT SANS PASSER PAR LA RELECTURE : l ecran doit
+			// pouvoir dire « ecrit » plutot que « en attente », sinon il envoie
+			// le lecteur chercher une file vide.
+			'written' => $pose,
 			'done'    => array_keys( $made['langs'] ),
 			// WHAT IT ACTUALLY WROTE, so the screen that asked can show it
 			// without a second round trip.
@@ -4865,6 +4885,9 @@ final class DZE_Translate {
 				// etaient dues, et une langue deja a jour ne coute rien.
 				'bill'       => __( '%1$s ticked × %2$s language(s) — %3$s translations are actually owed. What is already up to date is left alone.', 'dazont-ecom' ),
 				'billNone'   => __( 'Nothing ticked.', 'dazont-ecom' ),
+				// ECRIT, PAS EN ATTENTE : une ligne acceptee sans relecture ne
+				// doit pas envoyer le lecteur chercher une file vide.
+				'rowWritten' => __( 'written', 'dazont-ecom' ),
 				'stopped'    => __( 'Stopped.', 'dazont-ecom' ),
 			],
 		] );

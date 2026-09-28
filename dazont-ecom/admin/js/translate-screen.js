@@ -153,7 +153,7 @@
 		if (!ref || !lang) { $b.prop('disabled', false); return; }
 		var was = $b.html();
 		$b.html(esc(i18n.sending));
-		post('dze_tr_batch', { ref: ref, langs: [lang] }).done(function (r) {
+		post('dze_tr_batch', { ref: ref, langs: [lang], accept: $('#dze-tr-autoaccept').prop('checked') ? 1 : 0 }).done(function (r) {
 			if (r && r.success) {
 				var n = (r.data.done || []).length;
 				$b.replaceWith('<span class="dze-tr-chip is-' + (n ? 'held' : 'done') + '">' +
@@ -228,12 +228,16 @@
 				return;
 			}
 			var ref = refs.shift();
-			post('dze_tr_batch', { ref: ref, langs: langs }).done(function (r) {
+			post('dze_tr_batch', { ref: ref, langs: langs, accept: $('#dze-tr-autoaccept').prop('checked') ? 1 : 0 }).done(function (r) {
 				done++;
 				if (r && r.success) {
 					var n = (r.data.done || []).length;
-					if (n) { spent++; waiting++; }
-					mark(ref, n ? 'held' : 'done', n ? i18n.rowHeld : i18n.rowNothing);
+					// ECRIT OU EN ATTENTE : la case « sans relire » change ce que
+					// la ligne annonce, sinon elle renvoie vers une file vide.
+					var wrote = (r.data.written || []).length;
+					if (n) { spent++; if (!wrote) { waiting++; } }
+					mark(ref, wrote ? 'done' : (n ? 'held' : 'done'),
+						wrote ? i18n.rowWritten : (n ? i18n.rowHeld : i18n.rowNothing));
 					// AND THE ROW'S OWN BUTTON SAYS WHAT IT NOW OPENS ON: Look
 					// for the object as it stands, Review once there is work
 					// waiting for a decision. A screen that reacts to its own

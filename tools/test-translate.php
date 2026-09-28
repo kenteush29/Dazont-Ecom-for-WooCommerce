@@ -2524,6 +2524,31 @@ $dze_code = implode( "\n", array_filter( explode( "\n", $dze_corps ),
 ok( 'et le corps n APPELLE pas le noyau',
 	'' !== $dze_code && false === strpos( $dze_code, 'wp_update_term(' ), true );
 
+echo "\nACCEPTER SANS RELIRE, QUAND LA BOUTIQUE LE DEMANDE\n";
+// « Pas de choix d acceptation automatique. Il faut toujours tout review.
+// Il faut ce choix. » — La case vit sur l ecran d envoi et voyage avec la
+// demande : c est le geste qui decide, pas un reglage oublie ailleurs.
+$dze_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
+ok( 'la demande porte le choix',
+	false !== strpos( $dze_src, "\$sans_relire = ! empty( \$_POST['accept'] )" ), true );
+// ECRIT PAR LE MEME CHEMIN que l acceptation a la main : memes garde-fous,
+// meme reecriture des liens, meme journal. Un second chemin d ecriture est
+// un second endroit ou se tromper.
+ok( 'et il ecrit par accept()',
+	false !== strpos( $dze_src, '$ecrit = self::accept( $o, (array) $made["langs"] );' )
+	|| false !== strpos( $dze_src, "\$ecrit = self::accept( \$o, (array) \$made['langs'] );" ), true );
+// ET LA LIGNE DIT « ECRIT » PLUTOT QUE « EN ATTENTE », sinon elle envoie le
+// lecteur chercher une file vide.
+ok( 'le retour distingue ecrit et en attente',
+	false !== strpos( $dze_src, "'written' => \$pose" ), true );
+$dze_scr = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate-screen.php' );
+ok( 'la case est sur l ecran',
+	false !== strpos( $dze_scr, 'dze-tr-autoaccept' ), true );
+// DECOCHEE A CHAQUE OUVERTURE : une case qui se souvient d avoir ete cochee
+// un jour ecrit un jour ou on ne voulait plus.
+ok( 'et elle ne se souvient de rien',
+	1 === preg_match( '/id="dze-tr-autoaccept" \/>/', $dze_scr ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 
