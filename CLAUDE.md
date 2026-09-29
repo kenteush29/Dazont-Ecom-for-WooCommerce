@@ -216,6 +216,30 @@ A function added to one of these screens is added to the shape, so it arrives
 on the others. A function that cannot be expressed in the shape is a function
 whose screen has not been thought through yet.
 
+**THE WPML TRANSLATIONS SCREEN IS THE MODEL FOR EVERY WORK SCREEN** — "les
+menus du module traduction WPML devraient servir de modèle, c'est très bien
+fait" (4.499.0):
+- The frame is `<div class="wrap dze-wrap">` with the `<h1>` taken from
+  `DZE_Screens::label()`. Never type a page title, a tab label or a screen
+  name: the catalogue names them ("Product recommendations" under a
+  "Recommendations" entry, a bulk action sending people to "Products AI bulk"
+  long after the rename).
+- The « Runs by itself » switch comes first, under the title and before the
+  tabs, on the work tab only. Printed by a controller before its view
+  `require`, it lands ABOVE the title and outside `.wrap` (Marketing did).
+- Tabs come from `DZE_Screens::tabs_of()` and are drawn by
+  `DZE_Screens::strip()`. A badge means « act on me »: only a to-do count
+  gets one, and nought prints an EMPTY `.dze-tab-n`, hidden by CSS, kept for
+  the scripts that update it live. "Done" and "Fixed" carry none.
+- One filter row, the translations' `.dze-trd-global` (selects that size to
+  their words, a Filter button, a « Clear filters » link). The list opens on
+  the work, not on everything.
+- Languages are WPML's flags (`DZE_Wpml::flag_html()` / `flag_only()`),
+  never « FR · DE » as text. Their styles live in `content.css`, the sheet
+  every screen loads.
+- The explanation goes UNDER the table, folded when long. Above the work
+  there is nothing but the switch, the tabs and the filters.
+
 ## Traps learned the hard way
 
 - **NETLINKING TARGETS ARE PRODUCT CATEGORIES, AND NOTHING ELSE** (4.498.0).

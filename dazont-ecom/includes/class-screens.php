@@ -539,7 +539,10 @@ final class DZE_Screens {
 				$att, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built and escaped above.
 				esc_url( (string) ( $one['url'] ?? '' ) ),
 				esc_html( (string) ( $one['label'] ?? $id ) ),
-				null === $n ? '' : ' <span class="dze-tab-n">' . esc_html( number_format_i18n( (int) $n ) ) . '</span>'
+				// A BADGE MEANS « ACT ON ME », AND NOUGHT IS NOT THAT. « To review 0 »
+				// sat on the model screen itself. The span stays, EMPTY, because the
+				// Diagnostic and the translations keep their figures live in it.
+				null === $n ? '' : ' <span class="dze-tab-n">' . ( (int) $n > 0 ? esc_html( number_format_i18n( (int) $n ) ) : '' ) . '</span>'
 			);
 		}
 		return $out . '</h2>';

@@ -30,6 +30,9 @@ $klav_on    = null !== $klav;
 	<hr class="wp-header-end" />
 
 	<?php
+	if ( ! empty( $show_switch ) ) {
+		DZE_Automation::panel_form( [ 'events' ], __( 'Runs by itself', 'dazont-ecom' ) );
+	}
 	if ( ! empty( $events_tabs ) ) {
 		echo $events_tabs; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from esc_* internally.
 	}
@@ -158,7 +161,10 @@ $klav_on    = null !== $klav;
 						echo '<span style="color:#999;">—</span>';
 					} else {
 						foreach ( $flags as $lang ) {
-							if ( ! empty( $lang['flag'] ) ) {
+							// WPML'S OWN FLAG, drawn as everywhere else in the plugin.
+							if ( class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'flag_html' ) && ! empty( $lang['code'] ) ) {
+								echo wp_kses_post( DZE_Wpml::flag_html( (string) $lang['code'] ) ) . ' ';
+							} elseif ( ! empty( $lang['flag'] ) ) {
 								printf(
 									'<img src="%1$s" alt="%2$s" title="%2$s" style="width:18px;height:12px;margin-right:3px;vertical-align:middle;border:1px solid #eee;" />',
 									esc_url( $lang['flag'] ),

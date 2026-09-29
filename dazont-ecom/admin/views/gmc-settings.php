@@ -216,7 +216,7 @@ foreach ( $languages as $l ) {
 				$label    = $is_lang ? ( $lang_names[ $key ] ?? strtoupper( $key ) ) : __( 'Default (no WPML)', 'dazont-ecom' );
 			?>
 			<tr>
-				<th scope="row"><?php echo esc_html( $label ); ?><?php echo $is_lang ? ' <code>' . esc_html( $key ) . '</code>' : ''; ?></th>
+				<th scope="row"><?php echo $is_lang && class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'flag_html' ) ? wp_kses_post( DZE_Wpml::flag_html( (string) $key ) ) . ' ' : ''; ?><?php echo esc_html( $label ); ?></th>
 				<td>
 					<label><?php esc_html_e( 'Merchant ID', 'dazont-ecom' ); ?>
 						<input type="text" id="dze-mid-<?php echo esc_attr( $key ); ?>" name="<?php echo esc_attr( DZE_Gmc::OPT_ACCOUNTS . '[' . $key . '][merchant_id]' ); ?>" value="<?php echo esc_attr( $acc['merchant_id'] ?? '' ); ?>" class="regular-text" placeholder="e.g. 123456789" />
