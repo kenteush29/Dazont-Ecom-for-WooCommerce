@@ -1132,6 +1132,10 @@ final class DZE_Automation {
 			// plus rien — ou au plafond : chercher sans fin coute autant que ne
 			// pas chercher.
 			$per   = max( 1, $n ) * 5;
+			// WHAT WAS SENT BY HAND IS NOT THIS PASS'S TO TRANSLATE. An object in
+			// the dashboard's queue — waiting its batch, or with Anthropic right
+			// now — translated here as well is the same language paid for twice.
+			$en_file = class_exists( 'DZE_Translate' ) && method_exists( 'DZE_Translate', 'queued_map' ) ? DZE_Translate::queued_map() : [];
 			$paged = 0;
 			$max   = 6; // six pages de cinq fois la demande, et pas le catalogue.
 			while ( ++$paged <= $max && count( $out ) < $n ) {
@@ -1153,6 +1157,9 @@ final class DZE_Automation {
 					// same store, and the one somebody has not read yet is gone.
 					if ( DZE_Translate::waiting( $o ) ) {
 						self::$held['waiting']++;
+						continue;
+					}
+					if ( isset( $en_file[ DZE_Translate::ref( $o ) ] ) ) {
 						continue;
 					}
 					// LE FOURRE-TOUT D UNE TAXONOMIE N EST PAS DU TEXTE CLIENT.

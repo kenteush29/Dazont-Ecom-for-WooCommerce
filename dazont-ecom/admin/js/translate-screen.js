@@ -388,7 +388,7 @@
 	});
 
 	// ---- In the background: the wheels, and where they stand -------------
-	var polling = null, kicking = false, queue = null;
+	var polling = null, kicking = false, queue = null, lastKick = 0;
 	function turning() {
 		var out = [];
 		$dash.find('.dze-trd-row').each(function () {
@@ -429,10 +429,17 @@
 		$('#dze-trd-progn').text(q.n === 1 ? i18n.oneProgress : sprintf(i18n.nProgress, num(q.n)));
 		$('#dze-trd-failed').prop('hidden', !q.errors);
 		if (q.errors) { $('#dze-trd-failedsaid').text(sprintf(i18n.failed, num(q.errors), q.last || '')); }
-		// A PASS THAT WAITS FOR NOBODY. Work is waiting and nothing runs: the
-		// page starts one. The lock on the server makes a second one harmless.
-		if (q.n && !q.busy && !kicking) {
+		// PAUSED, AND WHY, when no text is to blame.
+		$('#dze-trd-stop').prop('hidden', !q.stop);
+		$('#dze-trd-stopsaid').text(q.stop || '');
+		// A STEP THAT WAITS FOR NOBODY. Work is waiting and nothing runs: the
+		// page asks for one — a few seconds that send, check and write, never a
+		// translation made inside the page. One at a time, and not more than
+		// every twenty seconds: the work itself is with Anthropic.
+		var now = Date.now();
+		if (q.n && !q.busy && !kicking && now - lastKick > 20000) {
 			kicking = true;
+			lastKick = now;
 			post('dze_tr_runqueue', {}).always(function () { kicking = false; });
 		}
 	}
@@ -447,6 +454,9 @@
 			cells[ref] = r.data.cell || '';
 			land(cells);
 			queueSaid(r.data.queue);
+			// WHAT HAPPENED IS SAID: taken out and nothing spent, or already with
+			// Anthropic and on its way to « To review ».
+			pageSaid(r.data.message);
 		}).fail(function () {
 			$b.prop('disabled', false);
 			window.alert(i18n.error);
@@ -455,11 +465,24 @@
 	$(document).on('click', '#dze-trd-cancelall', function () {
 		if (!window.confirm(i18n.cancelAllAsk)) { return; }
 		var $b = $(this).prop('disabled', true);
-		post('dze_tr_emptyqueue', {}).always(function () {
+		post('dze_tr_emptyqueue', {}).done(function (r) {
+			if (r && r.success) { pageSaid(r.data.message); }
+		}).always(function () {
 			$b.prop('disabled', false);
 			refresh(turning());
 		});
 	});
+	// ONE LINE UNDER THE PROGRESS NOTICE, for what a press on the queue did.
+	function pageSaid(text) {
+		if (!text) { return; }
+		var $p = $('#dze-trd-said');
+		if (!$p.length) {
+			$p = $('<div class="notice notice-info inline" id="dze-trd-said"><p></p></div>');
+			var $at = $('#dze-trd-progress');
+			if ($at.length) { $at.after($p); } else { $dash.prepend($p); }
+		}
+		$p.prop('hidden', false).find('p').text(text);
+	}
 
 	$(function () {
 		$dash = $('#dze-trd');
@@ -574,6 +597,7 @@
 				$e.find('.dze-tr-moved').remove();
 				// What is on screen is now what the translation holds.
 				$e.find('.dze-tr-new').each(function () { $(this).attr('data-was', $(this).val()); });
+				nextSaid(r.data.next || [], String($e.data('ref')));
 				// THE STATE LINE IS THE LAST THING TO CHANGE, so it is a
 				// truthful signal that the press is finished: set first, a gate
 				// waiting on it reads a screen still working — and passes by
@@ -587,9 +611,13 @@
 	$(document).on('click', '#dze-tr-drop, .dze-tr-refuse', function () {
 		var $e = editor();
 		var ref = $e.length ? $e.data('ref') : $(this).closest('tr[data-ref]').data('ref');
-		if (!ref || !window.confirm(i18n.confirmNo)) { return; }
+		// FROM THE PAGE OF ONE LANGUAGE, THAT LANGUAGE ONLY. The list's own
+		// Discard throws the row away; this one threw away five languages for
+		// one press.
+		var lang = $e.length ? String($e.data('lang') || '') : '';
+		if (!ref || !window.confirm(lang ? (i18n.confirmNoLang || i18n.confirmNo) : i18n.confirmNo)) { return; }
 		var $st = $('#dze-tr-publishstate');
-		post('dze_tr_decide', { ref: ref, how: 'refuse' })
+		post('dze_tr_decide', { ref: ref, how: 'refuse', lang: lang })
 			.done(function (r) {
 				if (!r || !r.success) { window.alert(said(r)); return; }
 				if ($e.length) {
@@ -598,10 +626,49 @@
 					// today comes back into every field.
 					$e.find('.dze-tr-new').each(function () { $(this).val(String($(this).attr('data-was') || '')); });
 					$st.text(i18n.dropped);
+					nextSaid(r.data.next || [], String(ref));
 					return;
 				}
 				$('tr[data-ref="' + ref + '"]').remove();
 			});
+	});
+
+	// WHAT IS STILL WAITING ON THIS OBJECT, AND THE WAY TO IT.
+	//
+	// « Traduction dans review > accepté mais toujours là. » The Russian was
+	// written; Polish, French, German and Spanish were still waiting, and
+	// nothing on the page said so or led to them. Now the page says which,
+	// opens the next one in a click, or writes them all as they came.
+	function nextSaid(next, ref) {
+		var $box = $('#dze-tr-nextbox');
+		if (!$box.length) { return; }
+		var $p = $box.find('p').empty();
+		if (!next.length) {
+			$p.append($('<strong/>').text(i18n.allWritten || ''), ' ',
+				$('<a/>').attr('href', cfg.reviewUrl || '#').text(i18n.backToList || ''));
+			$box.prop('hidden', false);
+			return;
+		}
+		var names = next.map(function (n) { return n.name; }).join(', ');
+		$p.append($('<span/>').text(sprintf(i18n.stillWaiting || '%s', names)), ' ');
+		if (next[0].url) {
+			$p.append($('<a class="button button-primary"/>').attr('href', next[0].url).text(sprintf(i18n.reviewNext || '%s', next[0].name)), ' ');
+		}
+		$p.append($('<button type="button" class="button dze-tr-acceptrest"/>').attr('data-ref', ref).text(sprintf(i18n.acceptRest || '%s', next.length)));
+		$box.prop('hidden', false);
+	}
+	// THE REST, AS IT CAME — exactly what « Accept » on the list writes.
+	$(document).on('click', '.dze-tr-acceptrest', function () {
+		var $b = $(this).prop('disabled', true);
+		var ref = String($b.data('ref'));
+		post('dze_tr_accept_all', { refs: [ref] })
+			.done(function (r) {
+				if (!r || !r.success) { $b.prop('disabled', false); window.alert(said(r)); return; }
+				var d = r.data || {};
+				if ((d.errors || []).length) { $b.prop('disabled', false); window.alert(d.errors.join('\n')); return; }
+				nextSaid([], ref);
+			})
+			.fail(function () { $b.prop('disabled', false); window.alert(i18n.error); });
 	});
 
 	// COPY FROM THE ORIGINAL — WPML puts this button between the two boxes and
@@ -696,6 +763,28 @@
 			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
 	}
 	$(document).on('click', '#dze-tr-acceptsel', function () { acceptMany(pickedRefs()); });
+	$(document).on('click', '.dze-tr-acceptrow', function () {
+		var $b = $(this).prop('disabled', true);
+		var $row = $b.closest('tr[data-ref]');
+		var ref = String($row.data('ref'));
+		var $st = $('#dze-tr-allstate').removeClass('is-ko').text(i18n.allSending);
+		post('dze_tr_accept_all', { refs: [ref] })
+			.done(function (r) {
+				if (!r || !r.success) { $b.prop('disabled', false); $st.addClass('is-ko').text(said(r)); return; }
+				var d = r.data || {};
+				if ((d.errors || []).length) {
+					$b.prop('disabled', false);
+					$st.addClass('is-ko').text(d.errors.join(' · '));
+					return;
+				}
+				// WRITTEN: THE ROW LEAVES THE LIST, and the page says how many are left.
+				$row.next('.dze-tr-peekrow').remove();
+				$row.remove();
+				$st.text(sprintf(i18n.rowDone || '%s', num(d.left || 0)));
+				syncBulk();
+			})
+			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
+	});
 
 	// REFUSER EN GROUPE. « Il manque le bouton Discard. » Accepter sept lignes
 	// coutait une presse et en refuser sept en coutait sept : une liste dont

@@ -613,20 +613,26 @@ trait DZE_Translate_Screen {
 	 * aucun intérêt d'y aller. » The rows show it language by language; this
 	 * says how many, and offers the two things worth doing about it.
 	 *
-	 * @return array{n:int,busy:bool,errors:int,last:string,review:int}
+	 * @return array{n:int,busy:bool,sent:int,stop:string,errors:int,last:string,review:int}
 	 */
 	public static function queue_said(): array {
 		$refs = [];
+		$sent = 0;
 		foreach ( self::asked() as $e ) {
 			$refs[ self::ref( $e ) ] = true;
-		}
-		foreach ( array_keys( self::running() ) as $r ) {
-			$refs[ (string) $r ] = true;
+			$sent += count( array_intersect( $e['langs'], array_keys( (array) $e['sent'] ) ) );
 		}
 		$errs = self::drain_log();
+		$stop = self::stop_said();
 		return [
 			'n'      => count( $refs ),
-			'busy'   => (bool) get_transient( self::LOCK_DRAIN ),
+			// A STEP IS RUNNING RIGHT NOW — read from the lock MySQL holds, so a
+			// step that died no longer reads as busy for a quarter of an hour.
+			'busy'   => self::held( 'tick' ),
+			// How many languages are with Anthropic, being translated there.
+			'sent'   => $sent,
+			// Why the queue is paused, when no text is to blame.
+			'stop'   => (string) ( $stop['why'] ?? '' ),
 			'errors' => count( $errs ),
 			'last'   => (string) ( $errs[0]['why'] ?? '' ),
 			'review' => self::review_count(),
@@ -646,11 +652,26 @@ trait DZE_Translate_Screen {
 						number_format_i18n( (int) $q['n'] )
 					) );
 				?></strong>
-				<?php esc_html_e( 'You can leave this page: each language appears on its row as soon as it is done.', 'dazont-ecom' ); ?>
+				<?php
+				// WHERE THE WORK IS, AND HOW LONG IT TAKES. It is with Anthropic,
+				// in one batch at half price — the page only sends it and comes
+				// back for it, which is why nothing can cut it any more.
+				esc_html_e( 'It is translated by Anthropic in one batch, at half price: usually within minutes, at most 24 hours. You can leave this page — each language appears on its row as soon as it is done.', 'dazont-ecom' );
+				?>
 				<a href="<?php echo esc_url( self::url( [ 'tstatus' => 'progress' ] ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
 				&middot;
 				<button type="button" class="button-link dze-trd-cancelall" id="dze-trd-cancelall"><?php esc_html_e( 'Cancel all', 'dazont-ecom' ); ?></button>
 			</p>
+		</div>
+		<?php
+		// PAUSED, AND WHY — when it is not the fault of any text: the month's
+		// budget reached, the key missing, Anthropic refusing the batch.
+		// Nothing waiting is counted against anyone, and it resumes by itself.
+		?>
+		<div class="notice notice-warning inline dze-trd-stop" id="dze-trd-stop"<?php echo '' !== (string) ( $q['stop'] ?? '' ) ? '' : ' hidden'; ?>>
+			<p><strong><?php esc_html_e( 'The queue is paused.', 'dazont-ecom' ); ?></strong>
+				<span id="dze-trd-stopsaid"><?php echo esc_html( (string) ( $q['stop'] ?? '' ) ); ?></span>
+				<?php esc_html_e( 'Nothing waiting is lost or counted as a failure: it resumes by itself.', 'dazont-ecom' ); ?></p>
 		</div>
 		<div class="notice notice-error inline dze-trd-failed" id="dze-trd-failed"<?php echo $q['errors'] ? '' : ' hidden'; ?>>
 			<p id="dze-trd-failedsaid"><?php
@@ -941,7 +962,9 @@ trait DZE_Translate_Screen {
 		$cjk   = in_array( $lang, [ 'ja', 'zh', 'zh-hans', 'zh-hant', 'ko' ], true );
 		$in    = (int) ceil( ( $calls * ( mb_strlen( self::prompt() ) + 400 ) + $chars * 1.1 ) / 3.5 );
 		$out   = (int) ceil( $chars * 1.15 / ( $cjk ? 1.0 : ( $dense ? 2.0 : 3.2 ) ) );
-		return DZE_Ai_Usage::estimate( self::model_id(), $in, $out );
+		// THE QUEUE SENDS IN BATCHES, billed at half the price of the same
+		// calls made one by one: the figure on screen is what will be paid.
+		return DZE_Ai_Usage::estimate( self::model_id(), $in, $out ) * self::BATCH_RATE;
 	}
 
 	/**
@@ -1092,7 +1115,7 @@ trait DZE_Translate_Screen {
 			'cell'    => self::langs_cell( $o, $states, $langs ),
 			'queue'   => self::queue_said(),
 			'message' => $busy
-				? __( 'It is being translated right now, so it will still arrive.', 'dazont-ecom' )
+				? __( 'It is already with Anthropic and cannot be stopped any more. It will arrive in « To review » and will not be published without your review.', 'dazont-ecom' )
 				: ( $n ? __( 'Taken out of the queue. Nothing was spent on it.', 'dazont-ecom' ) : __( 'It was not in the queue any more.', 'dazont-ecom' ) ),
 		] );
 	}
@@ -1131,9 +1154,18 @@ trait DZE_Translate_Screen {
 		if ( isset( $targets[ $want ] ) ) {
 			return [ $o, $want ];
 		}
-		// OPENED WITHOUT A LANGUAGE, IT OPENS ON THE ONE THAT NEEDS WORK. A
-		// screen that opens on a language already finished is a screen that
-		// asks a question nobody came with.
+		// OPENED WITHOUT A LANGUAGE, IT OPENS ON ONE WAITING FOR A DECISION.
+		// « J'ai été redirigé vers la page de traduction en russe avant de
+		// pouvoir accepter » — Russian was the first language not done, while
+		// the four that came back were Polish, French, German and Spanish.
+		$held = (array) ( self::waiting( $o )['langs'] ?? [] );
+		foreach ( array_keys( $targets ) as $code ) {
+			if ( isset( $held[ $code ] ) ) {
+				return [ $o, (string) $code ];
+			}
+		}
+		// Then the one that needs work. A screen that opens on a language
+		// already finished is a screen that asks a question nobody came with.
 		$marks = self::page_marks( [ $o ] );
 		$state = self::state_of( $o, array_keys( $targets ), $marks );
 		foreach ( $state as $code => $said ) {
@@ -1616,9 +1648,15 @@ trait DZE_Translate_Screen {
 				<button type="button" class="button button-primary button-hero" id="dze-tr-publish"
 					title="<?php esc_attr_e( 'Writes what is on the right onto the translation, and tells WPML it is up to date', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Save the translation', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button" id="dze-tr-drop"
-					title="<?php esc_attr_e( 'Throws away what was translated and leaves the translation exactly as it is', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
+					title="<?php esc_attr_e( 'Throws away what was translated into this language, and only this one. The translation is left exactly as it is.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Discard this language', 'dazont-ecom' ); ?></button>
 				<span class="dze-cb-panelstate" id="dze-tr-publishstate"></span>
 			</p>
+			<?php
+			// WHAT IS STILL WAITING ON THIS OBJECT, and the way to it. Filled
+			// after a decision: « accepté mais toujours là » was the other
+			// languages, still waiting, with nothing on the page to say so.
+			?>
+			<div class="notice notice-info inline dze-tr-nextbox" id="dze-tr-nextbox" hidden><p></p></div>
 		</div>
 		<?php
 	}
@@ -2121,7 +2159,7 @@ trait DZE_Translate_Screen {
 			<?php esc_html_e( 'What the last batches produced. Nothing here has been written to the site yet: open one, read it beside the original and beside what the translation holds today, and accept or refuse it field by field.', 'dazont-ecom' ); ?>
 		</p>
 		<?php if ( ! $rows ) : ?>
-			<p><?php esc_html_e( 'Nothing is waiting. Send a batch from the Dashboard and what comes back lands here.', 'dazont-ecom' ); ?></p>
+			<p><?php esc_html_e( 'Nothing is waiting. Send something to translation from the Dashboard with « Review before publishing », and what comes back lands here.', 'dazont-ecom' ); ?></p>
 			<?php return; ?>
 		<?php endif; ?>
 		<?php
@@ -2233,7 +2271,16 @@ trait DZE_Translate_Screen {
 						// huit ecrans, et un par langue dans chacun.
 						?>
 						<button type="button" class="button dze-tr-peek"><?php esc_html_e( 'Read it here', 'dazont-ecom' ); ?></button>
-						<a class="button button-primary dze-tr-open" href="<?php echo esc_url( self::editor_url( $r ) ); ?>"><?php esc_html_e( 'Review', 'dazont-ecom' ); ?></a>
+						<?php
+						// ONE PRESS FOR THE WHOLE ROW: every language waiting on it,
+						// as it came. « Accepté mais toujours là » — Review opens ONE
+						// language, and the others stayed.
+						?>
+						<button type="button" class="button button-primary dze-tr-acceptrow" title="<?php esc_attr_e( 'Writes every language waiting on this row, exactly as it came back. Nothing is translated again and nothing is paid for.', 'dazont-ecom' ); ?>"><?php
+							/* translators: %s: how many languages are waiting on this row */
+							echo esc_html( sprintf( _n( 'Accept (%s language)', 'Accept (%s languages)', count( (array) $r['langs'] ), 'dazont-ecom' ), number_format_i18n( count( (array) $r['langs'] ) ) ) );
+						?></button>
+						<a class="button dze-tr-open" href="<?php echo esc_url( self::editor_url( $r, (string) ( ( (array) $r['langs'] )[0] ?? '' ) ) ); ?>"><?php esc_html_e( 'Review', 'dazont-ecom' ); ?></a>
 						<button type="button" class="button dze-tr-refuse" title="<?php esc_attr_e( 'Throws away what was translated. The object and its translations are not touched.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
 					</td>
 				</tr>

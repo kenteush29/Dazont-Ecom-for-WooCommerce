@@ -796,6 +796,37 @@ whose screen has not been thought through yet.
   - And the gate speaks the queue protocol — submit, status, result — because
     a harness that answers every call the same way could never be red on a job
     that is still running, which is the whole fault.
+- **THE TRANSLATION QUEUE NEVER TRANSLATES INSIDE A REQUEST OF THE SHOP: it
+  goes to Anthropic's Message Batches API.** "Fais comme WPML, ça ne coupe pas
+  même avec des gros batch." The old pass ran inside the dashboard's AJAX
+  request, four minutes of model calls behind Hostinger's CDN. It was cut after
+  the first wave: the PHP process died without saving what it had just paid
+  for, logged nothing, and left a fifteen-minute lock. That happened twice in a
+  row on Kula's 172 categories.
+  - `drain()` is a TICK that lasts seconds, in three steps:
+    - `collect()` asks a batch where it stands and lands the ended ones;
+    - `publish()` runs `accept()`, within a time budget, on what was sent
+      "without review";
+    - `dispatch()` sends everything queued in ONE batch.
+
+    The page's `dze_tr_runqueue` runs one tick with a short budget and never a
+    translation.
+  - **Only one tick runs at a time, through MySQL `GET_LOCK`**, never through a
+    transient that is read and then written. The lock is taken whole or not at
+    all, and MySQL gives it back when the process dies.
+  - **Every read-modify-write of the queue goes through `with_queue()`**: a
+    fresh database read under a named lock. A long request keeps in memory the
+    option it read, in WordPress and in LiteSpeed's object cache alike. Writing
+    that copy back undid cancels and lost sends.
+  - **A failure no text is to blame for counts against nobody.** That covers a
+    reached budget, a missing key, and a batch whose every answer errored. The
+    queue pauses with `note_stop()` and a backoff. Only a text's own failure
+    counts toward its three tries.
+  - The words sent stay on the object (`_dze_tr_sent`) until the batch lands.
+    Each language then waits against the words sent FOR IT (`srcl`), because
+    languages come back at different times.
+  - Step 2's cost is the batch's price (`BATCH_RATE`), and `record_many()`
+    books every answer of a batch in one write, at that price.
 - **A TASK THAT KEEPS ITS OWN WAITING LIST DOES NOT NEED THE WRITING QUEUE,
   and cannot be settled on the screen that settles queue rows.** The
   Translations task translates what WPML says is owed, a few objects a day,

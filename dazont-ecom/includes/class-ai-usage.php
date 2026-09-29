@@ -755,9 +755,67 @@ final class DZE_Ai_Usage {
 		);
 	}
 
-	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0, bool $ko = false, string $why = '' ): void {
+	/**
+	 * @param float $rate What this call is billed at, against the list price:
+	 *                    0.5 for a call made through the Message Batches API.
+	 */
+	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0, bool $ko = false, string $why = '', float $rate = 1.0 ): void {
 		$data = get_option( self::OPT, [] );
 		$data = is_array( $data ) ? $data : [];
+		$data = self::tally( $data, $provider, $tokens_in, $tokens_out, $model, $flat_cost, $ko, $why, $rate, self::$unit ?: 'other' );
+		krsort( $data );
+		$data = array_slice( $data, 0, 18, true ); // keep 18 months max.
+		update_option( self::OPT, $data, false );
+	}
+
+	/**
+	 * A WHOLE BATCH OF CALLS, WRITTEN ONCE.
+	 *
+	 * « Fais comme WPML, ça ne coupe pas même avec des gros batch. » The
+	 * translation queue now hands its work to the Message Batches API and reads
+	 * six hundred answers back in one go. Each one is counted exactly as a call
+	 * made alone would be — its tokens, its unit, its day — at the price the
+	 * batch is billed at, and the register is written once rather than six
+	 * hundred times in a row.
+	 *
+	 * @param array<int,array{u:string,in:int,out:int,ci?:int,co?:int}> $rows One per answer:
+	 *        its unit of work, its tokens, and the characters sent and received
+	 *        for the ledger.
+	 */
+	public static function record_many( string $provider, string $model, array $rows, float $rate = 1.0 ): void {
+		if ( ! $rows ) {
+			return;
+		}
+		$data = get_option( self::OPT, [] );
+		$data = is_array( $data ) ? $data : [];
+		$led  = get_option( self::LEDGER, [] );
+		$led  = is_array( $led ) ? $led : [];
+		foreach ( $rows as $r ) {
+			$unit = sanitize_key( (string) ( $r['u'] ?? '' ) );
+			$unit = '' !== $unit ? (string) $r['u'] : 'other';
+			$data = self::tally( $data, $provider, (int) ( $r['in'] ?? 0 ), (int) ( $r['out'] ?? 0 ), $model, 0.0, false, '', $rate, $unit );
+			$led[] = [
+				't' => time(),
+				'u' => $unit,
+				'p' => sanitize_key( $provider ),
+				'm' => sanitize_text_field( $model ),
+				's' => 0,
+				'i' => (int) ( $r['ci'] ?? 0 ),
+				'o' => (int) ( $r['co'] ?? 0 ),
+			];
+		}
+		krsort( $data );
+		$data = array_slice( $data, 0, 18, true );
+		update_option( self::OPT, $data, false );
+		update_option( self::LEDGER, array_slice( $led, -self::LEDGER_KEEP ), false );
+	}
+
+	/**
+	 * One call, added to the month, the day and the unit it belongs to.
+	 *
+	 * @return array The register with this call in it.
+	 */
+	private static function tally( array $data, string $provider, int $tokens_in, int $tokens_out, string $model, float $flat_cost, bool $ko, string $why, float $rate, string $unit ): array {
 		$m    = gmdate( 'Y-m' );
 		if ( ! isset( $data[ $m ][ $provider ] ) ) {
 			$data[ $m ][ $provider ] = [ 'calls' => 0, 'in' => 0, 'out' => 0, 'cost' => 0.0 ];
@@ -777,7 +835,7 @@ final class DZE_Ai_Usage {
 		}
 		$data[ $m ][ $provider ]['in']   += max( 0, $tokens_in );
 		$data[ $m ][ $provider ]['out']  += max( 0, $tokens_out );
-		$cost                             = ( $tokens_in * $p_in + $tokens_out * $p_out ) / 1000000 + max( 0.0, $flat_cost );
+		$cost                             = ( $tokens_in * $p_in + $tokens_out * $p_out ) / 1000000 * max( 0.0, $rate ) + max( 0.0, $flat_cost );
 		$data[ $m ][ $provider ]['cost']  = round( (float) ( $data[ $m ][ $provider ]['cost'] ?? 0 ) + $cost, 4 );
 
 		// Same figures broken down by day and by model: a month total says the
@@ -794,15 +852,11 @@ final class DZE_Ai_Usage {
 
 		// Per unit of work: how many were made, and what they cost together.
 		// Averaging those two is the answer to "what does one of these cost".
-		$unit = self::$unit ?: 'other';
 		$u    = (array) ( $data[ $m ]['_units'][ $unit ] ?? [ 'calls' => 0, 'runs' => 0, 'cost' => 0.0 ] );
 		$u['calls']++;
 		$u['cost'] = round( (float) $u['cost'] + $cost, 4 );
 		$data[ $m ]['_units'][ $unit ] = $u;
-
-		krsort( $data );
-		$data = array_slice( $data, 0, 18, true ); // keep 18 months max.
-		update_option( self::OPT, $data, false );
+		return $data;
 	}
 
 	/**
