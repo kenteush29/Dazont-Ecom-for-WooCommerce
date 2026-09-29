@@ -911,10 +911,10 @@ final class DZE_Netlinking {
 
 	/** Les codes que WPML dit actifs, la langue par defaut comprise. */
 	public static function active_codes(): array {
-		$out = [];
-		foreach ( (array) apply_filters( 'wpml_active_languages', null, [] ) as $code => $one ) {
-			$out[] = (string) $code;
-		}
+		// LA TABLE DE WPML, PAS SON SÉLECTEUR : `wpml_active_languages` perd le
+		// russe dès que la requête n'est pas anglaise (voir
+		// DZE_Wpml::get_active_languages()).
+		$out = class_exists( 'DZE_Wpml' ) ? DZE_Wpml::language_codes() : [];
 		if ( ! $out ) {
 			$out = array_keys( self::domains() );
 		}

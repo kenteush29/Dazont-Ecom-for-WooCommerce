@@ -54,6 +54,7 @@ $GLOBALS['tr']   = [];
 class DZE_Wpml {
 	public static function is_active() { return ! empty( $GLOBALS['wpml_terms'] ); }
 	public static function has_table( $t ) { return true; }
+	public static function language_codes() { return array_map( 'strval', array_keys( (array) ( $GLOBALS['langs'] ?? [] ) ) ); }
 }
 class DZE_Category_Content {
 	public static function default_lang() { return 'en'; }

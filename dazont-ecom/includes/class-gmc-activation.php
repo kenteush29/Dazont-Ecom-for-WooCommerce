@@ -99,16 +99,15 @@ final class DZE_Gmc_Activation {
 	/** Sets the flag on a product/variation AND on every WPML translation of it. */
 	private static function set_on( int $post_id, bool $on ): void {
 		self::write_flag( $post_id, $on );
-		$langs = apply_filters( 'wpml_active_languages', null );
-		if ( empty( $langs ) || ! is_array( $langs ) ) {
+		// Every active language, whatever the request's own: WPML's switcher
+		// list drops Russian outside an English request, and the Russian
+		// translation kept the old flag (see DZE_Wpml::get_active_languages()).
+		$langs = class_exists( 'DZE_Wpml' ) ? DZE_Wpml::language_codes() : [];
+		if ( ! $langs ) {
 			return;
 		}
 		$type = get_post_type( $post_id ) ?: 'product';
-		foreach ( $langs as $lang ) {
-			$code = (string) ( $lang['code'] ?? '' );
-			if ( '' === $code ) {
-				continue;
-			}
+		foreach ( $langs as $code ) {
 			$tid = apply_filters( 'wpml_object_id', $post_id, $type, false, $code );
 			if ( $tid && (int) $tid !== $post_id ) {
 				self::write_flag( (int) $tid, $on );
