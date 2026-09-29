@@ -827,9 +827,20 @@ whose screen has not been thought through yet.
     languages come back at different times.
   - Step 2's cost is the batch's price (`BATCH_RATE`), and `record_many()`
     books every answer of a batch in one write, at that price.
+  - **The automatic Translations task DEPOSITS into this queue too**
+    (`DZE_Translate::ask()`), and never calls `produce()`. It has two paces
+    and nothing in between. "Always on" looks every minute
+    (`dze_one_minute`) and sends up to `FEED_MAX` objects per minute. It stops
+    while the queue holds `FEED_ROOM` objects. Without "Save without review",
+    it also stops while `REVIEW_ROOM` translations wait for a decision.
+    "Daily limit" counts everything, terms included. Terms still go first,
+    but as an order, not as a quota. A product waits while one of its
+    attributes is on its way. A deposit is counted with `count_pass()` and
+    never filed in the undo log. Fifty rows a minute in that log would push
+    the linking task's undoable pages off its end.
 - **A TASK THAT KEEPS ITS OWN WAITING LIST DOES NOT NEED THE WRITING QUEUE,
   and cannot be settled on the screen that settles queue rows.** The
-  Translations task translates what WPML says is owed, a few objects a day,
+  Translations task sends what WPML says is owed to the translation queue,
   held for review — and what it leaves waits on the SOURCE OBJECT, which is
   where a translation has always waited here: one object times its languages
   times its fields is not a queue row. Four rules: the list is asked of

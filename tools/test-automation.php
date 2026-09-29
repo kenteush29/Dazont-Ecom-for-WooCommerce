@@ -91,7 +91,14 @@ function wp_next_scheduled( $h ) {
 	}
 	return $GLOBALS['dze_cron'][ (string) $h ] ?? false;
 }
-function wp_schedule_event( ...$a ) {}
+// WHAT WAS BOOKED, AND ON WHICH RHYTHM: the recurrence is the whole of what
+// schedule() decides, so it is written down rather than swallowed.
+function wp_schedule_event( ...$a ) { $GLOBALS['dze_booked'][] = [ 'hook' => (string) ( $a[2] ?? '' ), 'every' => (string) ( $a[1] ?? '' ) ]; }
+function wp_get_scheduled_event( $h ) {
+	$every = $GLOBALS['dze_event'][ (string) $h ] ?? '';
+	return '' === $every ? false : (object) [ 'hook' => (string) $h, 'schedule' => $every ];
+}
+function wp_get_object_terms( $pid, $tax, $args = [] ) { return $GLOBALS['obj_terms'][ (int) $pid ][ (string) $tax ] ?? []; }
 function wp_clear_scheduled_hook( ...$a ) {
 	$GLOBALS['dze_cleared'][] = (string) ( $a[0] ?? '' );
 	if ( isset( $GLOBALS['dze_cron'] ) && is_array( $GLOBALS['dze_cron'] ) ) {
@@ -554,16 +561,48 @@ class DZE_Translate {
 	public static array $accepted = [];
 	public static array $fails = [];
 	public static function picked_scope(): array {
-		return [ 'post:product' => [ 'kind' => 'post', 'type' => 'product' ] ];
+		return $GLOBALS['tr_scope'] ?? [ 'post:product' => [ 'kind' => 'post', 'type' => 'product' ] ];
 	}
 	public static function todo_page( array $scope, string $src, array $targets, int $paged, int $per, bool $todo_only = true ): ?array {
 		if ( ! empty( $GLOBALS['wpml_unreadable'] ) ) { return null; }
 		$out = [];
 		foreach ( array_keys( self::$shop ) as $ref ) {
-			$out[] = self::from_ref( $ref );
+			$o = self::from_ref( $ref );
+			// ONE KIND PER PAGE, as WPML's own query answers it.
+			if ( $o['kind'] !== (string) ( $scope['kind'] ?? '' ) || $o['type'] !== (string) ( $scope['type'] ?? '' ) ) { continue; }
+			$out[] = $o;
 		}
-		return [ array_slice( $out, 0, $per ), count( $out ) ];
+		return [ array_slice( $out, ( max( 1, $paged ) - 1 ) * $per, $per ), count( $out ) ];
 	}
+
+	/** What the pass put in the translation queue: one call per set of languages. */
+	public static array $deposits = [];
+	public static int $kicks = 0;
+	public static function ask( array $objets, bool $accept = false, array $langs = [], bool $all = false, ?int &$refused = null ): int {
+		$refused = 0;
+		if ( ! empty( $GLOBALS['tr_queue_refuses'] ) ) {
+			$refused = count( $objets );
+			return 0;
+		}
+		self::$deposits[] = [ 'refs' => array_map( [ __CLASS__, 'ref' ], $objets ), 'accept' => $accept, 'langs' => array_values( $langs ), 'all' => $all ];
+		foreach ( $objets as $o ) {
+			self::$asked[] = [ 'kind' => $o['kind'], 'id' => (int) $o['id'], 'type' => $o['type'], 'langs' => array_values( $langs ), 'accept' => $accept ? 1 : 0 ];
+		}
+		return count( $objets );
+	}
+	public static function kick_drain( int $delay = 0 ): void { self::$kicks++; }
+	public static function queued_map(): array {
+		$out = [];
+		foreach ( self::$asked as $e ) {
+			foreach ( (array) ( $e['langs'] ?? [ 'fr' ] ) as $code ) {
+				$out[ self::ref( $e ) ][ (string) $code ] = [ 'accept' => (int) ( $e['accept'] ?? 0 ), 'all' => 0 ];
+			}
+		}
+		return $out;
+	}
+	public static function obj( string $kind, int $id, string $type = '' ): array { return [ 'kind' => $kind, 'id' => $id, 'type' => $type ]; }
+	public static function is_default_term( int $id, string $tax ): bool { return false; }
+	public static function is_empty_term( int $id, string $tax ): bool { return false; }
 	public static function ref( array $o ): string { return $o['kind'] . ':' . (int) $o['id'] . ':' . $o['type']; }
 	public static function from_ref( string $ref ): array {
 		$b = explode( ':', $ref );
@@ -1205,7 +1244,7 @@ ok( 'and so is another page entirely',
 	DZE_Automation::moved( [ 'page' => 'dazont-ecom-diagnostic' ] ), '' );
 
 echo "\nEvery reason it can give has words\n";
-foreach ( [ 'queued', 'cap', 'none', 'budget', 'modules', 'busy', 'off', 'copy', 'early', 'failed' ] as $why ) {
+foreach ( [ 'queued', 'cap', 'none', 'budget', 'modules', 'busy', 'off', 'copy', 'early', 'failed', 'full', 'review' ] as $why ) {
 	ok( 'the shop is told: ' . $why, '' !== DZE_Automation::reason_text( $why ), true );
 }
 
@@ -2281,6 +2320,9 @@ $dze_fresh_tr = static function () {
 	DZE_Translate::$sent     = [];
 	DZE_Translate::$accepted = [];
 	DZE_Translate::$fails    = [];
+	DZE_Translate::$deposits = [];
+	DZE_Translate::$kicks    = 0;
+	DZE_Translate::$asked    = [];
 	DZE_Translate::$shop     = [
 		// Owes French and German: no row at all for either.
 		'post:11:product' => [ 'marks' => [] ],
@@ -2289,7 +2331,9 @@ $dze_fresh_tr = static function () {
 		// WPML is satisfied with every language of it: not work.
 		'post:13:product' => [ 'marks' => [ 'fr' => 'done', 'de' => 'done' ] ],
 	];
-	$GLOBALS['wpml_on'] = true;
+	unset( $GLOBALS['tr_scope'], $GLOBALS['tr_queue_refuses'] );
+	$GLOBALS['obj_terms']  = [];
+	$GLOBALS['wpml_on']    = true;
 	$GLOBALS['tr_waiting'] = 0;
 };
 fresh( $TR );
@@ -2309,29 +2353,45 @@ foreach ( $dze_next as $r ) { if ( 'post:12:product' === $r['ref'] ) { $dze_one 
 ok( 'the row names the languages owed',  ( $dze_one['langs'] ?? [] ), [ 'de' ] );
 ok( 'and says so in words',              ( $dze_one['why'] ?? '' ), 'owes DE' );
 
-// ONE TICK, ONE OBJECT, AND ONLY THE LANGUAGES IT OWES TRAVEL.
+// ONE PRESS, ONE OBJECT, AND ONLY THE LANGUAGES IT OWES TRAVEL — into the
+// translation queue, never translated inside the pass.
+//
+// « Est-on sûr que le module de traduction fonctionne ? Ça me semble long. »
+// The pass translated one object at a time, inside the cron request the host
+// cuts without a word, at full price. It deposits now, exactly where the
+// dashboard's own requests go: the batches do the work at half price.
 fresh( $TR );
 $dze_fresh_tr();
 $dze_res = DZE_Automation::tick( 'translate', true );
 ok( 'a press sets one going',            $dze_res['queued'], 1 );
 ok( 'and says which task did it',        $dze_res['task'], 'translate' );
-ok( 'one object was sent',               count( DZE_Translate::$sent ), 1 );
+ok( 'nothing is translated in the pass', DZE_Translate::$sent, [] );
+ok( 'one deposit in the queue',          count( DZE_Translate::$deposits ), 1 );
+ok( 'of one object, not the whole list', count( DZE_Translate::$deposits[0]['refs'] ?? [] ), 1 );
 ok( 'and only the languages it owes',
-	DZE_Translate::$sent[0]['langs'],
-	'post:11:product' === DZE_Translate::$sent[0]['ref'] ? [ 'fr', 'de' ] : [ 'de' ] );
+	DZE_Translate::$deposits[0]['langs'] ?? null,
+	'post:11:product' === ( DZE_Translate::$deposits[0]['refs'][0] ?? '' ) ? [ 'de', 'fr' ] : [ 'de' ] );
+ok( 'and the queue is woken',            DZE_Translate::$kicks, 1 );
 // HELD FOR REVIEW UNLESS THE SHOP SAID OTHERWISE. Three tasks once shipped
 // with "save without review" ticked, and a shop switching one on got text
 // written straight onto its pages having chosen nothing.
-ok( 'nothing is written without a yes',  DZE_Translate::$accepted, [] );
+ok( 'nothing is written without a yes',  DZE_Translate::$deposits[0]['accept'] ?? null, false );
+ok( 'and nothing up to date is redone',  DZE_Translate::$deposits[0]['all'] ?? null, false );
 // AND THE DAY IS COUNTED, exactly as it is for every other task that spends.
 ok( "the day's figure moved",            DZE_Automation::done_today( 'translate' ), 1 );
+// AND THE ANSWER SAYS WHERE TO WATCH IT — not "the writing queue", which a
+// translation never enters.
+ok( 'the press names the batches',
+	false !== strpos( DZE_Automation::reason_text( 'queued', 'translate' ), 'batch' ), true );
+ok( 'and not the writing queue',
+	false !== strpos( DZE_Automation::reason_text( 'queued', 'translate' ), 'writing queue' ), false );
 
-// SAVED WITHOUT REVIEW IS A DECISION THE SHOP TOOK, and it is taken by the run
-// rather than left waiting for somebody who is never asked.
+// SAVED WITHOUT REVIEW IS A DECISION THE SHOP TOOK, and it travels with the
+// request rather than being left for somebody who is never asked.
 fresh( [ 'translate' => [ 'on' => 1, 'per_day' => 3, 'apply' => 1 ] ] );
 $dze_fresh_tr();
 DZE_Automation::tick( 'translate', true );
-ok( 'ticked, it writes what came back',  count( DZE_Translate::$accepted ), 1 );
+ok( 'ticked, what comes back is written',  DZE_Translate::$deposits[0]['accept'] ?? null, true );
 
 // AN OBJECT ALREADY HOLDING A TRANSLATION IS NEVER SENT TWICE: the second
 // answer would quietly replace the one nobody has read yet.
@@ -2357,24 +2417,49 @@ DZE_Translate::$shop = [];
 DZE_Automation::shortlist( 'translate', 5 );
 ok( 'nothing owed anywhere says so',
 	false !== strpos( DZE_Automation::nothing_said( 'translate' ), 'WPML is satisfied' ), true );
+// AND IT IS REST, NOT A BREAKDOWN: a shop translated through reads grey, never
+// the red "nothing produced" six hours later over "nothing left to do".
+DZE_Automation::tick( 'translate' );
+ok( 'a shop with nothing owed is at rest', DZE_Automation::idle_explained( 'translate' ), true );
+// WHILE WPML'S TABLES CANNOT BE READ, NOTHING IS PROMISED EITHER WAY.
+$GLOBALS['wpml_unreadable'] = true;
+DZE_Automation::tick( 'translate' );
+ok( 'an unreadable WPML is not called at rest', DZE_Automation::idle_explained( 'translate' ), false );
+unset( $GLOBALS['wpml_unreadable'] );
 
-// WORKED ON TODAY IS LEFT ALONE, like every other object this plugin touches.
+// WORKED ON TODAY IS LEFT ALONE, like every other object this plugin touches —
+// even once its batch is back and the queue no longer holds it.
 fresh( $TR );
 $dze_fresh_tr();
 DZE_Automation::tick( 'translate', true );
-$dze_did = DZE_Translate::$sent[0]['ref'];
+$dze_did = (string) ( DZE_Translate::$deposits[0]['refs'][0] ?? '' );
+DZE_Translate::$asked = [];
 $dze_back = wp_list_pluck( DZE_Automation::shortlist( 'translate', 5 ), 'ref' );
-ok( 'the one just translated is not offered again',
-	in_array( $dze_did, $dze_back, true ), false );
+ok( 'the one just sent is not offered again',
+	'' !== $dze_did && ! in_array( $dze_did, $dze_back, true ), true );
 
-// NOTHING MOVED IS A REAL ANSWER, AND IT IS FREE. A product flagged because
-// its category was renamed sends nothing and has its mark closed — the whole
-// value of this module beside WPML's own automatic translation.
+// WHAT IS ALREADY ON ITS WAY IS NOT SENT AGAIN — by hand from the dashboard, or
+// by an earlier pass — and "nothing to send" says that is why.
+fresh( $TR );
+$dze_fresh_tr();
+DZE_Translate::$asked = [
+	[ 'kind' => 'post', 'id' => 11, 'type' => 'product', 'langs' => [ 'fr', 'de' ] ],
+	[ 'kind' => 'post', 'id' => 12, 'type' => 'product', 'langs' => [ 'de' ] ],
+];
+ok( 'nothing on its way is offered',     DZE_Automation::shortlist( 'translate', 5 ), [] );
+ok( 'and the sentence says it is on its way',
+	false !== strpos( DZE_Automation::nothing_said( 'translate' ), 'translation queue' ), true );
+ok( 'never that WPML is satisfied',
+	false !== strpos( DZE_Automation::nothing_said( 'translate' ), 'WPML is satisfied' ), false );
+
+// NOTHING MOVED IS A REAL ANSWER, AND IT IS FREE — decided by the queue when it
+// builds the batch, from the module's own register, and never paid for. The
+// pass sends it like anything WPML says is owed, and marks it.
 fresh( $TR );
 $dze_fresh_tr();
 DZE_Translate::$shop = [ 'post:11:product' => [ 'marks' => [], 'nothing_moved' => [ 'fr', 'de' ] ] ];
 $dze_quiet = DZE_Automation::tick( 'translate', true );
-ok( 'a mark closed for nothing still counts as done', $dze_quiet['queued'], 1 );
+ok( 'it is sent, and the queue closes it for free', $dze_quiet['queued'], 1 );
 ok( 'and it is marked so it is not looked at again',
 	DZE_Automation::worked_on( 11, 'translate', 'post' ), true );
 
@@ -2421,11 +2506,198 @@ $dze_chips = DZE_Automation::chips_html( 'translate' );
 ok( 'nothing written is not claimed',    false !== strpos( $dze_chips, 'written' ), false );
 ok( 'and what waits is on the line',     false !== strpos( $dze_chips, '4 to review' ), true );
 
+echo "\nALWAYS ON: every minute, everything, nothing rationed\n";
+// « Pourquoi je vois encore ces options Always on (posts capped below) ? On
+// voulait soit daily limit soit always on, et faire tourner l'outil en
+// automatique tout le temps. Une fois toutes les minutes par exemple. »
+$TR_ALL = [ 'translate' => [ 'on' => 1, 'per_day' => 1, 'apply' => 0, 'pace' => 'all' ] ];
+fresh( $TR_ALL );
+$dze_fresh_tr();
+$dze_all = DZE_Automation::tick();
+ok( 'one look sends everything owed',    count( DZE_Translate::$asked ), 2 );
+ok( 'one deposit per set of languages',  count( DZE_Translate::$deposits ), 2 );
+ok( 'and it says how many',              $dze_all['queued'], 2 );
+ok( 'the queue is woken once',           DZE_Translate::$kicks, 1 );
+// NO DAILY FIGURE HOLDS IT — not even for products: that half-ration is what
+// "(posts capped below)" was.
+ok( 'every object is counted',           DZE_Automation::done_today( 'translate' ), 2 );
+ok( 'and a day of one is no cap here',   DZE_Automation::why_not( 'translate' ), '' );
+ok( 'it may look again the next minute', DZE_Automation::gap( 'translate' ), 0 );
+// A DEPOSIT IS COUNTED, NOT FILED: fifty a minute in the undo log would push
+// the linking task's last undoable pages off its end within one tick.
+ok( 'the undo log is left to the tasks that undo',
+	(array) ( get_option( 'dze_auto_state', [] )['log'] ?? [] ), [] );
+
+// AND THE CRON LOOKS EVERY MINUTE — only while a translation task takes
+// everything.
+$dze_sch = DZE_Automation::cron_schedules( [] );
+ok( 'a minute means a minute',           (int) ( $dze_sch['dze_one_minute']['interval'] ?? 0 ), 60 );
+ok( 'this task wants it',                DZE_Automation::wants_every_minute(), true );
+$dze_cron_was          = $GLOBALS['dze_cron'] ?? null;
+$GLOBALS['dze_cron']   = [ DZE_Automation::HOOK => time() + 300 ];
+$GLOBALS['dze_event']  = [ DZE_Automation::HOOK => 'dze_ten_minutes' ];
+$GLOBALS['dze_booked'] = [];
+( new ReflectionClass( 'DZE_Automation' ) )->newInstanceWithoutConstructor()->schedule();
+ok( 'and the tick is booked on it',      $GLOBALS['dze_booked'][0]['every'] ?? '', 'dze_one_minute' );
+fresh( [ 'translate' => [ 'on' => 1, 'per_day' => 1, 'apply' => 0, 'pace' => 'daily' ] ] );
+$GLOBALS['dze_cron']   = [ DZE_Automation::HOOK => time() + 30 ];
+$GLOBALS['dze_event']  = [ DZE_Automation::HOOK => 'dze_one_minute' ];
+$GLOBALS['dze_booked'] = [];
+( new ReflectionClass( 'DZE_Automation' ) )->newInstanceWithoutConstructor()->schedule();
+ok( 'a daily ration goes back to the hour', $GLOBALS['dze_booked'][0]['every'] ?? '', 'hourly' );
+if ( null === $dze_cron_was ) {
+	unset( $GLOBALS['dze_cron'] );
+} else {
+	$GLOBALS['dze_cron'] = $dze_cron_was;
+}
+$GLOBALS['dze_event'] = [];
+
+// A DEPOSIT IS NOT A PASS: the other tasks still get their turn in the same
+// tick, or a translation looking every minute would starve them all.
+fresh( array_merge( $ON, $TR_ALL ) );
+$dze_fresh_tr();
+DZE_Automation::tick();
+ok( 'the linking pass still ran',        count( DZE_Queue::$added ), 1 );
+ok( 'and the translations went too',     count( DZE_Translate::$asked ), 2 );
+
+// THE QUEUE IS FILLED, NEVER DROWNED: past its room the pass waits for batches
+// to come back — and says so rather than looking broken.
+fresh( $TR_ALL );
+$dze_fresh_tr();
+for ( $dze_i = 1000; $dze_i < 1000 + DZE_Automation::FEED_ROOM; $dze_i++ ) {
+	DZE_Translate::$asked[] = [ 'kind' => 'post', 'id' => $dze_i, 'type' => 'product', 'langs' => [ 'fr' ] ];
+}
+$dze_full = DZE_Automation::tick( 'translate' );
+ok( 'a full queue takes nothing more',   DZE_Translate::$deposits, [] );
+ok( 'and says why',                      $dze_full['reason'], 'full' );
+ok( 'in words',                          '' !== DZE_Automation::reason_text( 'full', 'translate' ), true );
+ok( 'on the task itself',
+	false !== strpos( DZE_Automation::idle_said( 'translate' ), 'translation queue' ), true );
+ok( 'which is a reason, not a breakdown', DZE_Automation::idle_explained( 'translate' ), true );
+array_pop( DZE_Translate::$asked );
+DZE_Automation::tick( 'translate' );
+ok( 'room for one takes one',            count( DZE_Translate::$deposits[0]['refs'] ?? [] ), 1 );
+
+// A QUEUE THAT REFUSES IS NOT WORK DONE: nothing is stamped, and the object is
+// offered again the next minute.
+fresh( $TR_ALL );
+$dze_fresh_tr();
+$GLOBALS['tr_queue_refuses'] = true;
+$dze_no = DZE_Automation::tick( 'translate' );
+ok( 'refused, nothing is claimed',       $dze_no['queued'], 0 );
+ok( 'and nothing is stamped',            DZE_Automation::worked_on( 11, 'translate', 'post' ), false );
+unset( $GLOBALS['tr_queue_refuses'] );
+
+// A PILE NOBODY READS STOPS IT — unless the shop said to save without review.
+fresh( $TR_ALL );
+$dze_fresh_tr();
+$GLOBALS['tr_waiting'] = DZE_Automation::REVIEW_ROOM;
+$dze_pile = DZE_Automation::tick( 'translate' );
+ok( 'a full pile: nothing more is paid for', DZE_Translate::$deposits, [] );
+ok( 'and the reason is the pile',        $dze_pile['reason'], 'review' );
+ok( 'said on the task, with the way out',
+	false !== strpos( DZE_Automation::idle_said( 'translate' ), 'Save without review' ), true );
+ok( 'a press is a decision, and still sends one', DZE_Automation::tick( 'translate', true )['queued'], 1 );
+fresh( [ 'translate' => [ 'on' => 1, 'per_day' => 1, 'apply' => 1, 'pace' => 'all' ] ] );
+$dze_fresh_tr();
+$GLOBALS['tr_waiting'] = DZE_Automation::REVIEW_ROOM;
+ok( 'saved without review, the pile does not hold it', DZE_Automation::tick( 'translate' )['queued'], 2 );
+$GLOBALS['tr_waiting'] = 0;
+
+echo "\nDAILY LIMIT: the number beside it, and everything counts\n";
+fresh( [ 'translate' => [ 'on' => 1, 'per_day' => 1, 'apply' => 0, 'pace' => 'daily' ] ] );
+$dze_fresh_tr();
+ok( 'no minute look for a ration',       DZE_Automation::wants_every_minute(), false );
+DZE_Automation::tick( 'translate' );
+ok( 'one object a pass',                 count( DZE_Translate::$asked ), 1 );
+ok( 'counted',                           DZE_Automation::done_today( 'translate' ), 1 );
+ok( "and the day's figure stops it",     DZE_Automation::why_not( 'translate' ), 'cap' );
+fresh( [ 'translate' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0, 'pace' => 'daily' ] ] );
+$dze_fresh_tr();
+DZE_Automation::tick( 'translate' );
+ok( 'spread across the day',             DZE_Automation::why_not( 'translate' ), 'early' );
+
+echo "\nA PRODUCT WAITS FOR WHAT IT DISPLAYS\n";
+// Attributes first — and the product only once they are back. Deposited a
+// minute after them, it would go in the next batch, which can come back first.
+fresh( $TR_ALL );
+$dze_fresh_tr();
+$GLOBALS['tr_scope'] = [
+	'term:pa_color' => [ 'kind' => 'term', 'type' => 'pa_color' ],
+	'post:product'  => [ 'kind' => 'post', 'type' => 'product' ],
+];
+DZE_Translate::$shop = [
+	'post:11:product'  => [ 'marks' => [] ],
+	'post:14:product'  => [ 'marks' => [] ],
+	'term:70:pa_color' => [ 'marks' => [] ],
+];
+$GLOBALS['obj_terms'] = [ 11 => [ 'pa_color' => [ 70 ] ], 14 => [ 'pa_color' => [ 70 ] ] ];
+$dze_went = static function (): array {
+	$out = [];
+	foreach ( DZE_Translate::$deposits as $d ) {
+		$out = array_merge( $out, (array) $d['refs'] );
+	}
+	return $out;
+};
+DZE_Automation::tick( 'translate' );
+ok( 'the colour goes',                   in_array( 'term:70:pa_color', $dze_went(), true ), true );
+ok( 'once, though two products carry it', count( array_keys( $dze_went(), 'term:70:pa_color', true ) ), 1 );
+ok( 'and the products wait for it',
+	in_array( 'post:11:product', $dze_went(), true ) || in_array( 'post:14:product', $dze_went(), true ), false );
+DZE_Translate::$deposits = [];
+DZE_Automation::tick( 'translate' );
+ok( 'while it is on its way, they still wait', DZE_Translate::$deposits, [] );
+ok( 'and the task says it is on its way',
+	false !== strpos( DZE_Automation::idle_said( 'translate' ), 'translation queue' ), true );
+// BACK AND WRITTEN: the queue no longer holds it, WPML no longer owes it.
+DZE_Translate::$asked = [];
+DZE_Translate::$shop['term:70:pa_color']['marks'] = [ 'fr' => 'done', 'de' => 'done' ];
+DZE_Automation::tick( 'translate' );
+ok( 'then both products follow',
+	[ in_array( 'post:11:product', $dze_went(), true ), in_array( 'post:14:product', $dze_went(), true ) ], [ true, true ] );
+
+echo "\nTHE PACE IS SAVED\n";
+// « Daily limit » was shown, posted, and dropped by the sanitizer: every save
+// put the task back on its default pace, and no shop could ration it.
+fresh( [] );
+$dze_saved = DZE_Automation::sanitize( [ 'form' => 1, 'tasks' => [
+	'translate'  => [ 'on' => 1, 'per_day' => 5, 'pace' => 'daily' ],
+	'mesh_links' => [ 'on' => 1, 'pace' => 'all' ],
+	'cat_desc'   => [ 'on' => 0, 'pace' => 'sometimes' ],
+	'events'     => [ 'on' => 1, 'pace' => 'daily' ],
+] ] );
+ok( 'a daily limit stays a daily limit', $dze_saved['tasks']['translate']['pace'] ?? '', 'daily' );
+ok( 'always on stays always on',         $dze_saved['tasks']['mesh_links']['pace'] ?? '', 'all' );
+ok( 'a pace that does not exist is not kept', isset( $dze_saved['tasks']['cat_desc']['pace'] ), false );
+ok( 'and a monthly task has none',       isset( $dze_saved['tasks']['events']['pace'] ), false );
+$GLOBALS['opts']['dze_auto_settings'] = $dze_saved;
+ok( 'it is what the task then reads',    DZE_Automation::conf( 'translate' )['pace'], 'daily' );
+ok( 'with its number',                   DZE_Automation::conf( 'translate' )['per_day'], 5 );
+$dze_again = DZE_Automation::sanitize( [ 'form' => 1, 'tasks' => [ 'translate' => [ 'on' => 1 ] ] ] );
+ok( 'a form that did not carry it keeps it', $dze_again['tasks']['translate']['pace'] ?? '', 'daily' );
+
+echo "\nTWO PACES ON SCREEN, AND THE NUMBER ONLY WHERE IT BITES\n";
+fresh( $TR_ALL );
+$dze_fresh_tr();
+ob_start(); DZE_Automation::panel( 'translate', true ); $dze_panel = (string) ob_get_clean();
+ok( 'no more "posts capped below"',      false !== strpos( $dze_panel, 'capped' ), false );
+ok( 'always on is called that',          false !== strpos( $dze_panel, '>Always on<' ), true );
+ok( 'the number hides with it',          false !== strpos( $dze_panel, 'class="dze-auto-ration" style="display:none;"' ), true );
+ok( 'the sentence says every minute',    false !== strpos( $dze_panel, 'every minute' ), true );
+ok( 'and names the pile that pauses it', false !== strpos( $dze_panel, 'Save without review&quot; is ticked' ) || false !== strpos( $dze_panel, 'Save without review" is ticked' ), true );
+fresh( [ 'translate' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0, 'pace' => 'daily' ] ] );
+ob_start(); DZE_Automation::panel( 'translate', true ); $dze_panel = (string) ob_get_clean();
+ok( 'a daily limit shows its number',    false !== strpos( $dze_panel, 'class="dze-auto-ration">' ), true );
+
 // A SECTION THAT REARRANGED THE FAKE SHOP PUTS IT BACK. Left as it stood, the
 // next section asserts against a shop this one invented and passes or fails
 // for reasons that exist only in the test.
-DZE_Translate::$shop   = [];
-DZE_Translate::$sent   = [];
+DZE_Translate::$shop     = [];
+DZE_Translate::$sent     = [];
+DZE_Translate::$asked    = [];
+DZE_Translate::$deposits = [];
+unset( $GLOBALS['tr_scope'] );
+$GLOBALS['obj_terms']  = [];
 $GLOBALS['tr_waiting'] = 0;
 $GLOBALS['wpml_on']    = true;
 $GLOBALS['mods']       = [];

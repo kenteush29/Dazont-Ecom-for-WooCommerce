@@ -93,6 +93,26 @@ final class DZE_Automation {
 	 */
 	private const STOPPED_AFTER = 3 * MINUTE_IN_SECONDS;
 
+	/**
+	 * LA TRADUCTION « ALWAYS ON » REMPLIT LA FILE, ELLE NE LA NOIE PAS.
+	 *
+	 * Chaque minute, au plus FEED_MAX objets partent dans la file de
+	 * traduction — et rien ne part tant que FEED_ROOM y sont déjà, en attente
+	 * de leur lot ou chez Anthropic. Un lot revient en quelques minutes : la
+	 * file reste pleine sans jamais porter tout le catalogue d'un coup, et ce
+	 * qu'on y a envoyé à la main n'attend jamais derrière dix mille objets.
+	 */
+	public const FEED_MAX = 50;
+	public const FEED_ROOM = 200;
+
+	/**
+	 * ET ELLE S'ARRÊTE DEVANT UNE PILE QUE PERSONNE NE LIT. Sans « Save without
+	 * review », chaque traduction attend un oui ou un non : au-delà de
+	 * REVIEW_ROOM objets en attente, la passe ne paie plus des traductions que
+	 * personne n'a encore regardées, et l'écran dit pourquoi.
+	 */
+	public const REVIEW_ROOM = 200;
+
 	private static ?self $instance = null;
 
 	public static function instance(): self {
@@ -253,12 +273,22 @@ final class DZE_Automation {
 	 *
 	 * WordPress has no ten-minute schedule of its own, so this adds one — and
 	 * only ever uses it while a task actually wants it.
+	 *
+	 * ET UNE MINUTE POUR LA TRADUCTION QUI PREND TOUT. « Faire tourner l'outil
+	 * en automatique tout le temps. Une fois toutes les minutes par exemple. »
+	 * Elle ne traduit rien dans la passe : elle dépose dans la file, et les
+	 * lots d'Anthropic font le travail. Une passe d'une minute ne coûte donc
+	 * qu'une lecture de WPML.
 	 */
 	public static function cron_schedules( $schedules ) {
 		$schedules = is_array( $schedules ) ? $schedules : [];
 		$schedules['dze_ten_minutes'] = [
 			'interval' => 10 * MINUTE_IN_SECONDS,
 			'display'  => __( 'Every ten minutes (Dazont Ecom)', 'dazont-ecom' ),
+		];
+		$schedules['dze_one_minute'] = [
+			'interval' => MINUTE_IN_SECONDS,
+			'display'  => __( 'Every minute (Dazont Ecom)', 'dazont-ecom' ),
 		];
 		return $schedules;
 	}
@@ -274,11 +304,22 @@ final class DZE_Automation {
 		return false;
 	}
 
+	/** Does a task want the look every minute? Only translation, taking everything. */
+	public static function wants_every_minute(): bool {
+		foreach ( array_keys( self::tasks() ) as $id ) {
+			$conf = self::conf( (string) $id );
+			if ( ! empty( $conf['on'] ) && 'translate' === $conf['scope'] && self::takes_all( (string) $id ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public function schedule(): void {
 		// THE RHYTHM FOLLOWS THE SETTING, and changes with it: a shop that
 		// puts every task back on a daily ration should not keep a look that
 		// runs six times an hour for nothing.
-		$want = self::wants_short_look() ? 'dze_ten_minutes' : 'hourly';
+		$want = self::wants_every_minute() ? 'dze_one_minute' : ( self::wants_short_look() ? 'dze_ten_minutes' : 'hourly' );
 		$next = wp_next_scheduled( self::HOOK );
 		if ( $next ) {
 			$ev = wp_get_scheduled_event( self::HOOK );
@@ -449,21 +490,29 @@ final class DZE_Automation {
 			// object, and this reads WPML's own answer.
 			'translate' => [
 				'label'   => __( 'Translations', 'dazont-ecom' ),
-				'what'    => __( 'Hand the shop\'s translations to Dazont Ecom. It translates what WPML says is owed, a few objects a day.', 'dazont-ecom' ),
-				'more'    => __( 'WPML already knows what this shop owes a translation of: an object with no translation in one of your languages, or one WPML has marked as needing an update. This pass takes those, oldest work first, and translates ONE object a day for each you allow — every language it is short of, in one go, because a product translated into French and not into German is a job half done. What is sent is only what really moved: the module keeps its own register of the words each translation was made from, so a product flagged because its category was renamed sends nothing at all and is simply marked up to date, for nothing. Which kinds of content take part is the shop\'s own list under Settings → Translation, and what is inside each object — which fields are translated, which WPML copies — is WPML\'s answer and never ours. An object it has worked on is left alone for a month, and one already holding a translation waiting for your yes or no is never sent twice. Nothing reaches the shop until you accept it: unlike the other tasks here, what it produces does not wait with the rest — a translation is one object times its languages times its fields, and it is decided on Dazont Ecom → WPML Translations, the screen built for it. Tick "Save without review" and each translation is written the moment it comes back.', 'dazont-ecom' ),
+				'what'    => __( 'Hand the shop\'s translations to Dazont Ecom. It sends what WPML says is owed to translation, in batches at half price.', 'dazont-ecom' ),
+				// THE FIGURES ARE THE CONSTANTS', never copied into the words: a
+				// sentence that repeats a number lies the day the number moves.
+				'more'    => sprintf(
+					/* translators: 1: objects sent per minute at most, 2: objects on their way before it waits, 3: translations waiting for a decision before it waits */
+					__( 'WPML already knows what this shop owes a translation of: an object with no translation in one of your languages, or one WPML has marked as needing an update. This pass takes those — attributes and categories first, because an untranslated attribute breaks a page, then products and articles — and sends each one in every language it is short of, in one go, because a product translated into French and not into German is a job half done. Nothing is translated inside the pass itself: it puts the objects in the translation queue, which goes to Anthropic in batches, at half price, and usually comes back within minutes. Two paces. Always on: it looks every minute and sends everything that is owed, up to %1$s objects a minute, and holds back while %2$s are already on their way. Daily limit: it sends the number you set each day, spread across the day. What is sent is only what really moved: the module keeps its own register of the words each translation was made from, so a product flagged because its category was renamed costs nothing and is simply marked up to date. Which kinds of content take part is the shop\'s own list under Settings → Translation, and what is inside each object — which fields are translated, which WPML copies — is WPML\'s answer and never ours. An object it has worked on is left alone for a month, and one already holding a translation waiting for your yes or no is never sent twice. Nothing reaches the shop until you accept it, on Dazont Ecom → WPML Translations, the screen built for it — and while %3$s translations are waiting there for your yes or no, it sends nothing more. Tick "Save without review" and each translation is written the moment it comes back.', 'dazont-ecom' ),
+					number_format_i18n( self::FEED_MAX ),
+					number_format_i18n( self::FEED_ROOM ),
+					number_format_i18n( self::REVIEW_ROOM )
+				),
 				'module'  => 'translate',
 				'scope'   => 'translate',
 				// No queue row: what waits lives on the source object, which
 				// is why this task's own block names the screen that holds it
 				// rather than listing rows it could never settle here.
 				'jobs'    => [],
-				// TOUT CE QUI EST CRITIQUE, SANS QUOTA ; le reste au goutte-a-
-				// goutte. « Pour tout ce qui est critique comme les attributs,
-				// categories etc oui, et la possibilite de traduire un peu chaque
-				// jour pour les posts comme produits et articles de blog, c est
-				// bien pour le SEO. » Les TERMES — attributs, categories — passent
-				// sans compteur : une valeur d attribut non traduite casse une
-				// page entiere. Les POSTS gardent leur per_day.
+				// DEUX ALLURES, ET RIEN ENTRE LES DEUX. « On voulait soit daily
+				// limit soit always on, et faire tourner l'outil en automatique
+				// tout le temps. » L'allure hybride d'avant — les termes sans
+				// compteur, les posts rationnés — faisait d'« Always on » une
+				// ration qui ne disait pas son nom. Always on prend tout, chaque
+				// minute ; Daily limit compte tout, termes compris. Les termes
+				// passent toujours les premiers : c'est un ordre, plus un quota.
 				'pace'    => 'all',
 				'per_day' => 1,
 				'apply'   => 0,
@@ -664,12 +713,21 @@ final class DZE_Automation {
 		$posted = (array) ( $in['tasks'] ?? [] );
 		foreach ( self::tasks() as $id => $t ) {
 			$row = (array) ( $posted[ $id ] ?? [] );
-			$out['tasks'][ $id ] = [
+			// L'ALLURE CHOISIE EST ENREGISTRÉE. Elle ne l'était pas : « Daily
+			// limit » s'affichait, partait avec le formulaire, et disparaissait
+			// ici — la tâche revenait à son allure par défaut à chaque
+			// enregistrement, et aucune boutique ne pouvait la rationner.
+			$pace = (string) ( $row['pace'] ?? ( $out['tasks'][ $id ]['pace'] ?? '' ) );
+			$one  = [
 				'on'      => empty( $row['on'] ) ? 0 : 1,
 				'per_day' => max( 1, min( 20, (int) ( $row['per_day'] ?? $t['per_day'] ?? 1 ) ) ),
 				'apply'   => empty( $row['apply'] ) ? 0 : 1,
 				'kw_only' => empty( $row['kw_only'] ) ? 0 : 1,
 			];
+			if ( 'month' !== ( $t['cadence'] ?? 'day' ) && in_array( $pace, [ 'all', 'daily' ], true ) ) {
+				$one['pace'] = $pace;
+			}
+			$out['tasks'][ $id ] = $one;
 		}
 		return $out;
 	}
@@ -717,6 +775,12 @@ final class DZE_Automation {
 		// is one object and one model call, and the queue does the rest. Ten
 		// minutes keeps it moving without ever being a burst.
 		if ( self::takes_all( $id ) ) {
+			// SAUF LA TRADUCTION, QUI N'APPELLE AUCUN MODÈLE DANS LA PASSE : elle
+			// dépose. Son rythme est celui du tic — chaque minute — et ce qui la
+			// freine est la place dans la file, jamais une horloge.
+			if ( 'translate' === $conf['scope'] ) {
+				return 0;
+			}
 			return 10 * MINUTE_IN_SECONDS;
 		}
 		return (int) max( HOUR_IN_SECONDS, floor( DAY_IN_SECONDS / max( 1, $conf['per_day'] ) ) );
@@ -768,7 +832,14 @@ final class DZE_Automation {
 		}
 		// Spread over the period rather than run off at the start of it: three
 		// a day is one every eight hours, once a month is once a month.
-		if ( time() - self::last_run( $id ) < self::gap( $id ) ) {
+		//
+		// A MINUTE OF SLACK. The last run is stamped when a pass ENDS, and the
+		// next tick is booked from when the previous one was DUE: ten minutes
+		// later, it found nine minutes fifty and waited another whole round.
+		// « Every ten minutes » ran every twenty — the maintenance at half the
+		// speed it announced.
+		$gap = self::gap( $id );
+		if ( $gap > 0 && time() - self::last_run( $id ) < $gap - min( MINUTE_IN_SECONDS, (int) floor( $gap / 10 ) ) ) {
 			return 'early';
 		}
 		return '';
@@ -1054,70 +1125,74 @@ final class DZE_Automation {
 	 * Translations screen pages with — one reader, two callers, so the pass
 	 * can never offer an object the screen does not list.
 	 *
-	 * Two things take an object out: one that is already holding a translation
-	 * waiting for a yes or no (sending it again would make a second answer for
-	 * the same words, and the second would quietly replace the first), and one
-	 * worked on within the cooldown. Both are counted, because "nothing to do"
-	 * has to say WHICH nothing.
+	 * Three things take an object out: one already in the translation queue —
+	 * sent by hand, or deposited by an earlier pass, and on its way; one that
+	 * is already holding a translation waiting for a yes or no (sending it
+	 * again would make a second answer for the same words, and the second
+	 * would quietly replace the first); and one worked on within the
+	 * cooldown. All are counted, because "nothing to do" has to say WHICH
+	 * nothing.
 	 *
+	 * @param array|null $en_file The translation queue, when the caller has
+	 *                            already read it: it is the whole queue, read
+	 *                            from the database, and this used to read it
+	 *                            once per kind and once per attribute.
 	 * @return array<int,array{tid:int,name:string,why:string,kind:string,ref:string,langs:string[]}>
 	 */
-	private static function translate_shortlist( string $id, int $n ): array {
+	private static function translate_shortlist( string $id, int $n, ?array $en_file = null ): array {
 		if ( ! class_exists( 'DZE_Translate' ) || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			return [];
 		}
 		self::held_reset();
 		$src = (string) DZE_Wpml::default_language();
 		$out = [];
+		// Ce qui est déjà retenu : un attribut que deux produits portent ne
+		// part pas deux fois dans la même passe.
+		$pris = [];
 		// CE QU'ON A ENVOYÉ À LA MAIN N'EST PAS À ELLE. La file du tableau de
 		// bord a son propre passage — `DZE_Translate::drain()` — qui respecte
 		// les langues choisies et « écrire sans relire ». La prendre ici la
 		// traduisait dans TOUTES les langues dues : du russe demandé, cinq
-		// langues payées.
-		// LES TERMES D ABORD, ET SANS COMPTEUR.
-		//
-		// « Pour tout ce qui est critique comme les attributs, categories etc
-		// oui, et la possibilite de traduire un peu chaque jour pour les posts
-		// comme produits et articles de blog, c'est bien pour le SEO. »
+		// langues payées. Ce qui est dans la file — à la main, ou déposé par
+		// une passe précédente — n'y retourne donc pas.
+		if ( null === $en_file ) {
+			$en_file = method_exists( 'DZE_Translate', 'queued_map' ) ? (array) DZE_Translate::queued_map() : [];
+		}
+		// The languages this kind is short of are the object's own, so the
+		// page is asked for EVERY active language and each row is then read
+		// for what it actually owes.
+		$langs = [];
+		foreach ( DZE_Wpml::get_active_languages() as $l ) {
+			$code = (string) ( $l['code'] ?? '' );
+			if ( '' !== $code && $code !== $src ) {
+				$langs[] = $code;
+			}
+		}
+		if ( ! $langs ) {
+			return []; // one language: there is nothing here to translate into.
+		}
+		// LES TERMES D'ABORD — un ordre, plus un quota.
 		//
 		// Un attribut non traduit casse une page entiere : le client voit
 		// « Black » au milieu d un texte francais, ou pire, la variation ne se
 		// choisit pas. Un produit non traduit est une page de moins, ce qui
-		// est un manque, pas une casse. Les deux ne meritent donc pas la meme
-		// hate — et c est exactement ce que la boutique a demande.
-		$scopes = DZE_Translate::picked_scope();
-		if ( self::takes_all( $id ) ) {
-			$terms = [];
-			$posts = [];
-			foreach ( $scopes as $key => $one ) {
-				if ( 'term' === (string) ( $one['kind'] ?? '' ) ) {
-					$terms[ $key ] = $one;
-				} else {
-					$posts[ $key ] = $one;
-				}
+		// est un manque, pas une casse. Les termes passent donc devant, dans
+		// les deux allures ; ce qui les rationnait à part des posts n'existe
+		// plus — « soit daily limit soit always on ».
+		$terms = [];
+		$posts = [];
+		foreach ( DZE_Translate::picked_scope() as $key => $one ) {
+			if ( 'term' === (string) ( $one['kind'] ?? '' ) ) {
+				$terms[ $key ] = $one;
+			} else {
+				$posts[ $key ] = $one;
 			}
-			// Le goutte-a-goutte ne vaut que pour les posts : s il est epuise
-			// pour aujourd hui, seuls les termes restent en lice.
-			$conf = self::conf( $id );
-			$out_today = self::done_today( $id . ':post' );
-			$scopes = $out_today >= (int) $conf['per_day'] ? $terms : $terms + $posts;
 		}
-		foreach ( $scopes as $scope ) {
+		$dus  = 0;
+		$muet = false;
+		foreach ( $terms + $posts as $scope ) {
 			if ( count( $out ) >= $n ) {
 				break;
-			}
-			// The languages this kind is short of are the object's own, so the
-			// page is asked for EVERY active language and each row is then
-			// read for what it actually owes.
-			$langs = [];
-			foreach ( DZE_Wpml::get_active_languages() as $l ) {
-				$code = (string) ( $l['code'] ?? '' );
-				if ( '' !== $code && $code !== $src ) {
-					$langs[] = $code;
-				}
-			}
-			if ( ! $langs ) {
-				return []; // one language: there is nothing here to translate into.
 			}
 			// ON TOURNE LES PAGES TANT QUE TOUT CE QU ELLES RENDENT EST RETENU.
 			//
@@ -1132,17 +1207,21 @@ final class DZE_Automation {
 			// plus rien — ou au plafond : chercher sans fin coute autant que ne
 			// pas chercher.
 			$per   = max( 1, $n ) * 5;
-			// WHAT WAS SENT BY HAND IS NOT THIS PASS'S TO TRANSLATE. An object in
-			// the dashboard's queue — waiting its batch, or with Anthropic right
-			// now — translated here as well is the same language paid for twice.
-			$en_file = class_exists( 'DZE_Translate' ) && method_exists( 'DZE_Translate', 'queued_map' ) ? DZE_Translate::queued_map() : [];
 			$paged = 0;
 			$max   = 6; // six pages de cinq fois la demande, et pas le catalogue.
 			while ( ++$paged <= $max && count( $out ) < $n ) {
 				$page = DZE_Translate::todo_page( $scope, $src, $langs, $paged, $per );
 				if ( null === $page ) {
+					$muet = true;
 					break; // WPML's tables cannot be read: this kind answers nothing.
 				}
+				if ( 1 === $paged ) {
+					$dus += (int) ( $page[1] ?? 0 ); // ce que WPML dit dû pour cette sorte, en tout.
+				}
+				// WPML'S ANSWER FOR THE WHOLE PAGE, IN ONE QUERY — the function
+				// was written for exactly that. Asked object by object, a pass
+				// that comes back every minute spent it reading.
+				$marks = $page[0] ? (array) DZE_Translate::page_marks( (array) $page[0] ) : [];
 				foreach ( (array) $page[0] as $o ) {
 					if ( count( $out ) >= $n ) {
 						break;
@@ -1152,14 +1231,22 @@ final class DZE_Automation {
 					if ( $oid < 1 ) {
 						continue;
 					}
+					$ref = DZE_Translate::ref( $o );
+					if ( isset( $pris[ $ref ] ) ) {
+						continue;
+					}
+					// WHAT IS ALREADY ON ITS WAY IS NOT SENT AGAIN — the same
+					// language paid for twice. Asked first: it is a look in an
+					// array, and everything after it is a query.
+					if ( isset( $en_file[ $ref ] ) ) {
+						self::$held['flying']++;
+						continue;
+					}
 					// ALREADY WAITING FOR A DECISION IS NOT WORK. A second run
 					// over the same object writes a second translation into the
 					// same store, and the one somebody has not read yet is gone.
 					if ( DZE_Translate::waiting( $o ) ) {
 						self::$held['waiting']++;
-						continue;
-					}
-					if ( isset( $en_file[ DZE_Translate::ref( $o ) ] ) ) {
 						continue;
 					}
 					// LE FOURRE-TOUT D UNE TAXONOMIE N EST PAS DU TEXTE CLIENT.
@@ -1183,7 +1270,7 @@ final class DZE_Automation {
 						self::note_back( $oid, $id, $type );
 						continue;
 					}
-					$owed = self::translate_owed( $o, $langs );
+					$owed = self::translate_owed( $o, $langs, $marks );
 					if ( ! $owed ) {
 						continue; // WPML is satisfied with every language of it.
 					}
@@ -1198,23 +1285,39 @@ final class DZE_Automation {
 					// Les attributs passent DEVANT et le produit repasse au tour
 					// suivant : l ordre est la seule chose qui garantisse que la fiche
 					// ne sorte jamais avant ce qu elle affiche.
+					//
+					// ET IL ATTEND QU'ILS SOIENT REVENUS. Déposés dans la file, ses
+					// attributs partent dans un lot ; le produit déposé une minute
+					// plus tard partirait dans le suivant, qui peut revenir le
+					// premier. Tant qu'un de ses attributs est en route — dans la
+					// file, ou retenu dans cette passe même — le produit attend.
 					if ( 'post' === $type && 'product' === (string) ( $o['type'] ?? '' ) ) {
-						$first = self::attrs_owed( $oid, $langs );
-						if ( $first ) {
-							foreach ( $first as $one ) {
-								if ( count( $out ) >= $n ) {
-									break;
-								}
-								$out[] = $one;
+						$vol   = false;
+						$first = self::attrs_owed( $oid, $langs, $id, $en_file, $vol );
+						foreach ( $first as $one ) {
+							if ( isset( $pris[ (string) $one['ref'] ] ) ) {
+								$vol = true; // déjà retenu pour un autre produit : il part avec lui.
+								continue;
+							}
+							if ( count( $out ) >= $n ) {
+								break;
+							}
+							$out[]                        = $one;
+							$pris[ (string) $one['ref'] ] = true;
+						}
+						if ( $first || $vol ) {
+							if ( ! $first ) {
+								self::$held['flying']++;
 							}
 							continue;
 						}
 					}
-					$out[] = [
+					$pris[ $ref ] = true;
+					$out[]        = [
 						'tid'   => $oid,
 						'name'  => DZE_Translate::obj_label( $o ),
 						'kind'  => 'term' === $type ? 'product_cat' : 'post',
-						'ref'   => DZE_Translate::ref( $o ),
+						'ref'   => $ref,
 						'langs' => $owed,
 						'why'   => sprintf(
 							/* translators: %s: the languages it is short of, e.g. "FR, DE" */
@@ -1228,6 +1331,12 @@ final class DZE_Automation {
 					break;
 				}
 			}
+		}
+		// RIEN DE DÛ, DIT PAR WPML, EST UNE RAISON — pas un silence. Sans elle,
+		// une boutique entièrement traduite voyait six heures plus tard
+		// l'alarme rouge « rien produit », au-dessus de « rien à faire ».
+		if ( ! $out && 0 === $dus && ! $muet ) {
+			self::$held['clear'] = 1;
 		}
 		return $out;
 	}
@@ -1245,10 +1354,14 @@ final class DZE_Automation {
 	 *   en dependance. Une dependance qui passe outre le reglage est un
 	 *   reglage qui ne sert a rien.
 	 *
-	 * @param string[] $langs
+	 * @param string[]  $langs
+	 * @param array     $en_file The translation queue, read once by the caller.
+	 * @param bool|null $vol     Set when one of them is already on its way:
+	 *                           the product then waits for it.
 	 * @return array<int,array<string,mixed>>
 	 */
-	private static function attrs_owed( int $pid, array $langs ): array {
+	private static function attrs_owed( int $pid, array $langs, string $id = 'translate', array $en_file = [], ?bool &$vol = null ): array {
+		$vol = false;
 		if ( $pid < 1 || ! class_exists( 'DZE_Translate' ) ) {
 			return [];
 		}
@@ -1269,8 +1382,17 @@ final class DZE_Automation {
 				if ( ! $one || DZE_Translate::waiting( $one ) ) {
 					continue; // deja en attente d une decision : ne pas l ecrire deux fois.
 				}
-				// ENVOYÉ À LA MAIN DEPUIS LE TABLEAU DE BORD : pas deux fois payé.
-				if ( method_exists( 'DZE_Translate', 'queued_map' ) && isset( DZE_Translate::queued_map()[ DZE_Translate::ref( $one ) ] ) ) {
+				// DÉJÀ DANS LA FILE — envoyé à la main, ou déposé par une passe
+				// précédente : pas deux fois payé, et le produit l'attend.
+				if ( isset( $en_file[ DZE_Translate::ref( $one ) ] ) ) {
+					$vol = true;
+					continue;
+				}
+				// TRAITÉ IL Y A PEU — refusé à la relecture, ou revenu sans rien :
+				// il n'est pas renvoyé à chaque passe, et le produit ne l'attend
+				// pas. Une passe par minute qui rachète le même attribut refusé,
+				// c'est soixante fois par heure la même dépense.
+				if ( self::cooling( $tid, $id, 'term', 0, 0, time() - self::COOLDOWN * DAY_IN_SECONDS ) ) {
 					continue;
 				}
 				$owed = self::translate_owed( $one, $langs );
@@ -1302,14 +1424,16 @@ final class DZE_Automation {
 	 * not this module's to send. Our own register decides what is SENT inside
 	 * the job (`obj_stale()`), which is a different and later question.
 	 *
-	 * @param string[] $langs
+	 * @param string[]   $langs
+	 * @param array|null $marks WPML's answer for the whole page this object
+	 *                          came from, when the caller has read it once.
 	 * @return string[]
 	 */
-	private static function translate_owed( array $o, array $langs ): array {
+	private static function translate_owed( array $o, array $langs, ?array $marks = null ): array {
 		// WPML indexes a post by its id and a TERM by its term taxonomy id, so
 		// the answer is asked for by the one function that knows the
 		// difference — the same one the screen's own rows are drawn from.
-		$marks = (array) DZE_Translate::page_marks( [ $o ] );
+		$marks = $marks ?? (array) DZE_Translate::page_marks( [ $o ] );
 		$mine  = (array) ( $marks[ DZE_Translate::element_id_of( $o ) ] ?? [] );
 		$out   = [];
 		foreach ( $langs as $code ) {
@@ -1529,10 +1653,10 @@ final class DZE_Automation {
 	 *
 	 * @var array{queued:int,recent:int}
 	 */
-	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0 ];
+	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0, 'flying' => 0, 'clear' => 0 ];
 
 	public static function held_reset(): void {
-		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0 ];
+		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0, 'flying' => 0, 'clear' => 0 ];
 	}
 
 	/**
@@ -1636,6 +1760,23 @@ final class DZE_Automation {
 	private static function translate_nothing_said(): string {
 		$w = (int) self::$held['waiting'];
 		$r = (int) self::$held['recent'];
+		$f = (int) ( self::$held['flying'] ?? 0 );
+		// ON ITS WAY IS NOT NOTHING. Without this line, a shop whose whole
+		// backlog had just been sent read "WPML is satisfied with every
+		// language" while two hundred objects were with Anthropic.
+		if ( $f > 0 ) {
+			$n = class_exists( 'DZE_Translate' ) && method_exists( 'DZE_Translate', 'queued_map' ) ? count( (array) DZE_Translate::queued_map() ) : $f;
+			return sprintf(
+				/* translators: %s: how many objects are in the translation queue */
+				_n(
+					'Nothing new to send: %s object is already in the translation queue, on its way to Anthropic or back from it.',
+					'Nothing new to send: %s objects are already in the translation queue, on their way to Anthropic or back from it.',
+					max( 1, $n ),
+					'dazont-ecom'
+				),
+				number_format_i18n( max( 1, $n ) )
+			);
+		}
 		if ( $w > 0 ) {
 			// The figure is the SHOP'S, counted whole by the module that holds
 			// them — never the tally, which is however many this reading
@@ -1893,8 +2034,16 @@ final class DZE_Automation {
 	public static function tick( string $only = '', bool $forced = false ): array {
 		$ids    = '' !== $only ? [ $only ] : array_keys( self::tasks() );
 		$reason = 'none';
+		$done   = null;
 		foreach ( $ids as $id ) {
 			if ( ! self::task( $id ) ) {
+				continue;
+			}
+			// LA TRADUCTION DÉPOSE, ELLE NE TRAVAILLE PAS DANS LA PASSE : un dépôt
+			// ne compte pas pour « une tâche par passe ». Tournant chaque minute,
+			// elle aurait sinon privé toutes les autres de leur tour.
+			$feeds = 'translate' === (string) ( self::conf( $id )['scope'] ?? '' );
+			if ( $done && ! $feeds ) {
 				continue;
 			}
 			$why = self::why_not( $id, $forced );
@@ -1907,6 +2056,15 @@ final class DZE_Automation {
 					self::note_nothing( $id, $why );
 				}
 				$reason = $why;
+				continue;
+			}
+			if ( $feeds ) {
+				$res = self::feed_translate( $id, $forced );
+				if ( $res['queued'] ) {
+					$done = $done ?? $res;
+				} else {
+					$reason = $res['reason'];
+				}
 				continue;
 			}
 			$pick = self::shortlist( $id, 1 );
@@ -1931,11 +2089,129 @@ final class DZE_Automation {
 			// own — which is a different question with a different answer.
 			$res = self::run( $id, (int) $pick[0]['tid'], (array) $pick[0] );
 			if ( $res['queued'] ) {
-				return $res;
+				$done = $res;
+				continue;
 			}
 			$reason = $res['reason'];
 		}
-		return [ 'queued' => 0, 'task' => $only, 'reason' => $reason ];
+		return $done ?? [ 'queued' => 0, 'task' => $only, 'reason' => $reason ];
+	}
+
+	/**
+	 * LA TRADUCTION, REMISE À LA FILE QUI LA FAIT EN LOTS.
+	 *
+	 * « Faire tourner l'outil en automatique tout le temps. Une fois toutes
+	 * les minutes par exemple. » La passe traduisait elle-même, un objet à la
+	 * fois, dans la requête du cron — celle qu'Hostinger coupe sans un mot —
+	 * et au plein tarif. Elle dépose maintenant dans la file de traduction,
+	 * qui part chez Anthropic en lots, à moitié prix, et revient en quelques
+	 * minutes : exactement le chemin de ce qu'on envoie à la main depuis le
+	 * tableau de bord.
+	 *
+	 * Always on : chaque minute, tout ce qui est dû, jusqu'à FEED_MAX objets,
+	 * tant que la file a de la place. Daily limit, et « Run one now » : un
+	 * objet. Sans « Save without review », rien ne part au-delà de
+	 * REVIEW_ROOM traductions qui attendent déjà un oui ou un non — sauf une
+	 * pression sur le bouton, qui est une décision.
+	 *
+	 * @return array{queued:int,task:string,reason:string}
+	 */
+	private static function feed_translate( string $id, bool $forced ): array {
+		$no = static fn( string $why ): array => [ 'queued' => 0, 'task' => $id, 'reason' => $why ];
+		if ( ! class_exists( 'DZE_Translate' ) || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return $no( 'gone' );
+		}
+		$conf    = self::conf( $id );
+		$en_file = method_exists( 'DZE_Translate', 'queued_map' ) ? (array) DZE_Translate::queued_map() : [];
+		$n       = 1;
+		if ( ! $forced ) {
+			if ( empty( $conf['apply'] ) && (int) DZE_Translate::review_count() >= self::REVIEW_ROOM ) {
+				self::note_nothing( $id, 'review' );
+				return $no( 'review' );
+			}
+			if ( self::takes_all( $id ) ) {
+				$room = self::FEED_ROOM - count( $en_file );
+				if ( $room < 1 ) {
+					self::note_nothing( $id, 'full' );
+					return $no( 'full' );
+				}
+				$n = min( self::FEED_MAX, $room );
+			}
+		}
+		$pick = self::translate_shortlist( $id, $n, $en_file );
+		if ( ! $pick ) {
+			self::note_nothing( $id, 'none' );
+			return $no( 'none' );
+		}
+		return self::deposit_translate( $id, $pick, $conf, $en_file );
+	}
+
+	/**
+	 * Puts shortlist rows in the translation queue, each with the languages it
+	 * owes, and wakes the queue.
+	 *
+	 * ONE DEPOSIT PER SET OF LANGUAGES, not one per object: each deposit reads
+	 * and writes the whole queue under its lock. And an object is stamped as
+	 * worked on only once the queue really holds it — the queue refuses what
+	 * is not an original, and what does not fit.
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 * @return array{queued:int,task:string,reason:string}
+	 */
+	private static function deposit_translate( string $id, array $rows, array $conf, array $en_file ): array {
+		$no     = static fn( string $why ): array => [ 'queued' => 0, 'task' => $id, 'reason' => $why ];
+		$groups = [];
+		$want   = [];
+		foreach ( $rows as $row ) {
+			$o = DZE_Translate::from_ref( (string) ( $row['ref'] ?? '' ) );
+			if ( ! $o ) {
+				continue;
+			}
+			$ref   = DZE_Translate::ref( $o );
+			$langs = array_values( array_filter( array_map( 'strval', (array) ( $row['langs'] ?? [] ) ) ) );
+			if ( ! $langs ) {
+				$langs = array_map( 'strval', array_keys( DZE_Translate::obj_targets( $o ) ) );
+			}
+			// ASKED AGAIN AT THE MOMENT OF DEPOSIT: a language already on its way
+			// for this object is not asked for a second time.
+			$langs = array_values( array_diff( $langs, array_keys( (array) ( $en_file[ $ref ] ?? [] ) ) ) );
+			if ( ! $langs ) {
+				continue;
+			}
+			sort( $langs );
+			$groups[ implode( ',', $langs ) ][] = $o;
+			$want[ $ref ]                       = [ $o, count( $langs ) ];
+		}
+		if ( ! $want ) {
+			return $no( 'none' );
+		}
+		$n    = 0;
+		$refu = 0;
+		foreach ( $groups as $codes => $list ) {
+			$pas = 0;
+			$n  += (int) DZE_Translate::ask( $list, ! empty( $conf['apply'] ), explode( ',', (string) $codes ), false, $pas );
+			$refu += (int) $pas;
+		}
+		if ( $n < 1 ) {
+			return $no( $refu > 0 ? 'full' : 'none' );
+		}
+		DZE_Translate::kick_drain();
+		// STAMPED ONLY WHAT THE QUEUE HOLDS: a pass that was never queued is
+		// not a pass, and a stamp without one locks the object out for a month.
+		$now  = method_exists( 'DZE_Translate', 'queued_map' ) ? (array) DZE_Translate::queued_map() : [];
+		$sent = 0;
+		foreach ( $want as $ref => [ $o, $k ] ) {
+			if ( $now && ! isset( $now[ $ref ] ) ) {
+				continue;
+			}
+			self::mark( (int) $o['id'], $id, 'term' === (string) $o['kind'] ? 'term' : 'post', 0, $k );
+			$sent++;
+		}
+		if ( ! $sent ) {
+			return $no( 'none' );
+		}
+		self::count_pass( $id, $sent );
+		return [ 'queued' => $sent, 'task' => $id, 'reason' => 'queued' ];
 	}
 
 	/**
@@ -1984,6 +2260,11 @@ final class DZE_Automation {
 	 * lorsqu'il n'y a aucune raison à donner.
 	 */
 	public static function idle_explained( string $id ): bool {
+		// A FULL QUEUE AND A FULL REVIEW PILE ARE REASONS, NOT BREAKDOWNS: the
+		// translation pass holds back on purpose, and says which.
+		if ( in_array( (string) ( self::idle_of( $id )['why'] ?? '' ), [ 'full', 'review' ], true ) ) {
+			return true;
+		}
 		foreach ( (array) ( self::idle_of( $id )['held'] ?? [] ) as $n ) {
 			if ( (int) $n > 0 ) {
 				return true;
@@ -2016,6 +2297,22 @@ final class DZE_Automation {
 				$mots[ $why ]
 			);
 		}
+		// HELD BACK ON PURPOSE, and the way out named. Neither is "nothing done":
+		// the queue is working, or the translations are there to be read.
+		if ( 'full' === $why ) {
+			return sprintf(
+				/* translators: %s: how many objects the translation queue holds before the pass waits */
+				__( 'Waiting for room: %s objects are already in the translation queue. More are sent as their batches come back.', 'dazont-ecom' ),
+				number_format_i18n( self::FEED_ROOM )
+			);
+		}
+		if ( 'review' === $why ) {
+			return sprintf(
+				/* translators: %s: how many translations waiting for a decision stop the pass */
+				__( 'Paused: %s translations are waiting for your yes or no on WPML Translations. Accept or discard them — or tick "Save without review" — and it carries on by itself.', 'dazont-ecom' ),
+				number_format_i18n( self::REVIEW_ROOM )
+			);
+		}
 		// RIEN TROUVE : on dit ce qui a ete ECARTE, qui est la seule chose
 		// utile — « rien a faire » et « tout est en attente de votre relecture »
 		// demandent deux gestes opposes.
@@ -2029,6 +2326,7 @@ final class DZE_Automation {
 				? str_replace( [ '{days}', '{date}' ], [ (string) self::COOLDOWN, self::back_said( (int) $held['back'] ) ], __( '%s already done recently — each one waits up to {days} days before another pass, and the first is due again on {date}', 'dazont-ecom' ) )
 				: __( '%s already done recently and waiting before another pass', 'dazont-ecom' ),
 			'waiting' => __( '%s waiting for your yes or no', 'dazont-ecom' ),
+			'flying'  => __( '%s already in the translation queue', 'dazont-ecom' ),
 			'unread'  => __( 'the site has not been read yet', 'dazont-ecom' ),
 		];
 		foreach ( $noms as $k => $forme ) {
@@ -2194,13 +2492,19 @@ final class DZE_Automation {
 	}
 
 	/**
-	 * One object, translated into every language it is short of.
+	 * One object, sent to translation into every language it is short of.
 	 *
-	 * There is no queue job and there must never be one: a translation is an
-	 * object times N languages times M fields, each with its own yes or no,
-	 * and the store that holds it is the source object's own — the same one
-	 * the Translations screen reads. Bending the writing queue to carry that
-	 * is how two screens start disagreeing about what is waiting.
+	 * There is no writing-queue job and there must never be one: a translation
+	 * is an object times N languages times M fields, each with its own yes or
+	 * no, and the store that holds it is the source object's own — the same
+	 * one the Translations screen reads. It goes where that screen sends its
+	 * own: the translation queue, in batches, at half price. Nothing is
+	 * translated here — a pass that waited on the model inside the cron
+	 * request died with it, unlogged, the moment the host cut it.
+	 *
+	 * What only a register can decide — a product flagged because its category
+	 * was renamed, with not one word of its own moved — is decided by the
+	 * queue when it builds the batch, and costs nothing there.
 	 *
 	 * @param array $row The shortlist row when there is one: it carries the
 	 *                   object's reference and the languages it owes. Pressed
@@ -2212,72 +2516,44 @@ final class DZE_Automation {
 		if ( ! class_exists( 'DZE_Translate' ) || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			return $no( 'gone' );
 		}
-		$o = '' !== (string) ( $row['ref'] ?? '' ) ? DZE_Translate::from_ref( (string) $row['ref'] ) : [];
-		if ( ! $o ) {
-			// No row: the object is rebuilt from its id, and the pass asks the
-			// same question the day's work asks rather than translating
-			// whatever happens to be there.
-			foreach ( self::translate_shortlist( $id, 20 ) as $one ) {
+		$en_file = method_exists( 'DZE_Translate', 'queued_map' ) ? (array) DZE_Translate::queued_map() : [];
+		if ( '' === (string) ( $row['ref'] ?? '' ) ) {
+			// No row: the object is found in the same list the day's work reads,
+			// rather than translating whatever happens to be there.
+			foreach ( self::translate_shortlist( $id, 20, $en_file ) as $one ) {
 				if ( (int) $one['tid'] === $oid ) {
-					$o   = DZE_Translate::from_ref( (string) $one['ref'] );
 					$row = $one;
 					break;
 				}
 			}
 		}
-		if ( ! $o ) {
+		if ( '' === (string) ( $row['ref'] ?? '' ) ) {
 			return $no( 'gone' );
 		}
-		$langs = array_values( array_filter( array_map( 'strval', (array) ( $row['langs'] ?? [] ) ) ) );
-		if ( ! $langs ) {
-			$langs = array_keys( DZE_Translate::obj_targets( $o ) );
-		}
-		if ( ! $langs ) {
-			return $no( 'none' );
-		}
-		// ASKED AGAIN AT THE MOMENT OF PAYING: the shortlist was drawn earlier,
-		// and a language sent by hand from the dashboard since — waiting its
-		// batch, or with Anthropic right now — is not paid for a second time.
-		if ( method_exists( 'DZE_Translate', 'queued_map' ) ) {
-			$langs = array_values( array_diff( $langs, array_keys( (array) ( DZE_Translate::queued_map()[ DZE_Translate::ref( $o ) ] ?? [] ) ) ) );
-			if ( ! $langs ) {
-				return $no( 'none' );
-			}
-		}
-		// Nobody is waiting on cron, and a product with fifteen fields in five
-		// languages is five model calls.
-		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- cron and a deliberate press.
-		}
-		try {
-			$res = DZE_Translate::produce( $o, $langs );
-		} catch ( \Throwable $e ) {
-			return $no( 'failed' );
-		}
-		// WHAT CAME BACK DECIDES WHAT THIS WAS. Nothing written and nothing
-		// skipped is a failure; nothing written because every language was
-		// already up to date is a real answer and not one.
-		if ( ! $res['langs'] ) {
-			if ( $res['skipped'] ) {
-				// WPML had marked it and our register says not one word moved:
-				// the mark is closed, for nothing, and that is the whole value
-				// of this module. It counts as work done on the object, so it
-				// is marked and not looked at again tomorrow.
-				self::mark( $oid, $id, 'term' === (string) $o['kind'] ? 'term' : 'post', 0, 0 );
-				self::note( $id, $oid, DZE_Translate::obj_label( $o ), 'term' === (string) $o['kind'] ? 'term' : 'post', 0, 0, true );
-				return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
-			}
-			return $no( 'failed' );
-		}
-		// SAVED WITHOUT REVIEW IS A DECISION THE SHOP TOOK, and it is taken
-		// here rather than left for somebody to find waiting.
-		if ( ! empty( $conf['apply'] ) ) {
-			DZE_Translate::accept( $o, $res['langs'] );
-		}
-		$type = 'term' === (string) $o['kind'] ? 'term' : 'post';
-		self::mark( $oid, $id, $type, 0, count( $res['langs'] ) );
-		self::note( $id, $oid, DZE_Translate::obj_label( $o ), $type, 0, count( $res['langs'] ), (bool) $conf['apply'] );
-		return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
+		return self::deposit_translate( $id, [ $row ], $conf, $en_file );
+	}
+
+	/**
+	 * A TRANSLATION PASS IS COUNTED, NOT FILED.
+	 *
+	 * The log is the undo's: it keeps the last few passes and deletes the copy
+	 * of whatever falls off its end. Fifty translations a minute filed there
+	 * would push every page the linking task can still undo off that end
+	 * within one tick — and a translation keeps no copy here to undo: the
+	 * translation module holds its own. So the day's figure and the time of
+	 * the last pass move, and the log is left to the tasks that need it.
+	 */
+	private static function count_pass( string $id, int $n ): void {
+		$s     = self::state();
+		$today = current_time( 'Y-m-d' );
+		$count = (string) ( $s['day'] ?? '' ) === $today ? (array) ( $s['count'] ?? [] ) : [];
+		$count[ $id ] = (int) ( $count[ $id ] ?? 0 ) + max( 0, $n );
+		$last         = (array) ( $s['last'] ?? [] );
+		$last[ $id ]  = time();
+		$s['day']     = $today;
+		$s['count']   = $count;
+		$s['last']    = $last;
+		self::save_state( $s );
 	}
 
 	/** Files one pass in the log, and keeps the undo of the last ones only. */
@@ -2314,15 +2590,17 @@ final class DZE_Automation {
 		}
 		$count = $fresh ? (array) ( $s['count'] ?? [] ) : [];
 		$count[ $id ] = (int) ( $count[ $id ] ?? 0 ) + 1;
-		// ET LA RATION DES POSTS, COMPTEE A PART. Une tache qui prend tout en
-		// charge n a pas de plafond ; sa moitie « posts » en garde un, et il
-		// lui faut donc son propre compteur. Un terme n en consomme pas.
-		if ( self::takes_all( $id ) && 'term' !== $type ) {
-			$count[ $id . ':post' ] = (int) ( $count[ $id . ':post' ] ?? 0 ) + 1;
-		}
 		$lastm = (array) ( $s['last'] ?? [] );
 		$lastm[ $id ] = time();
-		self::save_state( [ 'day' => $today, 'count' => $count, 'last' => $lastm, 'log' => $kept ] );
+		// THE REST OF THE STATE STAYS. It was rewritten with these four keys
+		// only, so every pass wiped what the OTHER tasks had said about why
+		// they were resting — and a task that had explained itself went back
+		// to looking broken the moment another one worked.
+		$s['day']   = $today;
+		$s['count'] = $count;
+		$s['last']  = $lastm;
+		$s['log']   = $kept;
+		self::save_state( $s );
 	}
 
 	/** Puts back the text an automatic pass replaced. */
@@ -2414,7 +2692,9 @@ final class DZE_Automation {
 						/* translators: %s: how many items a day */
 						: sprintf( __( '%s a day', 'dazont-ecom' ), number_format_i18n( $conf['per_day'] ) ) ),
 				( 'month' !== $conf['cadence'] && self::takes_all( $id ) )
-					? __( 'Running on its own, with no daily limit', 'dazont-ecom' )
+					? ( 'translate' === $conf['scope']
+						? __( 'Looks every minute, with no daily limit', 'dazont-ecom' )
+						: __( 'Running on its own, with no daily limit', 'dazont-ecom' ) )
 					: __( 'Running on its own, at this rhythm', 'dazont-ecom' )
 			);
 		}
@@ -2686,53 +2966,66 @@ final class DZE_Automation {
 							// dit ce qui va se passer avec le reglage choisi.
 							?>
 							<?php
-							// « "SANS LIMITE" MAIS DEMANDE QUELLE LIMITE DE POSTS. STUPIDE. »
+							// « POURQUOI JE VOIS ENCORE CES OPTIONS "ALWAYS ON (POSTS CAPPED
+							// BELOW)" ? On voulait soit daily limit soit always on. »
 							//
-							// Les deux controles se contredisaient sur la meme ligne. Le
-							// nombre n est pas mort en allure « tout ce qu il peut » : il
-							// rationne les produits et les articles de la TRADUCTION, et
-							// eux seuls — jamais les attributs ni les categories, parce
-							// qu un attribut non traduit casse une page. Partout ailleurs,
-							// dans cette allure, il ne fait rien du tout.
-							//
-							// Donc l option ne promet plus « sans limite » la ou une limite
-							// existe, et le nombre n est montre que la ou il mord.
+							// Deux etats, et un seul nombre, qui ne sert qu a l un d eux.
+							// « Always on » ne rationne plus rien, nulle part — pas meme les
+							// produits de la traduction — et le nombre n est montre qu avec
+							// « Daily limit », la ou il mord.
 							$dze_all = 'all' === (string) $conf['pace'];
 							$dze_tr  = 'translate' === (string) $conf['scope'];
 							$dze_hid = ' style="display:none;"';
 							?>
 							<label>
-								<select name="<?php echo esc_attr( $name ); ?>[pace]" class="dze-auto-pace" data-ration="<?php echo $dze_tr ? '1' : '0'; ?>">
+								<select name="<?php echo esc_attr( $name ); ?>[pace]" class="dze-auto-pace">
 									<option value="all" <?php selected( 'all', (string) $conf['pace'] ); ?>><?php
 										// « Son nom est stupide. Ca devrait etre autre chose comme :
 										// Always on. Et l autre daily limit. » Les deux etiquettes
 										// decrivaient un fonctionnement ; elles nomment un ETAT.
-										echo $dze_tr
-											? esc_html__( 'Always on (posts capped below)', 'dazont-ecom' )
-											: esc_html__( 'Always on', 'dazont-ecom' );
+										esc_html_e( 'Always on', 'dazont-ecom' );
 									?></option>
 									<option value="daily" <?php selected( 'daily', (string) $conf['pace'] ); ?>><?php esc_html_e( 'Daily limit', 'dazont-ecom' ); ?></option>
 								</select>
 							</label>
 							<?php // LES DEUX ETATS SONT ECRITS, UN SEUL EST MONTRE : le reglage
 								// se lit au moment ou on le choisit, pas apres l avoir enregistre. ?>
-							<label class="dze-auto-ration"<?php echo ( $dze_all && ! $dze_tr ) ? $dze_hid : ''; ?>>
+							<label class="dze-auto-ration"<?php echo $dze_all ? $dze_hid : ''; ?>>
 								<input type="number" name="<?php echo esc_attr( $name ); ?>[per_day]" class="small-text" min="1" max="20" value="<?php echo (int) $conf['per_day']; ?>" />
-								<span class="dze-auto-rat-all"<?php echo $dze_all ? '' : $dze_hid; ?>><?php esc_html_e( 'products or articles a day', 'dazont-ecom' ); ?></span>
-								<span class="dze-auto-rat-day"<?php echo $dze_all ? $dze_hid : ''; ?>><?php esc_html_e( 'a day', 'dazont-ecom' ); ?></span>
+								<?php esc_html_e( 'a day', 'dazont-ecom' ); ?>
 							</label>
 							<p class="description" style="margin:4px 0 0;">
 								<span class="dze-auto-said-all"<?php echo $dze_all ? '' : $dze_hid; ?>><?php
-									esc_html_e( 'It comes back every ten minutes and keeps going until there is nothing left to do. Only an empty list or the monthly AI budget stops it.', 'dazont-ecom' );
 									if ( $dze_tr ) {
-										echo ' ';
-										esc_html_e( 'The number beside it caps the products and articles only — attributes and categories are never held back, because an untranslated attribute breaks a page.', 'dazont-ecom' );
+										printf(
+											/* translators: %s: how many objects it sends a minute at most */
+											esc_html__( 'It looks every minute and sends everything WPML says is owed — attributes and categories first — to Anthropic in batches, at half price, up to %s objects a minute. Only an empty list or the monthly AI budget stops it.', 'dazont-ecom' ),
+											esc_html( number_format_i18n( self::FEED_MAX ) )
+										);
+									} else {
+										esc_html_e( 'It comes back every ten minutes and keeps going until there is nothing left to do. Only an empty list or the monthly AI budget stops it.', 'dazont-ecom' );
 									}
 								?></span>
 								<?php // LE NOMBRE N EST PLUS RECOPIE DANS LA PHRASE : il est dans
 									// la case a cote, et une phrase qui le repete ment des qu on
 									// le change sans recharger. ?>
-								<span class="dze-auto-said-day"<?php echo $dze_all ? $dze_hid : ''; ?>><?php esc_html_e( 'It does the number beside it each day, spread across the day, then stops until tomorrow. Use this for work that is publishing rather than maintenance.', 'dazont-ecom' ); ?></span>
+								<span class="dze-auto-said-day"<?php echo $dze_all ? $dze_hid : ''; ?>><?php
+									echo $dze_tr
+										? esc_html__( 'It sends the number beside it each day, spread across the day — attributes and categories count like everything else — then stops until tomorrow.', 'dazont-ecom' )
+										: esc_html__( 'It does the number beside it each day, spread across the day, then stops until tomorrow. Use this for work that is publishing rather than maintenance.', 'dazont-ecom' );
+								?></span>
+								<?php if ( $dze_tr ) : ?>
+									<?php // THE ONE BRAKE THAT IS NOT THE BUDGET, said where the pace is
+										// chosen: a pass that stops by itself and never said it would
+										// reads as a pass that broke. ?>
+									<span class="dze-auto-said-rev"><?php
+										printf(
+											/* translators: %s: how many translations waiting for a decision stop the pass */
+											esc_html__( 'Unless "Save without review" is ticked, it pauses while %s translations are waiting for your yes or no.', 'dazont-ecom' ),
+											esc_html( number_format_i18n( self::REVIEW_ROOM ) )
+										);
+									?></span>
+								<?php endif; ?>
 							</p>
 						<?php endif; ?>
 						<?php if ( 'shop' !== $conf['scope'] ) : ?>
@@ -3062,13 +3355,10 @@ final class DZE_Automation {
 			$( document ).on( 'change', '.dze-auto-pace', function () {
 				var $s = $( this ),
 					all = 'all' === $s.val(),
-					// Le nombre ne sert, en allure « tout ce qu il peut », qu a la
-					// traduction : ailleurs il ne rationne rien, donc il s efface.
-					rations = '1' === String( $s.data( 'ration' ) ),
 					$box = $s.closest( '.dze-auto-task' );
-				$box.find( '.dze-auto-ration' ).toggle( ! all || rations );
-				$box.find( '.dze-auto-rat-all' ).toggle( all );
-				$box.find( '.dze-auto-rat-day' ).toggle( ! all );
+				// Le nombre ne sert qu a « Daily limit » : avec « Always on », il
+				// n y a rien a rationner, donc il s efface.
+				$box.find( '.dze-auto-ration' ).toggle( ! all );
 				$box.find( '.dze-auto-said-all' ).toggle( all );
 				$box.find( '.dze-auto-said-day' ).toggle( ! all );
 			} );
@@ -3828,7 +4118,24 @@ final class DZE_Automation {
 	public static function reason_text( string $reason, string $task = '' ): string {
 		switch ( $reason ) {
 			case 'queued':
+				// NOT THE WRITING QUEUE: a translation goes where the dashboard's
+				// own go, and that is the line that says where to watch it.
+				if ( 'translate' === (string) ( self::task( $task )['scope'] ?? '' ) ) {
+					return __( 'Sent to translation — it goes to Anthropic in a batch, at half price, and usually comes back within minutes. Each language appears on WPML Translations when it is done.', 'dazont-ecom' );
+				}
 				return __( 'Queued — the writing queue does it in the background.', 'dazont-ecom' );
+			case 'full':
+				return sprintf(
+					/* translators: %s: how many objects the translation queue holds before the pass waits */
+					__( 'The translation queue already holds %s objects: more are sent as their batches come back.', 'dazont-ecom' ),
+					number_format_i18n( self::FEED_ROOM )
+				);
+			case 'review':
+				return sprintf(
+					/* translators: %s: how many translations waiting for a decision stop the pass */
+					__( '%s translations are waiting for your yes or no: nothing more is sent until they are read, unless "Save without review" is ticked.', 'dazont-ecom' ),
+					number_format_i18n( self::REVIEW_ROOM )
+				);
 			case 'cap':
 				return __( 'Today\'s figure is used up.', 'dazont-ecom' );
 			case 'none':
