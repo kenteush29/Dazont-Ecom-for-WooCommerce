@@ -218,6 +218,33 @@ whose screen has not been thought through yet.
 
 ## Traps learned the hard way
 
+- **NETLINKING TARGETS ARE PRODUCT CATEGORIES, AND NOTHING ELSE** (4.498.0).
+  "Tu as intégré des recommandations de liens au niveau produit, ce qui est
+  faux. […] Mieux vaut rester sur la data des produits remontée au niveau des
+  catégories avec les ventes WooCommerce. Et data Google mise en relation
+  seulement niveau catégories."
+  - Google is read for the CATEGORY PAGE ITSELF. A product page, an article
+    or a page is dropped at reading time, never a row. Product clicks are
+    never added to their category: the owner called that "trop farfelu".
+  - Sales are the products filed in the category, counted in the language of
+    the PRODUCT sold (`sales_by_term()`), converted at each order's own rate.
+  - One row per category: several addresses of one category (trailing slash,
+    old slug) add up, and the position is weighted by impressions.
+  - Status says what to do: `reach` (a link would lift it), `strong`,
+    `unseen` (sells and Google showed it to nobody), `far`, `skip` (noindex
+    in Rank Math, empty with its descendants, or the default category in
+    every language). The list opens on `reach`, like the translations
+    dashboard opens on "Not completed".
+  - Before a link comes a title, and before a title comes internal linking.
+    A category placed ≤ 10 with less than half the expected CTR is flagged
+    "rework the title first". A category with fewer than 3 internal links (the
+    mesh census, `product_cat:<id>`) is flagged "link it from your own pages
+    first".
+  - Anchor ideas are the category's own Google queries, the brand ones left
+    out (the site name and each domain's label, squashed: "kula-tactical" →
+    "kulatactical").
+  - `domains()` reads `get_option( 'home' )`, never `home_url()`: WPML
+    rewrites the latter in the language of the visit that fired the cron.
 - Settings pages are saved by ONE mechanism: WordPress's own Save Changes,
   full submit to `options.php`. Never add a custom AJAX save endpoint for a
   settings tab, and never a background submit of the whole form: the one that
