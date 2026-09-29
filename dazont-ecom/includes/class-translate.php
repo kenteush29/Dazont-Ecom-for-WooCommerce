@@ -114,6 +114,10 @@ final class DZE_Translate {
 		// l appelait, et la file se serait remplie sans jamais se vider — en
 		// silence, ce qui est la pire des pannes.
 		add_action( self::HOOK_DRAIN, [ __CLASS__, 'drain' ] );
+		// WPML'S MENU SYNC, pressed a minute after a translation of something
+		// that sits in a menu is written (see DZE_Menu_Sync). Named, not read
+		// from the class: listening must not load it on every request.
+		add_action( 'dze_menu_sync', [ 'DZE_Menu_Sync', 'run' ] ); // = DZE_Menu_Sync::HOOK
 		// Admin only, by nature: nothing here has any business on a shop page.
 		if ( ! is_admin() ) {
 			return;
@@ -199,6 +203,9 @@ final class DZE_Translate {
 		// actually be saved — a checkbox posts nothing when it is off.
 		if ( ! empty( $in['buttons_sent'] ) ) {
 			$out['buttons'] = ! empty( $in['buttons'] ) ? 1 : 0;
+		}
+		if ( ! empty( $in['menus_sent'] ) ) {
+			$out['menus'] = ! empty( $in['menus'] ) ? 1 : 0;
 		}
 		// The extra things this shop translates. The section that owns this
 		// list posts `scope_sent` whether or not a single box is ticked —
@@ -4943,6 +4950,20 @@ final class DZE_Translate {
 						<p class="description"><?php esc_html_e( 'One habit instead of two: you keep pressing where you already press, and this module answers instead of WPML\'s editor — on the kinds of content ticked above, and on nothing else. Switch it off and the buttons go back to WPML on the next page load.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
+				<?php if ( class_exists( 'DZE_Menu_Sync' ) ) : ?>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Menus', 'dazont-ecom' ); ?></th>
+					<td>
+						<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[menus_sent]" value="1" />
+						<label>
+							<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[menus]" value="1" <?php checked( DZE_Menu_Sync::enabled() ); ?> />
+							<?php esc_html_e( 'Run WPML\'s menu sync after a page or a category that sits in a menu is translated', 'dazont-ecom' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'A minute after the translation is written, WPML → WP Menus Sync runs for you, with WPML\'s own code: the new translation takes its place in the menus of its language, as if you had pressed « Apply changes ». Two things are never done here and stay your decision on WPML\'s screen: removing an item, and creating a menu for a language that has none.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php echo esc_html( DZE_Menu_Sync::last_said() ); ?></p>
+					</td>
+				</tr>
+				<?php endif; ?>
 			</table>
 			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 		</form>
@@ -5530,6 +5551,11 @@ final class DZE_Translate {
 			// UNE CIBLE DE PLUS EST DISPONIBLE : voir relink_sweep().
 			foreach ( array_keys( $out['written'] ) as $dze_l ) {
 				self::relink_sweep( (string) $dze_l );
+			}
+			// ET SES MENUS LA REÇOIVENT, si l'original est dans un menu : la
+			// synchronisation de WPML, lancée pour la boutique (DZE_Menu_Sync).
+			if ( class_exists( 'DZE_Menu_Sync' ) ) {
+				DZE_Menu_Sync::wanted( $o );
 			}
 		}
 		// A language left out of the decision is still waiting; only a clean
