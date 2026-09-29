@@ -2118,6 +2118,9 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	 * @return array{id:string,processing_status:string}
 	 */
 	public static function batch_create( array $asks, string $model = '' ): array {
+		// -1 until a call is made: a refusal before any call (no key, the
+		// budget) is a refusal, never « nobody knows ».
+		self::$batch_code = -1;
 		if ( ! $asks ) {
 			throw new RuntimeException( __( 'Nothing to send.', 'dazont-ecom' ) );
 		}
@@ -2137,9 +2140,10 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				],
 			];
 		}
+		$headers  = self::batch_headers();
 		$response = wp_remote_post( self::BATCH_URL, [
 			'timeout' => 90,
-			'headers' => self::batch_headers(),
+			'headers' => $headers,
 			'body'    => (string) wp_json_encode( [ 'requests' => $reqs ] ),
 		] );
 		$data = self::batch_answer( $response, 'POST /v1/messages/batches' );

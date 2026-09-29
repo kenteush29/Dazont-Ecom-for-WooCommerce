@@ -1275,8 +1275,10 @@ final class DZE_Translate {
 		if ( (int) get_option( self::OPT_BACKOFF, 0 ) > time() ) {
 			return;
 		}
-		// UN LOT DONT ON NE SAIT PAS S'IL EXISTE bloque tout nouvel envoi tant
-		// qu'on ne l'a pas retrouvé : renvoyer, ce serait peut-être payer deux fois.
+		self::repair_marks();
+		// UN LOT DONT ON NE SAIT PAS S'IL EXISTE bloque tout nouvel envoi de ce
+		// qu'il porte tant qu'on ne l'a pas retrouvé : renvoyer, ce serait
+		// peut-être payer deux fois.
 		$en_suspens = [];
 		foreach ( self::batches() as $k => $b ) {
 			if ( 'creating' === (string) ( $b['status'] ?? '' ) ) {
@@ -1410,7 +1412,9 @@ final class DZE_Translate {
 			}
 			$jobs = [];
 			foreach ( $ici as $i => $ask ) {
-				$cid          = 'r' . count( $map );
+				// L'ENVOI SIGNE CHAQUE DEMANDE : un lot qui ne serait pas le sien
+				// — adopté par erreur — n'écrira jamais rien sur ces objets.
+				$cid          = 'd' . substr( md5( $jeton ), 0, 10 ) . '_r' . count( $map );
 				$asks[ $cid ] = $ask;
 				$map[ $cid ]  = [ $tk, (int) $i, strlen( $ask['system'] ) + strlen( $ask['user'] ) ];
 				$jobs[ $i ]   = array_map( 'strval', array_keys( $plan['jobs'][ $i ] ) );
@@ -1465,7 +1469,9 @@ final class DZE_Translate {
 			$lot = DZE_Marketing_Ai::batch_create( $asks, $modele );
 		} catch ( \Throwable $ex ) {
 			$code_http = (int) DZE_Marketing_Ai::$batch_code;
-			if ( $code_http >= 400 && $code_http < 500 ) {
+			// Refusé avant même d'appeler (-1 : pas de clé, budget) ou refusé par
+			// Anthropic (4xx) : rien n'est parti.
+			if ( $code_http < 0 || ( $code_http >= 400 && $code_http < 500 ) ) {
 				// REFUSÉ : rien n'est parti, rien n'est compté — les textes n'y
 				// sont pour rien.
 				self::batch_save( $jeton, null );
@@ -1488,6 +1494,85 @@ final class DZE_Translate {
 	}
 
 	/**
+	 * LES MARQUES « EN ROUTE », VÉRIFIÉES AVANT TOUT ENVOI.
+	 *
+	 * Une marque ne vaut que si une fiche de lot la porte. Un passage tué
+	 * pendant qu'il construisait son lot laissait ses langues « chez Anthropic »
+	 * pour toujours ; un passage tué au milieu d'une adoption laissait des
+	 * marques qu'on aurait reprises et rachetées pendant que le vrai lot
+	 * revenait. Chaque marque est donc relue contre les fiches :
+	 *   - un lot en suspens (« creating ») : elle attend qu'il soit retrouvé ;
+	 *   - un lot connu sous son nom : l'adoption interrompue est terminée ;
+	 *   - un lot déjà relevé : sa traduction attend en relecture, ou part être
+	 *     publiée si c'était demandé ;
+	 *   - rien derrière elle : rien n'est parti, la langue reprend sa place —
+	 *     ou sort, si elle a été annulée entre-temps.
+	 */
+	private static function repair_marks(): void {
+		$par_jeton = [];
+		$par_id    = [];
+		foreach ( self::batches() as $b ) {
+			$tok = (string) ( $b['token'] ?? '' );
+			$id  = (string) ( $b['id'] ?? '' );
+			$st  = (string) ( $b['status'] ?? '' );
+			if ( '' !== $tok && ( ! isset( $par_jeton[ $tok ] ) || '' !== $id ) ) {
+				$par_jeton[ $tok ] = [ 'id' => $id, 'status' => $st ];
+			}
+			if ( '' !== $id ) {
+				$par_id[ $id ] = $st;
+			}
+		}
+		self::with_queue( static function ( array $file ) use ( $par_jeton, $par_id ): array {
+			foreach ( $file as $i => $e ) {
+				$reste = [];
+				foreach ( $e['langs'] as $code ) {
+					$m = (string) ( $e['sent'][ $code ] ?? '' );
+					if ( '' === $m ) {
+						$reste[] = $code;
+						continue;
+					}
+					if ( 0 === strpos( $m, 'pending-' ) ) {
+						$r = $par_jeton[ $m ] ?? null;
+						if ( $r && '' === $r['id'] ) {
+							$reste[] = $code; // en suspens : on le cherche.
+							continue;
+						}
+						if ( $r ) {
+							$m                          = $r['id'];
+							$file[ $i ]['sent'][ $code ] = $m;
+						} else {
+							unset( $file[ $i ]['sent'][ $code ] );
+							if ( empty( $e['keep'][ $code ] ) ) {
+								$reste[] = $code;
+							}
+							continue;
+						}
+					}
+					$st = $par_id[ $m ] ?? null;
+					if ( null === $st || 'lost' === $st ) {
+						unset( $file[ $i ]['sent'][ $code ] );
+						if ( empty( $e['keep'][ $code ] ) ) {
+							$reste[] = $code;
+						}
+						continue;
+					}
+					if ( 'landed' === $st ) {
+						unset( $file[ $i ]['sent'][ $code ] );
+						if ( ! empty( $e['accept'] ) && empty( $e['keep'][ $code ] ) ) {
+							$file[ $i ]['land'][ $code ] = 1;
+							$reste[]                     = $code;
+						}
+						continue;
+					}
+					$reste[] = $code;
+				}
+				$file[ $i ]['langs'] = $reste;
+			}
+			return $file;
+		} );
+	}
+
+	/**
 	 * UN LOT ENVOYÉ DEVIENT SON LOT : la fiche passe sous son identifiant, les
 	 * langues marquées « en route » portent son nom, ce qui n'y est pas entré
 	 * reprend sa place — et s'il n'est plus voulu par personne, il est arrêté
@@ -1504,10 +1589,10 @@ final class DZE_Translate {
 		$fiche['status'] = in_array( $etat, [ 'ended', 'canceling' ], true ) ? $etat : 'in_progress';
 		$fiche['polled'] = time();
 		unset( $fiche['unsure'] );
-		// SOUS SON NOM D'ABORD, puis la fiche d'attente effacée : tué entre les
-		// deux, le passage suivant retrouve le même lot et refait la même chose.
+		// SOUS SON NOM D'ABORD, puis les marques, puis la fiche d'attente
+		// effacée : tué entre deux, le passage suivant retrouve le même lot par
+		// son jeton et termine la même chose — il ne le rachète jamais.
 		self::batch_save( $bid, $fiche );
-		self::batch_save( $jeton, null );
 		$inclus = [];
 		foreach ( (array) $fiche['tasks'] as $tk => $task ) {
 			$inclus[ (string) $tk ] = true;
@@ -1527,10 +1612,15 @@ final class DZE_Translate {
 						continue;
 					}
 					unset( $file[ $i ]['sent'][ $code ] );
+					// ANNULÉE PENDANT L'ENVOI ET RESTÉE HORS DU LOT : elle sort.
+					if ( ! empty( $e['keep'][ $code ] ) ) {
+						$file[ $i ]['langs'] = array_values( array_diff( $file[ $i ]['langs'], [ $code ] ) );
+					}
 				}
 			}
 			return $file;
 		} );
+		self::batch_save( $jeton, null );
 		if ( 0 === $voulus && 'in_progress' === $fiche['status'] ) {
 			try {
 				DZE_Marketing_Ai::batch_cancel( $bid );
@@ -1553,6 +1643,20 @@ final class DZE_Translate {
 	 * parti, et ses langues reprennent leur place.
 	 */
 	private static function resolve_creating( string $jeton, array $fiche ): void {
+		// UNE ADOPTION COUPÉE EN CHEMIN se termine : le lot est déjà écrit sous
+		// son nom, et `repair_marks()` rattache ses langues.
+		$connus = [];
+		foreach ( self::batches() as $k => $b ) {
+			$id = (string) ( $b['id'] ?? '' );
+			if ( '' === $id ) {
+				continue;
+			}
+			$connus[ $id ] = true;
+			if ( (string) ( $b['token'] ?? '' ) === $jeton ) {
+				self::batch_save( $jeton, null );
+				return;
+			}
+		}
 		if ( time() - (int) ( $fiche['at'] ?? 0 ) < 60 ) {
 			return; // le temps qu'il apparaisse dans la liste.
 		}
@@ -1564,14 +1668,29 @@ final class DZE_Translate {
 			}
 			$liste = [];
 		}
+		// UN SEUL CANDIDAT, jamais un lot déjà suivi, créé dans la fenêtre de
+		// l'envoi — de juste avant à la fin du délai de la requête. Deux lots de
+		// même taille partis au même moment ne se départagent pas : on attend.
+		$cands = [];
 		foreach ( $liste as $lot ) {
+			$id    = (string) ( $lot['id'] ?? '' );
 			$quand = strtotime( (string) ( $lot['created_at'] ?? '' ) );
 			$total = array_sum( array_map( 'intval', (array) ( $lot['request_counts'] ?? [] ) ) );
-			if ( $quand && abs( $quand - (int) $fiche['at'] ) <= 600 && $total === (int) $fiche['n'] ) {
-				self::batch_adopt( $jeton, $fiche, $lot );
-				self::clear_stop();
-				return;
+			if ( '' === $id || isset( $connus[ $id ] ) || ! $quand || $total !== (int) $fiche['n'] ) {
+				continue;
 			}
+			if ( $quand < (int) $fiche['at'] - 120 || $quand > (int) $fiche['at'] + 180 ) {
+				continue;
+			}
+			$cands[] = $lot;
+		}
+		if ( 1 === count( $cands ) ) {
+			self::batch_adopt( $jeton, $fiche, $cands[0] );
+			self::clear_stop();
+			return;
+		}
+		if ( $cands && time() - (int) ( $fiche['at'] ?? 0 ) < DAY_IN_SECONDS ) {
+			return; // plusieurs possibles : on ne choisit pas au hasard.
 		}
 		// JAMAIS PARTI : rien n'est facturé, et tout reprend sa place.
 		self::batch_save( $jeton, null );
@@ -1585,8 +1704,13 @@ final class DZE_Translate {
 		self::with_queue( static function ( array $file ) use ( $jeton ): array {
 			foreach ( $file as $i => $e ) {
 				foreach ( (array) $e['sent'] as $code => $v ) {
-					if ( $v === $jeton ) {
-						unset( $file[ $i ]['sent'][ $code ] );
+					if ( $v !== $jeton ) {
+						continue;
+					}
+					unset( $file[ $i ]['sent'][ $code ] );
+					// ANNULÉE PENDANT L'ENVOI, ET JAMAIS PARTIE : elle sort.
+					if ( ! empty( $e['keep'][ $code ] ) ) {
+						$file[ $i ]['langs'] = array_values( array_diff( $file[ $i ]['langs'], [ $code ] ) );
 					}
 				}
 			}
@@ -1642,7 +1766,12 @@ final class DZE_Translate {
 					// UN LOT QUI NE SE LAISSE PLUS SUIVRE — introuvable, ou bien
 					// plus vieux que les vingt-quatre heures qu'Anthropic se donne —
 					// est abandonné : ses langues reprennent leur place.
-					if ( 404 === (int) DZE_Marketing_Ai::$batch_code || time() - (int) ( $b['at'] ?? 0 ) > self::BATCH_LOST_AFTER ) {
+					$b['poll_fail']    = (int) ( $b['poll_fail'] ?? 0 ) + 1;
+					$b['poll_fail_at'] = (int) ( $b['poll_fail_at'] ?? 0 ) ?: time();
+					$vieux             = time() - (int) ( $b['at'] ?? 0 ) > self::BATCH_LOST_AFTER
+						&& $b['poll_fail'] >= 5
+						&& time() - (int) $b['poll_fail_at'] > 3 * HOUR_IN_SECONDS;
+					if ( 404 === (int) DZE_Marketing_Ai::$batch_code || $vieux ) {
 						self::lose( $bid, $b, $ex->getMessage() );
 						continue;
 					}
@@ -1651,6 +1780,7 @@ final class DZE_Translate {
 					self::batch_save( $bid, $b );
 					continue;
 				}
+				unset( $b['poll_fail'], $b['poll_fail_at'] );
 				$b['polled'] = time();
 				$b['counts'] = (array) ( $etat['request_counts'] ?? [] );
 				$b['err']    = '';
@@ -1727,12 +1857,16 @@ final class DZE_Translate {
 		$usage    = [];
 		$types    = [];
 		$pourquoi = '';
+		$lignes   = 0;
+		$siennes  = 0;
 		try {
 			foreach ( DZE_Marketing_Ai::batch_results( $bid ) as $row ) {
+				$lignes++;
 				$cid = (string) ( $row['custom_id'] ?? '' );
 				if ( ! isset( $b['map'][ $cid ] ) ) {
 					continue;
 				}
+				$siennes++;
 				[ $tk, $i, $taille ] = array_pad( (array) $b['map'][ $cid ], 3, 0 );
 				$task = $b['tasks'][ $tk ] ?? null;
 				if ( ! is_array( $task ) ) {
@@ -1789,6 +1923,27 @@ final class DZE_Translate {
 				__( 'The translations are done at Anthropic but could not be read yet (%s). They are kept there and read again later; nothing is ordered twice.', 'dazont-ecom' ),
 				$ex->getMessage()
 			) );
+			return;
+		}
+		// PAS UNE RÉPONSE DE CET ENVOI : ce lot n'est pas le sien — adopté par
+		// erreur. Rien n'est écrit, rien n'est compté, et ce qu'il devait porter
+		// reprend sa place sans qu'aucun essai soit compté contre personne.
+		if ( $lignes > 0 && 0 === $siennes ) {
+			self::with_queue( static function ( array $file ) use ( $bid ): array {
+				foreach ( $file as $i => $e ) {
+					foreach ( (array) $e['sent'] as $code => $v ) {
+						if ( $v === $bid ) {
+							unset( $file[ $i ]['sent'][ $code ] );
+							if ( ! empty( $e['keep'][ $code ] ) ) {
+								$file[ $i ]['langs'] = array_values( array_diff( $file[ $i ]['langs'], [ $code ] ) );
+							}
+						}
+					}
+				}
+				return $file;
+			} );
+			self::sent_forget( $b );
+			self::batch_save( $bid, [ 'id' => $bid, 'at' => (int) ( $b['at'] ?? 0 ), 'status' => 'lost', 'landed' => time(), 'n' => (int) ( $b['n'] ?? 0 ), 'err' => 'not this site\'s batch' ] );
 			return;
 		}
 		// L'ARGENT, COMPTÉ UNE FOIS, AU PRIX DU LOT — et la fiche le dit aussitôt.

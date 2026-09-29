@@ -415,6 +415,10 @@ class DZE_Marketing_Ai {
 	 */
 	public static int $batch_code = 0;
 	public static function batch_create( $asks, $model = '' ) {
+		self::$batch_code = -1;
+		if ( ! empty( $GLOBALS['batch_nokey'] ) ) {
+			throw new RuntimeException( 'Add your Anthropic API key under Settings first.' );
+		}
 		self::$batch_code = 200;
 		if ( ! empty( $GLOBALS['batch_refuse'] ) ) {
 			self::$batch_code = 401;
@@ -439,6 +443,10 @@ class DZE_Marketing_Ai {
 		if ( ! empty( $GLOBALS['batch_gone'] ) ) {
 			self::$batch_code = 404;
 			throw new RuntimeException( 'Anthropic API error: not found' );
+		}
+		if ( ! empty( $GLOBALS['batch_poll_error'] ) ) {
+			self::$batch_code = 503;
+			throw new RuntimeException( 'Anthropic API error: Overloaded' );
 		}
 		return [ 'id' => $id, 'processing_status' => $GLOBALS['batch_status'] ?? 'ended', 'request_counts' => [] ];
 	}
@@ -3146,6 +3154,9 @@ $dze_clean = static function () {
 	$GLOBALS['waves']    = [];
 	$GLOBALS['locks']    = [];
 	$GLOBALS['recorded'] = [];
+	// Anthropic's side too: every batch of these checks is made in the same second.
+	$GLOBALS['batch_store'] = [];
+	$GLOBALS['batch_made']  = [];
 };
 $dze_clean();
 $GLOBALS['model_answer_fn'] = $dze_good;
@@ -3243,6 +3254,91 @@ ok( 'what came back waits for review',                   array_keys( (array) ( D
 ok( 'and the row says what is missing',                  false !== strpos( DZE_Translate::drain_errors()['post:942:post']['de'] ?? '', 'did not come back' ), true );
 $GLOBALS['model_answer_fn'] = $dze_good;
 
+echo "\nA LOST BATCH IS FOUND FOR WHAT IT IS, NEVER MISTAKEN FOR ANOTHER\n";
+$dze_clean();
+$dze_sent_of = static function ( int $id, string $lang ): string {
+	foreach ( DZE_Translate::asked() as $e ) {
+		if ( (int) $e['id'] === $id ) {
+			return (string) ( $e['sent'][ $lang ] ?? '' );
+		}
+	}
+	return '';
+};
+$GLOBALS['batch_lost_answer'] = true;
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+unset( $GLOBALS['batch_lost_answer'] );
+DZE_Translate::ask( [ $o942 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+ok( 'while one batch is unresolved, other work still leaves', $GLOBALS['waves'], [ 1, 1 ] );
+foreach ( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] as $dze_k => $dze_b ) {
+	if ( 'creating' === ( $dze_b['status'] ?? '' ) ) {
+		$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $dze_k ]['at'] = time() - 120;
+	}
+}
+DZE_Translate::drain();
+ok( 'the lost one is found as itself, never as the one already followed',
+	[ $dze_sent_of( 940, 'fr' ), $dze_sent_of( 942, 'fr' ) ], [ 'msgbatch_test0', 'msgbatch_test1' ] );
+$dze_age();
+DZE_Translate::drain();
+ok( 'each lands on its own object, each bought once',
+	[ $GLOBALS['waves'], array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ) ],
+	[ [ 1, 1 ], [ 'fr' ], [ 'fr' ] ] );
+// ANSWERS THAT ARE NOT THIS SEND'S are never written, nor counted.
+$dze_clean();
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+$dze_bid = (string) array_key_last( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] );
+$dze_map = [];
+foreach ( (array) $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $dze_bid ]['map'] as $dze_c => $dze_v ) {
+	$dze_map[ 'xother_' . $dze_c ] = $dze_v;
+}
+$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $dze_bid ]['map'] = $dze_map;
+$dze_age();
+DZE_Translate::drain();
+ok( 'a batch that is not this site\'s writes nothing',   DZE_Translate::waiting( $o940 ), [] );
+ok( 'and books nothing',                                 $GLOBALS['recorded'], [] );
+ok( 'what it was to carry leaves again, no try counted', [ count( $GLOBALS['waves'] ), DZE_Translate::asked()[0]['fails'] ?? [] ], [ 2, [] ] );
+
+echo "\nA MARK LEFT BY A STEP THAT DIED DOES NOT STAY FOR EVER\n";
+$dze_clean();
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr', 'de' ],
+	'sent' => [ 'fr' => 'pending-1-deadbeef', 'de' => 'pending-1-deadbeef' ], 'keep' => [ 'de' => 1 ] ] ];
+DZE_Translate::drain();
+ok( 'a language left on its way by a dead step is sent', $GLOBALS['waves'], [ 1 ] );
+ok( 'and one cancelled meanwhile leaves the queue',      array_keys( DZE_Translate::queued_map()['post:940:post'] ?? [] ), [ 'fr' ] );
+// CANCELLED WHILE BEING SENT, AND NEVER SENT: it leaves the queue.
+$dze_clean();
+$dze_tok = 'pending-' . ( time() - 300 ) . '-abcdef12';
+$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] = [ $dze_tok => [ 'token' => $dze_tok, 'at' => time() - 300, 'status' => 'creating', 'n' => 1, 'model' => 'm', 'map' => [], 'tasks' => [] ] ];
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr' ], 'sent' => [ 'fr' => $dze_tok ], 'keep' => [ 'fr' => 1 ] ] ];
+DZE_Translate::drain();
+ok( 'cancelled while being sent, and never sent: it leaves', DZE_Translate::asked(), [] );
+ok( 'and nothing is sent for it',                        $GLOBALS['waves'], [] );
+
+echo "\nA REFUSAL IS A REFUSAL, A HICCUP IS A HICCUP\n";
+$dze_clean();
+$GLOBALS['batch_nokey'] = true;
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+unset( $GLOBALS['batch_nokey'] );
+ok( 'refused before any call is not left « unsure »',   array_values( array_map( static fn( $b ) => (string) ( $b['status'] ?? '' ), (array) ( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] ?? [] ) ) ), [] );
+ok( 'and gives its real reason',                         DZE_Translate::stop_said()['why'] ?? '', 'Add your Anthropic API key under Settings first.' );
+ok( 'the language waits in line, not « on its way »',   [ array_keys( DZE_Translate::queued_map()['post:940:post'] ?? [] ), DZE_Translate::running() ], [ [ 'fr' ], [] ] );
+// AN OLD BATCH IS NOT GIVEN UP ON ONE FAILED LOOK.
+$dze_clean();
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+$dze_bid = (string) array_key_last( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] );
+$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $dze_bid ]['at'] = time() - 2 * DAY_IN_SECONDS;
+$GLOBALS['batch_poll_error'] = true;
+$dze_age();
+DZE_Translate::drain();
+unset( $GLOBALS['batch_poll_error'] );
+ok( 'one failed look at an old batch does not give it up', (string) ( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $dze_bid ]['status'] ?? '' ), 'in_progress' );
+$dze_age();
+DZE_Translate::drain();
+ok( 'and it lands at the next look',                     array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr' ] );
 echo "\nTHE MONTH'S BUDGET COUNTS THE BATCHES STILL OUT\n";
 $dze_clean();
 $GLOBALS['budget_left'] = 0.0000001;
