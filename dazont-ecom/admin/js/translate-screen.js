@@ -505,7 +505,6 @@
 		var paused = !!(q.stop && q.n);
 		$('#dze-trd-stop').prop('hidden', !paused);
 		$('#dze-trd-stopsaid').text(paused ? q.stop : '');
-		$('#dze-trd-hurry').prop('hidden', !(q.n && q.cheap));
 		$('#dze-trd-progwhy').text(paused ? (i18n.progPaused || '')
 			: ('direct' === q.lane ? (i18n.progDirect || '') : (i18n.progBatch || '')));
 		progressBar(q, paused);
@@ -524,20 +523,6 @@
 	// first poll: the bar is on screen from the first second.
 	var q0 = $('#dze-trd-progress').data('q');
 	if (q0 && 'object' === typeof q0) { queueSaid(q0); watch(); }
-	// TOO SLOW AT HALF PRICE: the rest goes right away, at the normal price.
-	$(document).on('click', '#dze-trd-hurry', function () {
-		var $b = $(this), label = $b.text();
-		$b.prop('disabled', true).text(i18n.hurrying || '…');
-		post('dze_tr_hurry', {}).done(function (r) {
-			if (!r || !r.success) { window.alert(said(r)); return; }
-			pageSaid(r.data.message);
-			queueSaid(r.data.queue);
-		}).fail(function () {
-			window.alert(i18n.error);
-		}).always(function () {
-			$b.prop('disabled', false).text(label);
-		});
-	});
 	$(document).on('click', '.dze-trd-cancel', function () {
 		var $b = $(this), $row = $b.closest('.dze-trd-row');
 		var ref = String($row.data('ref')), lang = String($b.data('lang'));

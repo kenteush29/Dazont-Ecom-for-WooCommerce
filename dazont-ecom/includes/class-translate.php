@@ -133,7 +133,6 @@ final class DZE_Translate {
 		// LE PANNEAU DE LA FILE : la faire avancer, ou la vider.
 		add_action( 'wp_ajax_dze_tr_runqueue', [ $this, 'ajax_runqueue' ] );
 		add_action( 'wp_ajax_dze_tr_emptyqueue', [ $this, 'ajax_emptyqueue' ] );
-		add_action( 'wp_ajax_dze_tr_hurry', [ $this, 'ajax_hurry' ] );
 		// THE DASHBOARD, WPML'S WAY: a section paged, the words and the cost of
 		// what is ticked, where the rows stand now, and one language taken back.
 		add_action( 'wp_ajax_dze_tr_items', [ $this, 'ajax_items' ] );
@@ -985,41 +984,6 @@ final class DZE_Translate {
 		return $out;
 	}
 
-	/**
-	 * « TRADUIRE LE RESTE TOUT DE SUITE ». Envoyé en économique, un envoi peut
-	 * attendre qu'Anthropic ait de la place — des heures, parfois. Un clic le
-	 * fait passer en rapide : ce qui n'était pas encore parti part tout de
-	 * suite, et un lot encore en attente est annulé au passage suivant — rien
-	 * n'en est facturé, et ses langues repartent sans qu'aucun essai soit
-	 * compté. Ce qu'Anthropic avait déjà traduit revient avec le lot, et n'est
-	 * pas redemandé.
-	 *
-	 * @return int combien de traductions passent en rapide.
-	 */
-	public static function hurry(): int {
-		$n = 0;
-		self::with_queue( static function ( array $file ) use ( &$n ): array {
-			foreach ( $file as $i => $e ) {
-				if ( 'direct' === (string) $e['lane'] ) {
-					continue;
-				}
-				$file[ $i ]['lane'] = 'direct';
-				$n += count( array_diff( $e['langs'], array_keys( (array) $e['land'] ) ) );
-			}
-			return $file;
-		} );
-		foreach ( self::batches() as $bid => $b ) {
-			if ( 'in_progress' === (string) ( $b['status'] ?? '' ) && empty( $b['hurried'] ) ) {
-				$b['hurry']  = 1;
-				$b['polled'] = 0;
-				self::batch_save( (string) $bid, $b );
-			}
-		}
-		delete_option( self::OPT_BACKOFF );
-		self::kick_drain();
-		return $n;
-	}
-
 	// =========================================================================
 	// LA FILE PART CHEZ ANTHROPIC, EN LOTS
 	//
@@ -1129,6 +1093,9 @@ final class DZE_Translate {
 	 * revenus en deux minutes, deux gros sont restés vingt minutes à zéro
 	 * réponse. Immédiat est donc le défaut ; les lots restent un choix, pour un
 	 * très gros envoi qui peut attendre.
+	 *
+	 * La passe automatique n'en tient pas compte : elle part toujours en lots,
+	 * puisque personne ne l'attend (DZE_Automation::deposit_translate()).
 	 */
 	public static function lane(): string {
 		$l = (string) ( self::get_settings()['lane'] ?? '' );
@@ -1985,22 +1952,6 @@ final class DZE_Translate {
 			if ( 'creating' === $statut ) {
 				self::resolve_creating( (string) ( $b['token'] ?? $bid ), $b );
 				continue;
-			}
-			// « IMMÉDIAT » : ce qui attend encore dans un lot est repris et part tout
-			// de suite. Ce qu'Anthropic a déjà traduit revient avec le lot et n'est
-			// pas redemandé ; le reste n'est pas facturé, et reprend sa place sans
-			// qu'aucun essai soit compté (voir land()).
-			if ( 'in_progress' === $statut && empty( $b['hurried'] ) && ! empty( $b['hurry'] ) ) {
-				try {
-					DZE_Marketing_Ai::batch_cancel( $bid );
-					$b['hurried'] = 1;
-					$b['status']  = 'canceling';
-					$b['polled']  = 0;
-					self::batch_save( $bid, $b );
-					$statut = 'canceling';
-				} catch ( \Throwable $ex ) {
-					unset( $ex ); // redemandé au passage suivant.
-				}
 			}
 			if ( in_array( $statut, [ 'in_progress', 'canceling' ], true ) ) {
 				if ( time() - (int) ( $b['polled'] ?? 0 ) < self::POLL_EVERY ) {
@@ -4934,7 +4885,7 @@ final class DZE_Translate {
 								<?php echo esc_html( $dze_lbl ); ?>
 							</label>
 						<?php endforeach; ?>
-						<p class="description"><?php esc_html_e( 'This is what the Translations screen opens on and what the automatic pass uses. Each send can choose for itself, and « Translate the rest right away » moves a slow cheap send over while it waits.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php esc_html_e( 'This is what the Translations screen opens on, and each send can choose for itself before it leaves. The automatic pass always sends in batches, at half price: nobody is waiting for it.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>
@@ -7022,22 +6973,6 @@ final class DZE_Translate {
 		] );
 	}
 
-	/** « Translate the rest right away » — the button on the progress line. */
-	public function ajax_hurry(): void {
-		$this->screen_guard();
-		$n = self::hurry();
-		wp_send_json_success( [
-			'message' => $n
-				? sprintf(
-					/* translators: %s: how many translations go right away */
-					_n( '%s translation goes right away, at the normal price. What Anthropic had already translated is kept, and nothing it had not started is billed.', '%s translations go right away, at the normal price. What Anthropic had already translated is kept, and nothing it had not started is billed.', $n, 'dazont-ecom' ),
-					number_format_i18n( $n )
-				)
-				: __( 'Nothing was waiting at half price.', 'dazont-ecom' ),
-			'queue'   => self::queue_said(),
-		] );
-	}
-
 	/**
 	 * VIDE LA FILE, sans rien traduire.
 	 *
@@ -7177,8 +7112,8 @@ final class DZE_Translate {
 						'dazont-ecom'
 					)
 					: _n(
-						'%s item sent to translation at half price: Anthropic answers when it has room — often minutes, sometimes hours, 24 hours at most. You can leave this page, or press « Translate the rest right away » if it takes too long.',
-						'%s items sent to translation at half price: Anthropic answers when it has room — often minutes, sometimes hours, 24 hours at most. You can leave this page, or press « Translate the rest right away » if it takes too long.',
+						'%s item sent to translation at half price: Anthropic answers when it has room — often minutes, sometimes hours, 24 hours at most. You can leave this page.',
+						'%s items sent to translation at half price: Anthropic answers when it has room — often minutes, sometimes hours, 24 hours at most. You can leave this page.',
 						$n,
 						'dazont-ecom'
 					),
@@ -7514,7 +7449,6 @@ final class DZE_Translate {
 				'sumFree'      => __( '%s marked by WPML with no word changed: closed for free', 'dazont-ecom' ),
 				/* translators: %s: the estimated cost */
 				'sumCost'      => __( 'about %s in all (estimate)', 'dazont-ecom' ),
-				'hurrying'     => __( 'Sending the rest right away…', 'dazont-ecom' ),
 				/* translators: %s: an amount in dollars */
 				'money'        => __( '$%s', 'dazont-ecom' ),
 				'moneyTiny'    => __( 'under $0.01', 'dazont-ecom' ),
