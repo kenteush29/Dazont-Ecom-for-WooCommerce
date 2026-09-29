@@ -95,6 +95,7 @@ function apply_filters( $tag, $value = null, ...$a ) {
 	return $value;
 }
 function wp_next_scheduled( $h ) { return false; }
+function wp_schedule_single_event( $ts, $hook, $args = [] ) { $GLOBALS['dze_single'][] = [ (int) $ts, (string) $hook ]; return true; }
 function wp_schedule_event( ...$a ) {}
 function wp_unschedule_event( ...$a ) {}
 function is_admin() { return true; }
@@ -388,6 +389,7 @@ class DZE_Prompts {
 class DZE_Automation {
 	public static array $conf = [ 'on' => false, 'per_day' => 3, 'apply' => false ];
 	public static function conf( string $id ): array { return self::$conf; }
+	public static function takes_all( string $id ): bool { return 'all' === ( self::$conf['pace'] ?? 'daily' ); }
 }
 
 require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
@@ -1369,6 +1371,54 @@ ok( 'et des mots absents restent refuses',$ml_go( '<p>rien ici</p>', 'bomber jac
 // etait refuse. Une version pire du defaut qu on reparait.
 ok( 'le motif compile, entites numeriques comprises',
 	null !== DZE_Category_Content::find_anchor( '<p>a bomber&#160;jacket</p>', 'bomber jacket' ), true );
+
+echo "\nA reading made by older code is not the state of the site\n";
+// « Il y a beaucoup de pages en manque de liens. » The reading on screen had
+// been made by a version that read links on the wrong domain: 11 links where
+// the site held 940, 302 "unlinked" pages where 44 were. The fix shipped hours
+// later; the wrong figures stayed until the next night's reading.
+DZE_Mesh::scan();
+ok( 'a reading carries the reader that made it', (int) ( DZE_Mesh::census()['reader'] ?? 0 ), DZE_Mesh::READER );
+ok( 'and it is current',                 DZE_Mesh::outdated(), false );
+$dze_old = DZE_Mesh::census();
+unset( $dze_old['reader'] );
+$GLOBALS['opts']['dze_mesh_census'] = $dze_old;
+ok( 'one without is older',              DZE_Mesh::outdated(), true );
+ok( 'the screen says so rather than print its figures',
+	false !== strpos( DZE_Mesh::read_said(), 'older version' ), true );
+ok( 'and no figure from it',
+	false !== strpos( DZE_Mesh::read_said(), 'internal links' ), false );
+$GLOBALS['dze_single'] = [];
+unset( $GLOBALS['tr']['dze_mesh_booked'] );
+$dze_booked = static fn(): int => count( array_filter( (array) ( $GLOBALS['dze_single'] ?? [] ), static fn( $e ) => DZE_Mesh::CRON === ( $e[1] ?? '' ) ) );
+DZE_Mesh::schedule();
+ok( 'a new reading is booked at once, not at tonight\'s hour', $dze_booked(), 1 );
+DZE_Mesh::schedule();
+ok( 'once, not on every page load',      $dze_booked(), 1 );
+DZE_Mesh::scan();
+ok( 'read again, it is current',         DZE_Mesh::outdated(), false );
+ok( 'and a site never read is not "older"', ( static function (): bool {
+	$keep = $GLOBALS['opts']['dze_mesh_census'];
+	$GLOBALS['opts']['dze_mesh_census'] = [];
+	$was  = DZE_Mesh::outdated();
+	$GLOBALS['opts']['dze_mesh_census'] = $keep;
+	return $was;
+} )(), false );
+
+echo "\nHow many more links a page can carry\n";
+DZE_Mesh::forget_thin();
+$dze_thin = DZE_Mesh::thin( 50 );
+if ( $dze_thin ) {
+	ok( 'a page under its quota has room', DZE_Mesh::room( (string) $dze_thin[0]['kind'], (int) $dze_thin[0]['id'] ), (int) $dze_thin[0]['short'] );
+}
+ok( 'a page the reading does not hold has none', DZE_Mesh::room( 'post', 999999 ), 0 );
+
+echo "\nAlways on is not a daily figure\n";
+DZE_Automation::$conf = [ 'on' => true, 'per_day' => 10, 'apply' => true, 'pace' => 'all' ];
+ok( 'always on never says "a day"',      false !== strpos( DZE_Mesh::auto_said()['said'], 'a day' ), false );
+ok( 'it says how often it comes back',   false !== strpos( DZE_Mesh::auto_said()['said'], 'every ten minutes' ), true );
+ok( 'and that it saves without review',  false !== strpos( DZE_Mesh::auto_said()['said'], 'without review' ), true );
+DZE_Automation::$conf = [ 'on' => false, 'per_day' => 3, 'apply' => false ];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

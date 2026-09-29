@@ -98,6 +98,7 @@ function wp_get_scheduled_event( $h ) {
 	$every = $GLOBALS['dze_event'][ (string) $h ] ?? '';
 	return '' === $every ? false : (object) [ 'hook' => (string) $h, 'schedule' => $every ];
 }
+function wp_schedule_single_event( $ts, $hook, $args = [] ) { $GLOBALS['dze_single'][] = [ (int) $ts, (string) $hook ]; return true; }
 function wp_get_object_terms( $pid, $tax, $args = [] ) { return $GLOBALS['obj_terms'][ (int) $pid ][ (string) $tax ] ?? []; }
 function wp_clear_scheduled_hook( ...$a ) {
 	$GLOBALS['dze_cleared'][] = (string) ( $a[0] ?? '' );
@@ -1427,6 +1428,7 @@ $GLOBALS['opts']['dze_mesh_census'] = [
 	'per'    => [],
 	'counts' => [ 'pages' => 830, 'links' => 2104, 'orphans' => 41, 'short' => 96, 'ends' => 12 ],
 	'at'     => time() - 3600,
+	'reader' => DZE_Mesh::READER,
 ];
 $chips = DZE_Automation::chips_html( 'mesh_links' );
 ok( 'the figure is on the task that mends them',
@@ -2071,7 +2073,7 @@ ok( 'and so does Start it again',       DZE_Queue::$retried, [ 'cat_desc' ] );
 // AND THE SCREEN CARRIES THE POPUP THE CHIP OPENS: a button whose popup is not
 // on the page does nothing and says nothing.
 fresh( $ON );
-$GLOBALS['opts']['dze_mesh_census'] = [ 'per' => [], 'counts' => [ 'orphans' => 4 ], 'at' => time() ];
+$GLOBALS['opts']['dze_mesh_census'] = [ 'per' => [], 'counts' => [ 'orphans' => 4 ], 'at' => time(), 'reader' => DZE_Mesh::READER ];
 ob_start();
 DZE_Automation::render_settings();
 $screen = (string) ob_get_clean();
@@ -2938,6 +2940,69 @@ $dze_auto_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes
 ok( 'la passe ne lit plus la file du tableau de bord',
 	false !== strpos( $dze_auto_src, 'DZE_Translate::asked()' ), false );
 DZE_Translate::$asked = [];
+
+echo "\nA READING MADE BY OLDER CODE IS READ AGAIN FIRST\n";
+fresh( $ON );
+DZE_Mesh::scan();
+$dze_c = get_option( 'dze_mesh_census' );
+unset( $dze_c['reader'] );
+update_option( 'dze_mesh_census', $dze_c );
+$GLOBALS['dze_single'] = [];
+delete_transient( 'dze_mesh_booked' );
+ok( 'no work is handed out from it',    DZE_Automation::shortlist( 'mesh_links', 5 ), [] );
+ok( 'a new reading is booked at once',
+	in_array( DZE_Mesh::CRON, array_column( (array) ( $GLOBALS['dze_single'] ?? [] ), 1 ), true ), true );
+ok( 'and the sentence says why',
+	false !== strpos( DZE_Automation::nothing_said( 'mesh_links' ), 'being read again' ), true );
+DZE_Mesh::scan();
+ok( 'read again, it is current',         DZE_Mesh::outdated(), false );
+ok( 'and the work comes back',           count( DZE_Automation::shortlist( 'mesh_links', 5 ) ) > 0, true );
+
+echo "\nA PAGE STILL SHORT OF ITS OWN LINKS RESTS THREE DAYS, NOT A MONTH\n";
+// « Il y a beaucoup de pages en manque de liens. » 237 of 317 pages were locked
+// out for thirty days — the very pages closest to the ones still unlinked — and
+// nothing could start before the thirteenth of the next month.
+fresh( $ON );
+DZE_Mesh::scan();
+$dze_top = DZE_Automation::shortlist( 'mesh_links', 1 )[0] ?? [];
+$dze_tid = (int) ( $dze_top['tid'] ?? 0 );
+$dze_mk  = (string) ( $dze_top['kind'] ?? '' );
+DZE_Automation::run( 'mesh_links', $dze_tid, $dze_top );
+DZE_Queue::$added = []; // its job was written and has left the queue.
+$dze_offered = static function () use ( $dze_tid ): bool {
+	foreach ( DZE_Automation::shortlist( 'mesh_links', 50 ) as $r ) {
+		if ( (int) $r['tid'] === $dze_tid ) { return true; }
+	}
+	return false;
+};
+// ROOM LEFT BY ITS OWN RULE: the kept reading says it can carry three more.
+set_transient( 'dze_mesh_thin', [ [ 'kind' => $dze_mk, 'id' => $dze_tid, 'title' => 'x', 'url' => '', 'in' => 0, 'out' => 0, 'words' => 900, 'built' => false, 'short' => 3, 'want' => 3 ] ] );
+ok( 'there is a page to test with',      $dze_tid > 0, true );
+ok( 'the day after, it still rests',     $dze_offered(), false );
+$dze_meta = 'product_cat' === $dze_mk ? 'tmeta' : 'pmeta';
+$GLOBALS[ $dze_meta ][ $dze_tid ][ DZE_Automation::META_SEEN ]['mesh_links']['t'] = time() - 4 * DAY_IN_SECONDS;
+ok( 'four days on, with room, it is offered again', $dze_offered(), true );
+// FULL BY ITS OWN RULE, IT KEEPS ITS MONTH.
+set_transient( 'dze_mesh_thin', [] );
+ok( 'full, it rests the whole month',    $dze_offered(), false );
+delete_transient( 'dze_mesh_thin' );
+
+echo "\nONE SENTENCE PER QUESTION\n";
+// « Je ne comprends toujours pas le texte présent sur cette page. » "Nothing
+// new to start at the last look, 10 minutes ago: 237 already done…" and,
+// right under it, "Nothing new to start: the pages it looked at were all
+// worked on…" — the same answer twice, in two wordings.
+fresh( $ON );
+DZE_Mesh::scan();
+$GLOBALS['opts']['dze_auto_state'] = [ 'idle' => [ 'mesh_links' => [ 'at' => time() - 600, 'why' => 'none', 'held' => [ 'recent' => 5 ] ] ] ];
+ob_start(); DZE_Automation::render_state( 'mesh_links' ); $dze_st = (string) ob_get_clean();
+ok( 'the last look is not repeated over the answer read now',
+	false !== strpos( $dze_st, 'at the last look' ), false );
+$GLOBALS['opts']['dze_auto_state'] = [ 'idle' => [ 'mesh_links' => [ 'at' => time() - 600, 'why' => 'budget', 'held' => [] ] ] ];
+ob_start(); DZE_Automation::render_state( 'mesh_links' ); $dze_st = (string) ob_get_clean();
+ok( 'what stands in the way is still said', false !== strpos( $dze_st, 'monthly AI budget is spent' ), true );
+unset( $GLOBALS['opts']['dze_auto_state'] );
+fresh( $ON );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

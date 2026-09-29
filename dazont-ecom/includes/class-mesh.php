@@ -68,6 +68,21 @@ final class DZE_Mesh {
 	private const LOCK           = 'dze_mesh_lock';
 	public const CRON            = 'dze_mesh_scan';
 
+	/**
+	 * THE VERSION OF WHAT A READING MEANS. Raised whenever the way links are
+	 * found or resolved changes, so a reading made by the code before is
+	 * never taken for a reading made by the code now.
+	 *
+	 * « Il y a beaucoup de pages en manque de liens. » There were not: the
+	 * reading on screen had been made the evening before by 4.489, which read
+	 * links on the wrong domain and found 11 in a site holding 940. The fix
+	 * shipped hours later and the wrong figures stayed a whole day — 302
+	 * "unlinked" pages where 44 were — and the daily pass spent that day
+	 * mending pages that were never broken. A reading stamped with an older
+	 * reader is now redone at once, and the screen says so meanwhile.
+	 */
+	public const READER = 2;
+
 	/** How many pages one reading walks. A shop is not a web crawler. */
 	private const SCAN = 4000;
 
@@ -106,6 +121,32 @@ final class DZE_Mesh {
 		if ( ! wp_next_scheduled( self::CRON ) ) {
 			wp_schedule_event( time() + 2 * HOUR_IN_SECONDS, 'daily', self::CRON );
 		}
+		// A READING MADE BY OLDER CODE IS READ AGAIN NOW, not at tonight's hour.
+		if ( self::outdated() ) {
+			self::book_reading();
+		}
+	}
+
+	/** Was the last reading made by an older reader than this one? */
+	public static function outdated(): bool {
+		$c = self::census();
+		return ! empty( $c['at'] ) && (int) ( $c['reader'] ?? 1 ) < self::READER;
+	}
+
+	/**
+	 * A reading, as soon as the scheduler can run it — never inside the page
+	 * somebody is looking at: a whole site is read in cron or behind the
+	 * button that says so.
+	 */
+	public static function book_reading(): void {
+		if ( get_transient( self::LOCK ) || get_transient( 'dze_mesh_booked' ) ) {
+			return;
+		}
+		// Asked once a minute at most: WordPress refuses a second single event
+		// of the same hook within ten minutes anyway, and asking on every
+		// admin page load is a write per page.
+		set_transient( 'dze_mesh_booked', 1, MINUTE_IN_SECONDS );
+		wp_schedule_single_event( time() + 5, self::CRON );
 	}
 
 	/** Switched off, it stands its reading down: a cron firing into the void. */
@@ -692,7 +733,7 @@ final class DZE_Mesh {
 		}
 		$counts          = self::count_from( $pages, $per );
 		$counts['links'] = $links;
-		update_option( self::CENSUS_OPT, [ 'per' => $per, 'counts' => $counts, 'at' => time() ], false );
+		update_option( self::CENSUS_OPT, [ 'per' => $per, 'counts' => $counts, 'at' => time(), 'reader' => self::READER ], false );
 		return $counts;
 	}
 
@@ -1005,6 +1046,21 @@ final class DZE_Mesh {
 	/** Read again next time: a link was written, or the shop was re-read. */
 	public static function forget_thin(): void {
 		delete_transient( self::THIN_KEY );
+	}
+
+	/**
+	 * HOW MANY MORE LINKS THIS PAGE CAN STILL CARRY, by its own rule, against
+	 * the last reading — 0 for a page that is full, that a builder owns, or
+	 * that is too short to carry a sentence. Read from the kept reading of
+	 * `thin()`, which already holds every page's gap.
+	 */
+	public static function room( string $kind, int $id ): int {
+		foreach ( self::thin( 4000 ) as $row ) {
+			if ( (string) $row['kind'] === $kind && (int) $row['id'] === $id ) {
+				return max( 0, (int) ( $row['short'] ?? 0 ) );
+			}
+		}
+		return 0;
 	}
 
 	// =========================================================================
@@ -1606,6 +1662,18 @@ final class DZE_Mesh {
 		// already looking at is the click this whole reorganisation was about.
 		$url  = '';
 		$name = '';
+		if ( ! empty( $conf['on'] ) && DZE_Automation::takes_all( 'mesh_links' ) ) {
+			// « ALWAYS ON » IS NOT « 10 PAGES A DAY ». The sentence read the
+			// daily figure whatever the pace, so a task set to take everything
+			// announced a ration it does not have.
+			return [
+				'said' => ! empty( $conf['apply'] )
+					? __( 'Dazont Ecom works through these lists on its own, every ten minutes, and saves each page without review.', 'dazont-ecom' )
+					: __( 'Dazont Ecom works through these lists on its own, every ten minutes, and holds each page for your yes or no.', 'dazont-ecom' ),
+				'url'  => $url,
+				'name' => $name,
+			];
+		}
 		if ( ! empty( $conf['on'] ) ) {
 			$n = (int) $conf['per_day'];
 			return [
@@ -1677,6 +1745,16 @@ final class DZE_Mesh {
 			return __( 'The site has not been read yet.', 'dazont-ecom' );
 		}
 		$n = (array) ( $c['counts'] ?? [] );
+		// FIGURES FROM OLDER CODE ARE SAID TO BE SO, never printed as the
+		// state of the site: that reading missed links, and a new one is on
+		// its way.
+		if ( self::outdated() ) {
+			return sprintf(
+				/* translators: %s: how long ago */
+				__( 'The last reading (%s ago) was made by an older version of Dazont Ecom, which missed links between pages. The site is being read again: the figures on this page will change in a minute or two.', 'dazont-ecom' ),
+				human_time_diff( (int) $c['at'], time() )
+			);
+		}
 		return sprintf(
 			/* translators: 1: how long ago, 2: pages, 3: links, 4: pages no text links to */
 			__( 'Read %1$s ago — %2$s pages, %3$s internal links, %4$s not linked from any page\'s text.', 'dazont-ecom' ),
@@ -1909,8 +1987,9 @@ final class DZE_Mesh {
 		?>
 		<details class="dze-set dze-mesh-listbox" id="dze-mesh-needsbox">
 			<summary><?php echo esc_html( sprintf(
-				/* translators: %s: how many pages are short of links */
-				__( 'Pages short of links — %s', 'dazont-ecom' ),
+				/* translators: 1: how many pages should link to each page, 2: how many pages fall short of that */
+				__( 'Pages linked from fewer than %1$d others — %2$s', 'dazont-ecom' ),
+				self::WANT_IN,
 				number_format_i18n( max( (int) ( $counts['short'] ?? 0 ), count( $needs ) ) )
 			) ); ?></summary>
 		<?php if ( ! $needs ) : ?>
@@ -1951,8 +2030,8 @@ final class DZE_Mesh {
 
 		<details class="dze-set dze-mesh-listbox" id="dze-mesh-endsbox">
 			<summary><?php echo esc_html( sprintf(
-				/* translators: %s: how many pages point at nothing */
-				__( 'Pages that point at nothing — %s', 'dazont-ecom' ),
+				/* translators: %s: how many pages link to no other page */
+				__( 'Pages that link to no other page — %s', 'dazont-ecom' ),
 				number_format_i18n( max( (int) ( $counts['ends'] ?? 0 ), count( $ends ) ) )
 			) ); ?></summary>
 		<?php if ( ! $ends ) : ?>

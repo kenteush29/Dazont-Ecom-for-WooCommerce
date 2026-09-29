@@ -589,7 +589,7 @@ ok( 'les deux listes sont des replis', [
 ok( 'et plus aucun titre ne les surmonte',
 	substr_count( $bl_mesh, '<h2 style="margin-top:28px;">' ), 0 );
 ok( 'le compte est sur le repli, pour ne pas avoir a louvrir',
-	substr_count( $bl_mesh, 'Pages short of links — %s' ), 1 );
+	substr_count( $bl_mesh, 'Pages linked from fewer than %1$d others — %2$s' ), 1 );
 
 echo "\nLINTERRUPTEUR TROUVE JQUERY\n";
 // « Runs by itself ne fonctionne pas. » Le script est imprime dans le corps
