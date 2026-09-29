@@ -134,7 +134,7 @@ final class DZE_Cleanup {
 				// settings and the register of what was written — with the
 				// batches sent to Anthropic, why the queue is paused, and until
 				// when it waits before sending again.
-				'options'   => [ 'dze_translate_settings', 'dze_translate_log', 'dze_translate_asked', 'dze_translate_drain_errors', 'dze_translate_batches', 'dze_translate_stop', 'dze_translate_backoff' ],
+				'options'   => [ 'dze_translate_settings', 'dze_translate_log', 'dze_translate_asked', 'dze_translate_drain_errors', 'dze_translate_batches', 'dze_translate_stop', 'dze_translate_backoff', 'dze_translate_run' ],
 				// _dze_tr_wait is what a batch produced and nobody has decided
 				// on yet; the register, the ownership mark, who said yes, the
 				// undo copy and the slug still to follow sit beside it.

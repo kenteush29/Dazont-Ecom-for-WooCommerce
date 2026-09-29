@@ -831,10 +831,34 @@ whose screen has not been thought through yet.
     - `collect()` asks a batch where it stands and lands the ended ones;
     - `publish()` runs `accept()`, within a time budget, on what was sent
       "without review";
-    - `dispatch()` sends everything queued in ONE batch.
+    - `dispatch()` sends what is queued: in ONE batch on the batch lane, or
+      in short waves on the « right away » lane (below).
 
     The page's `dze_tr_runqueue` runs one tick with a short budget and never a
     translation.
+  - **TWO LANES, AND « RIGHT AWAY » IS THE DEFAULT** (`lane()`, a setting).
+    "Je n'attendrais en aucun cas 24h pour des traductions." A batch is half
+    price because Anthropic answers it when it has room. Two small batches came
+    back in two minutes; two large ones sat at nought answers for twenty.
+    - The « right away » lane sends waves of `DIRECT_WAVE` requests in
+      parallel (`DZE_Marketing_Ai::messages_now()`). Each wave comes back in
+      the time of its slowest call.
+    - A wave's answers are handed to `land()` in the SHAPE OF BATCH LINES. So
+      one reader does the checks, the review or publishing, and the booking
+      (at `rate` 1.0) for both lanes. Never write a second reader for waves.
+    - A refusal that is not the text's fault (429, 529, 5xx, transport) is a
+      `retry` line. It requeues the language uncounted and sets a short
+      backoff.
+    - A wave NEVER leaves from a page request (`$from_page`): the CDN cuts
+      those past half a minute. It leaves from the scheduler, several per
+      tick while time remains.
+    - A wave's record is written before it goes, with status `direct`. A
+      `direct` record found at the start of a tick is a dead wave, because
+      only one tick runs at a time: its languages are requeued and the record
+      is deleted.
+    - On the « right away » lane, `collect()` CANCELS a batch still in
+      progress (`hurried`). Its `canceled` lines come back uncounted and leave
+      as waves; what Anthropic had already answered is kept.
   - **Only one tick runs at a time, through MySQL `GET_LOCK`**, never through a
     transient that is read and then written. The lock is taken whole or not at
     all, and MySQL gives it back when the process dies.

@@ -2043,6 +2043,119 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		return $sorted;
 	}
 
+	/**
+	 * A WAVE OF ORDINARY CALLS, ANSWERED THE WAY A BATCH IS.
+	 *
+	 * « Je n'attendrais en aucun cas 24h pour des traductions. WPML lui-même
+	 * n'aurait même pas l'audace de demander autant. » A batch is half price
+	 * because Anthropic answers it when it has room: two small ones came back
+	 * in two minutes, two large ones sat at nought answers for twenty. These
+	 * are the same requests sent now, in parallel, and every answer is handed
+	 * back in the shape of a batch result line — so the module that reads a
+	 * batch reads a wave with the same code, the same cost booking and the
+	 * same checks.
+	 *
+	 * Nothing here books the cost: the reader books a whole wave in one
+	 * write, as it does a batch. A refusal that is not the text's fault — too
+	 * many requests, an overloaded service, a transport that gave up — comes
+	 * back as type `retry`, never retried here: the wave must stay short.
+	 *
+	 * @param array<string,array{system:string,user:string,max:int}> $asks keyed by custom id.
+	 * @return array<int,array{custom_id:string,result:array}>
+	 */
+	public static function messages_now( array $asks, string $model = '', int $timeout = 60 ): array {
+		$out = [];
+		if ( ! $asks ) {
+			return $out;
+		}
+		if ( DZE_Ai_Usage::over_budget() ) {
+			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
+		}
+		$key = self::api_key();
+		if ( '' === $key ) {
+			throw new RuntimeException( __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) );
+		}
+		$model = '' !== $model ? $model : self::chosen_model();
+		$lib   = class_exists( '\WpOrg\Requests\Requests' ) ? '\WpOrg\Requests\Requests' : ( class_exists( 'Requests' ) ? 'Requests' : '' );
+		$reqs  = [];
+		foreach ( $asks as $cid => $a ) {
+			$reqs[ (string) $cid ] = [
+				'url'     => self::API_URL,
+				'type'    => 'POST',
+				'headers' => [
+					'x-api-key'         => $key,
+					'anthropic-version' => self::API_VERSION,
+					'content-type'      => 'application/json',
+				],
+				'data'    => (string) wp_json_encode( [
+					'model'      => $model,
+					'max_tokens' => max( 64, (int) $a['max'] ),
+					'system'     => (string) $a['system'],
+					'messages'   => [ [ 'role' => 'user', 'content' => (string) $a['user'] ] ],
+				] ),
+			];
+		}
+		$t0  = microtime( true );
+		$got = [];
+		if ( '' !== $lib ) {
+			try {
+				$got = (array) $lib::request_multiple( $reqs, [
+					'timeout'         => max( 20, $timeout ),
+					'connect_timeout' => 15,
+					'verify'          => ABSPATH . WPINC . '/certificates/ca-bundle.crt',
+				] );
+			} catch ( \Throwable $e ) {
+				$got = [];
+			}
+		} else {
+			foreach ( $reqs as $cid => $r ) {
+				$res = wp_remote_post( $r['url'], [ 'timeout' => max( 20, $timeout ), 'headers' => $r['headers'], 'body' => $r['data'] ] );
+				$got[ $cid ] = is_wp_error( $res ) ? new \RuntimeException( $res->get_error_message() ) : (object) [
+					'status_code' => (int) wp_remote_retrieve_response_code( $res ),
+					'body'        => (string) wp_remote_retrieve_body( $res ),
+				];
+			}
+		}
+		foreach ( $asks as $cid => $a ) {
+			$cid   = (string) $cid;
+			$asked = "SYSTEM:\n" . $a['system'] . "\n\nUSER:\n" . $a['user'];
+			$r     = $got[ $cid ] ?? null;
+			if ( ! is_object( $r ) || ! isset( $r->status_code ) ) {
+				$why = $r instanceof \Throwable ? $r->getMessage() : __( 'No answer came back.', 'dazont-ecom' );
+				DZE_Health::log( 'anthropic', 'POST /v1/messages', $why );
+				DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — ' . $why, microtime( true ) - $t0 );
+				$out[] = [ 'custom_id' => $cid, 'result' => [ 'type' => 'retry', 'why' => $why ] ];
+				continue;
+			}
+			$code = (int) $r->status_code;
+			$data = json_decode( (string) $r->body, true );
+			if ( 429 === $code || 529 === $code || $code >= 500 ) {
+				$why = 'HTTP ' . $code . ( is_array( $data ) && ! empty( $data['error']['message'] ) ? ' — ' . (string) $data['error']['message'] : '' );
+				DZE_Health::log( 'anthropic', 'POST /v1/messages', $why );
+				DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — ' . $why, microtime( true ) - $t0 );
+				$out[] = [ 'custom_id' => $cid, 'result' => [ 'type' => 'retry', 'why' => $why ] ];
+				continue;
+			}
+			if ( $code < 200 || $code >= 300 || ! is_array( $data ) ) {
+				$msg = is_array( $data ) ? (string) ( $data['error']['message'] ?? '' ) : '';
+				$msg = '' !== $msg ? $msg : 'HTTP ' . $code;
+				DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
+				DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — HTTP ' . $code . ' — ' . $msg, microtime( true ) - $t0 );
+				$out[] = [ 'custom_id' => $cid, 'result' => [ 'type' => 'errored', 'error' => [ 'type' => 'error', 'error' => [ 'type' => 'api_error', 'message' => $msg ] ] ] ];
+				continue;
+			}
+			$text = '';
+			foreach ( (array) ( $data['content'] ?? [] ) as $block ) {
+				if ( 'text' === (string) ( $block['type'] ?? '' ) ) {
+					$text .= (string) ( $block['text'] ?? '' );
+				}
+			}
+			DZE_Ai_Usage::trace( 'anthropic', (string) ( $data['model'] ?? $model ), $asked, trim( $text ), microtime( true ) - $t0 );
+			$out[] = [ 'custom_id' => $cid, 'result' => [ 'type' => 'succeeded', 'message' => $data ] ];
+		}
+		return $out;
+	}
+
 	// =========================================================================
 	// LES LOTS — the Message Batches API
 	//

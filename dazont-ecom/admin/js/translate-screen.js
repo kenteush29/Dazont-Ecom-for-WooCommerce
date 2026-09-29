@@ -438,6 +438,26 @@
 	function progressBar(q, paused) {
 		var reqs = parseInt(q.reqs, 10) || 0, answered = parseInt(q.answered, 10) || 0;
 		var $bar = $('#dze-trd-bar');
+		// RIGHT AWAY: what is done against what is left, since the queue filled,
+		// and when the last answer came back — a line that moves with every wave.
+		if ('direct' === q.lane) {
+			var done = parseInt(q.done, 10) || 0, left = parseInt(q.langs, 10) || 0, tnow = parseInt(q.now, 10) || 0;
+			var all = done + left;
+			if (q.n && all) {
+				$bar.prop('hidden', false);
+				$('#dze-trd-barfill').css('width', Math.max(2, Math.min(100, Math.round(100 * done / all))) + '%');
+			} else {
+				$bar.prop('hidden', true);
+			}
+			var said = [];
+			if (q.n) {
+				said.push(sprintf(i18n.progDone, num(done), num(all)));
+				if (q.first && tnow) { said.push(sprintf(i18n.progStarted, ago(tnow - q.first))); }
+				said.push(q.last && tnow ? sprintf(i18n.progLast, ago(tnow - q.last)) : i18n.progFirst);
+			}
+			$('#dze-trd-progdetail').text(said.join(' · ')).prop('hidden', !said.length);
+			return;
+		}
 		if (q.n && reqs) {
 			$bar.prop('hidden', false);
 			$('#dze-trd-barfill').css('width', Math.max(2, Math.min(100, Math.round(100 * answered / reqs))) + '%');
@@ -468,7 +488,8 @@
 		var paused = !!(q.stop && q.n);
 		$('#dze-trd-stop').prop('hidden', !paused);
 		$('#dze-trd-stopsaid').text(paused ? q.stop : '');
-		$('#dze-trd-progwhy').text(paused ? (i18n.progPaused || '') : (i18n.progBatch || ''));
+		$('#dze-trd-progwhy').text(paused ? (i18n.progPaused || '')
+			: ('direct' === q.lane ? (i18n.progDirect || '') : (i18n.progBatch || '')));
 		progressBar(q, paused);
 		// A STEP THAT WAITS FOR NOBODY. Work is waiting and nothing runs: the
 		// page asks for one — a few seconds that send, check and write, never a
