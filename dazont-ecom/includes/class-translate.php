@@ -7155,7 +7155,24 @@ final class DZE_Translate {
 				'acceptRest'    => __( 'Accept the %s others as they came', 'dazont-ecom' ),
 				'nothingElse'   => __( 'Nothing else is waiting for your review on this item.', 'dazont-ecom' ),
 				'progPaused'    => __( 'Nothing is sent while the queue is paused.', 'dazont-ecom' ),
-				'progBatch'     => __( 'It is translated by Anthropic in one batch, at half price: usually within minutes, at most 24 hours. You can leave this page — each language appears on its row as soon as it is done.', 'dazont-ecom' ),
+				'progBatch'     => __( 'Anthropic translates it in batches, at half price. A large send can take up to an hour — 24 hours at most — and each language appears on its row as soon as its batch is back. You can leave this page.', 'dazont-ecom' ),
+				/* translators: 1: requests answered, 2: requests sent */
+				'progAnswered'  => __( '%1$s of %2$s answers back from Anthropic', 'dazont-ecom' ),
+				/* translators: 1: how long ago, 2: how many batches */
+				'progSentOne'   => __( 'sent %1$s ago in %2$s batch', 'dazont-ecom' ),
+				/* translators: 1: how long ago, 2: how many batches */
+				'progSentMany'  => __( 'sent %1$s ago in %2$s batches', 'dazont-ecom' ),
+				/* translators: %s: how long ago */
+				'progChecked'   => __( 'last checked %s ago', 'dazont-ecom' ),
+				'progSending'   => __( 'Being put into a batch…', 'dazont-ecom' ),
+				/* translators: %s: how many translations are back */
+				'progLanded'    => __( '%s translations back, being saved', 'dazont-ecom' ),
+				/* translators: %s: seconds */
+				'agoS'          => __( '%s s', 'dazont-ecom' ),
+				/* translators: %s: minutes */
+				'agoM'          => __( '%s min', 'dazont-ecom' ),
+				/* translators: 1: hours, 2: minutes */
+				'agoH'          => __( '%1$s h %2$s min', 'dazont-ecom' ),
 				'allWritten'    => __( 'Every language of this item is decided.', 'dazont-ecom' ),
 				'backToList'    => __( 'Back to « To review »', 'dazont-ecom' ),
 				/* translators: %s: how many items are still waiting for review */

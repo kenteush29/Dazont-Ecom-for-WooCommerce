@@ -3453,6 +3453,40 @@ ok( 'and books it only once', count( as_get_scheduled_actions( [ 'hook' => DZE_T
 DZE_Translate::kick_drain( 0 );
 ok( 'a later booking does not delay one asked for now', count( as_get_scheduled_actions( [ 'hook' => DZE_Translate::HOOK_DRAIN, 'status' => 'pending' ] ) ), 2 );
 
+echo "\nTHE SCREEN SAYS HOW FAR THE BATCHES HAVE GOT\n";
+// « J'ai envoyé plein de traductions… à l'écran rien n'indique que ça avance.
+// Vraiment ça porte confusion. » The line read « being translated » for as
+// long as the batches took, the same at minute one and at minute forty.
+$dze_keepq = $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] ?? [];
+$dze_keepb = $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] ?? [];
+$dze_t     = time();
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [
+	[ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr', 'de' ], 'sent' => [ 'fr' => 'msgbatch_a', 'de' => 'msgbatch_a' ] ],
+	[ 'kind' => 'post', 'id' => 942, 'type' => 'post', 'langs' => [ 'fr' ], 'land' => [ 'fr' => $dze_t ] ],
+];
+$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] = [
+	'msgbatch_a' => [ 'id' => 'msgbatch_a', 'status' => 'in_progress', 'n' => 100, 'at' => $dze_t - 300, 'polled' => $dze_t - 20,
+		'counts' => [ 'processing' => 68, 'succeeded' => 30, 'errored' => 2, 'canceled' => 0, 'expired' => 0 ] ],
+	'msgbatch_b' => [ 'id' => 'msgbatch_b', 'status' => 'ended', 'n' => 50, 'at' => $dze_t - 200, 'polled' => $dze_t - 10 ],
+	'msgbatch_c' => [ 'id' => 'msgbatch_c', 'status' => 'landed', 'n' => 9, 'at' => $dze_t - 9000 ],
+];
+$dze_q = DZE_Translate::queue_said();
+ok( 'the requests of the open batches are counted',  $dze_q['reqs'] ?? null, 150 );
+ok( 'and those Anthropic has answered',              $dze_q['answered'] ?? null, 82 );
+ok( 'a batch already back is not an open one',       $dze_q['batches'] ?? null, 2 );
+ok( 'since the first of them was sent',              $dze_q['since'] ?? null, $dze_t - 300 );
+ok( 'and when this site last asked',                 $dze_q['polled'] ?? null, $dze_t - 10 );
+ok( 'every translation in the queue is counted',     $dze_q['langs'] ?? null, 3 );
+ok( 'and those back, being saved',                   $dze_q['landed'] ?? null, 1 );
+ok( 'with the time they are counted against',        abs( (int) ( $dze_q['now'] ?? 0 ) - time() ) <= 2, true );
+// AND THE PAGE CARRIES THEM FROM ITS FIRST SECOND, not after the first poll.
+ob_start(); DZE_Translate::progress_notice( $dze_q ); $dze_html = (string) ob_get_clean();
+ok( 'the notice carries its figures',                false !== strpos( $dze_html, 'data-q="' ), true );
+ok( 'and a bar to fill',                             false !== strpos( $dze_html, 'id="dze-trd-barfill"' ), true );
+ok( 'it no longer promises one batch',               false !== strpos( $dze_html, 'in one batch' ), false );
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ]   = $dze_keepq;
+$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] = $dze_keepb;
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 
