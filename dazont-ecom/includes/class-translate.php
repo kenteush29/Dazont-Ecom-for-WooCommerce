@@ -683,7 +683,7 @@ final class DZE_Translate {
 	 * @return array<int,array{kind:string,id:int,type:string,langs:string[],accept:int,all:int,at:int,by:int,tries:int,sent:array<string,string>,land:array<string,int>,keep:array<string,int>,fails:array<string,int>}>
 	 */
 	public static function asked(): array {
-		return self::queue_rows( (array) get_option( self::OPT_ASKED, [] ) );
+		return self::queue_rows( (array) self::fresh_option( self::OPT_ASKED, [] ) );
 	}
 
 	/** La file telle qu'écrite, mise au propre. */
@@ -758,17 +758,26 @@ final class DZE_Translate {
 		}
 	}
 
-	/** Une option lue dans la base, et non dans ce que la requête en a gardé. */
+	/**
+	 * UNE OPTION LUE DANS LA BASE, JAMAIS DANS LE CACHE D'OBJETS.
+	 *
+	 * Le cache d'objets de LiteSpeed fait de wp_cache_add() un wp_cache_set() :
+	 * « ajouter si absent » y écrase ce qui est déjà là. Une page qui relisait
+	 * la file pendant qu'un passage l'écrivait y remettait donc l'ancienne —
+	 * la base avait raison, et pendant une minute l'écran montrait « en route »
+	 * trois catégories déjà traduites et publiées. Vider la clé avant de la
+	 * relire ouvrait justement la fenêtre où cela arrive.
+	 *
+	 * Ce que la file, les lots et leur écran décident est donc lu dans la base,
+	 * d'une requête, sans passer par le cache ni le toucher.
+	 */
 	private static function fresh_option( string $name, $default ) {
-		if ( function_exists( 'wp_cache_delete' ) ) {
-			wp_cache_delete( $name, 'options' );
-			$not = function_exists( 'wp_cache_get' ) ? wp_cache_get( 'notoptions', 'options' ) : false;
-			if ( is_array( $not ) && isset( $not[ $name ] ) ) {
-				unset( $not[ $name ] );
-				wp_cache_set( 'notoptions', $not, 'options' );
-			}
+		global $wpdb;
+		if ( ! $wpdb || ! isset( $wpdb->options ) ) {
+			return get_option( $name, $default );
 		}
-		return get_option( $name, $default );
+		$v = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- the object cache is exactly what must not answer.
+		return null === $v ? $default : maybe_unserialize( $v );
 	}
 
 	/**
@@ -1099,7 +1108,7 @@ final class DZE_Translate {
 		if ( ! $file && ! $ouverts ) {
 			return;
 		}
-		$attente = (int) get_option( self::OPT_BACKOFF, 0 ) - time();
+		$attente = (int) self::fresh_option( self::OPT_BACKOFF, 0 ) - time();
 		self::kick_drain( $vite && $attente <= 0 ? 5 : max( 60, $attente ) );
 	}
 
@@ -1169,12 +1178,30 @@ final class DZE_Translate {
 		update_option( self::OPT_BATCHES, $all, false );
 	}
 
+	/**
+	 * UNE MÉTA LUE DANS LA BASE — la même raison que fresh_option() : ce qui
+	 * attend une décision et les mots envoyés décident de ce qui est écrit et
+	 * payé, et le cache d'objets de LiteSpeed peut y remettre une copie périmée.
+	 */
+	private static function raw_meta( array $o, string $key ): string {
+		global $wpdb;
+		$term = 'term' === ( $o['kind'] ?? 'post' );
+		if ( ! $wpdb || ! isset( $wpdb->termmeta, $wpdb->postmeta ) ) {
+			return self::meta_read( $o, (int) $o['id'], $key );
+		}
+		$v = $wpdb->get_var( $wpdb->prepare(
+			$term
+				? "SELECT meta_value FROM {$wpdb->termmeta} WHERE term_id = %d AND meta_key = %s ORDER BY meta_id DESC LIMIT 1"
+				: "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id DESC LIMIT 1",
+			(int) $o['id'],
+			$key
+		) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- see fresh_option().
+		return null === $v ? '' : (string) maybe_unserialize( $v );
+	}
+
 	/** Les mots envoyés pour cet objet, par lot. */
 	private static function sent_read( array $o ): array {
-		if ( function_exists( 'wp_cache_delete' ) ) {
-			wp_cache_delete( (int) $o['id'], 'term' === $o['kind'] ? 'term_meta' : 'post_meta' );
-		}
-		$raw = self::meta_read( $o, (int) $o['id'], self::META_SENT );
+		$raw = self::raw_meta( $o, self::META_SENT );
 		$row = '' !== $raw ? json_decode( $raw, true ) : [];
 		return is_array( $row ) ? $row : [];
 	}
@@ -1230,7 +1257,7 @@ final class DZE_Translate {
 
 	/** @return array{why:string,at:int}|array{} */
 	public static function stop_said(): array {
-		$s = get_option( self::OPT_STOP, [] );
+		$s = self::fresh_option( self::OPT_STOP, [] );
 		return is_array( $s ) && '' !== (string) ( $s['why'] ?? '' ) ? [ 'why' => (string) $s['why'], 'at' => (int) ( $s['at'] ?? 0 ) ] : [];
 	}
 
@@ -1276,7 +1303,7 @@ final class DZE_Translate {
 	 * attend déjà une décision ; rien qui ne soit pas l'original.
 	 */
 	private static function dispatch(): void {
-		if ( (int) get_option( self::OPT_BACKOFF, 0 ) > time() ) {
+		if ( (int) self::fresh_option( self::OPT_BACKOFF, 0 ) > time() ) {
 			return;
 		}
 		// UN LOT DONT ON NE SAIT PAS S'IL EXISTE bloque tout nouvel envoi de ce
@@ -2230,9 +2257,6 @@ final class DZE_Translate {
 	 * @param array<string,array<string,string>> $envoye langue => champ => mots envoyés
 	 */
 	private static function hold_landed( array $o, array $langs, array $envoye, int $by ): void {
-		if ( function_exists( 'wp_cache_delete' ) ) {
-			wp_cache_delete( (int) $o['id'], 'term' === $o['kind'] ? 'term_meta' : 'post_meta' );
-		}
 		$held   = self::waiting( $o );
 		$keep   = (array) ( $held['langs'] ?? [] );
 		$srcl   = (array) ( $held['srcl'] ?? [] );
@@ -2295,9 +2319,6 @@ final class DZE_Translate {
 			if ( ! $o ) {
 				continue;
 			}
-			if ( function_exists( 'wp_cache_delete' ) ) {
-				wp_cache_delete( (int) $o['id'], 'term' === $o['kind'] ? 'term_meta' : 'post_meta' );
-			}
 			$held  = (array) ( self::waiting( $o )['langs'] ?? [] );
 			$ecrit = array_intersect_key( $held, array_flip( $pris ) );
 			if ( ! $ecrit ) {
@@ -2352,7 +2373,7 @@ final class DZE_Translate {
 
 	/** Ce qui a résisté, tel qu'écrit — une ligne qui n'en est pas une est ignorée. */
 	public static function drain_log(): array {
-		return array_values( array_filter( (array) get_option( self::OPT_DRAIN_ERRORS, [] ), 'is_array' ) );
+		return array_values( array_filter( (array) self::fresh_option( self::OPT_DRAIN_ERRORS, [] ), 'is_array' ) );
 	}
 
 	/**
@@ -4947,7 +4968,7 @@ final class DZE_Translate {
 		if ( ! $o ) {
 			return [];
 		}
-		$raw = self::meta_read( $o, (int) $o['id'], self::META_WAIT );
+		$raw = self::raw_meta( $o, self::META_WAIT );
 		$row = '' !== $raw ? json_decode( $raw, true ) : [];
 		return is_array( $row ) && ! empty( $row['langs'] ) ? $row : [];
 	}
