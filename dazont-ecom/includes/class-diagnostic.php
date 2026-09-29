@@ -3182,7 +3182,8 @@ final class DZE_Diagnostic {
 		// choisie ne disparaisse pas en changeant d onglet — c est voulu et
 		// c est bien. Mais il en affichait aussi le compte des deux, donc il
 		// promettait quatre produits sur un onglet qui n en avait aucun.
-		// L entree reste ; c est le CHIFFRE qui suit l onglet.
+		// Le CHIFFRE suit l onglet — et une categorie a zero ici n est plus
+		// offerte du tout, sauf celle qu on a choisie (voir le menu plus bas).
 		$tab_ids = array_flip( array_map( 'intval', (array) ( 'fixed' === $show ? $split['done'] : $split['todo'] ) ) );
 		foreach ( $cats as $dze_tid => $dze_one ) {
 			$dze_n = 0;
@@ -3368,6 +3369,15 @@ final class DZE_Diagnostic {
 				) )
 			);
 			foreach ( $cats as $dze_tid => $dze_cat ) {
+				// A ZERO IS NOT AN OPTION. « Ça ne devrait juste pas être
+				// affiché. » The menu is built from both tabs so that a chosen
+				// category survives switching tab — but a category with nothing
+				// on the tab being looked at is a choice that answers with an
+				// empty screen, and the Issues menu was half such lines. The one
+				// already chosen stays, so the menu says what the screen shows.
+				if ( (int) ( $dze_cat['here'] ?? 0 ) < 1 && (int) $dze_tid !== $cat ) {
+					continue;
+				}
 				printf(
 					'<option value="%1$d"%2$s>%3$s</option>',
 					(int) $dze_tid,
