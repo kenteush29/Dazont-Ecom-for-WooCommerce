@@ -754,7 +754,7 @@ trait DZE_Translate_Screen {
 			<p id="dze-trd-failedsaid"><?php
 				echo esc_html( sprintf(
 					/* translators: 1: how many failed, 2: the most recent reason */
-					_n( '%1$s translation came back with nothing. Last reason: %2$s', '%1$s translations came back with nothing. Last reason: %2$s', (int) $q['errors'], 'dazont-ecom' ),
+					_n( '%1$s translation could not be finished after three tries. Last reason: %2$s', '%1$s translations could not be finished after three tries. Last reason: %2$s', (int) $q['errors'], 'dazont-ecom' ),
 					number_format_i18n( (int) $q['errors'] ),
 					(string) $q['last']
 				) );

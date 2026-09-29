@@ -3291,7 +3291,9 @@ $dze_age();
 DZE_Translate::drain();
 ok( 'a batch back after a hand edit does not write over it', (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), 'Größen' );
 ok( 'what it brought waits for review instead',          array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ), [ 'de' ] );
-// HALF A TRANSLATION IS NEVER PUBLISHED: it waits for review, and says what is missing.
+// HALF A TRANSLATION IS NEVER PUBLISHED — and never shown half done while a
+// try is left: « 6 translations came back with nothing » was said of texts
+// nearly whole, filed in review with a hole in them.
 $dze_clean();
 $GLOBALS['model_answer_fn'] = static function () { return (string) wp_json_encode( [ 'title' => '[title]' ] ); };
 DZE_Translate::ask( [ $o942 ], true, [ 'de' ], true );
@@ -3299,8 +3301,16 @@ DZE_Translate::drain();
 $dze_age();
 DZE_Translate::drain();
 ok( 'half a translation is not published',               (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), 'Größen' );
-ok( 'what came back waits for review',                   array_keys( (array) ( DZE_Translate::waiting( $o942 )['langs']['de'] ?? [] ) ), [ 'title' ] );
-ok( 'and the row says what is missing',                  false !== strpos( DZE_Translate::drain_errors()['post:942:post']['de'] ?? '', 'did not come back' ), true );
+ok( 'nor shown half done after the first try',           DZE_Translate::waiting( $o942 ), [] );
+ok( 'it is asked again, one try counted',                DZE_Translate::asked()[0]['fails']['de'] ?? 0, 1 );
+ok( 'and nothing is said on the screen yet',             DZE_Translate::drain_errors(), [] );
+for ( $dze_try = 0; $dze_try < 2; $dze_try++ ) {
+	DZE_Translate::drain();
+	$dze_age();
+	DZE_Translate::drain();
+}
+ok( 'after the last try, what came back waits for review', array_keys( (array) ( DZE_Translate::waiting( $o942 )['langs']['de'] ?? [] ) ), [ 'title' ] );
+ok( 'and the row says what is missing',                  false !== strpos( DZE_Translate::drain_errors()['post:942:post']['de'] ?? '', 'did not come back after three tries' ), true );
 $GLOBALS['model_answer_fn'] = $dze_good;
 
 echo "\nA LOST BATCH IS FOUND FOR WHAT IT IS, NEVER MISTAKEN FOR ANOTHER\n";
@@ -3659,6 +3669,49 @@ ok( 'and several leave in one step',
 ok( 'and a page never sends one',
 	false !== strpos( $dze_trsrc, 'if ( $direct && self::$from_page ) {' ), true );
 $GLOBALS['opts']['dze_translate_settings']['lane'] = 'batch';
+
+echo "\nAN ANSWER THAT IS NOT QUITE JSON IS READ BY THE KEYS WE SENT\n";
+// « „SSO" », « „taktisches Werkzeug" » — German, Polish and Russian quotes close
+// on a straight quote the model does not escape. Twenty answers of one send
+// were thrown away whole for it.
+$dze_read = new ReflectionMethod( 'DZE_Translate', 'batch_read' );
+$dze_read->setAccessible( true );
+$dze_raw = "```json\n{\n  \"name\": \"Kamizelka Smersh\",\n  \"description\": \"<h2>NASZ SMERSH „SSO\"</h2>\\n<p>Co oznacza „narzędzie taktyczne\"?</p>\",\n  \"meta:rank_math_title\": \"Rosyjska kamizelka Smersh „SSO\" %page% %sep% %sitename%\"\n}\n```";
+$dze_got = $dze_read->invoke( null, $dze_raw, [ 'name' => 'x', 'description' => 'y', 'meta:rank_math_title' => 'z' ] );
+ok( 'every field is read',                         array_keys( $dze_got ), [ 'name', 'description', 'meta:rank_math_title' ] );
+ok( 'the quote inside is text, not the end of it', $dze_got['description'] ?? '', "<h2>NASZ SMERSH „SSO\"</h2>\n<p>Co oznacza „narzędzie taktyczne\"?</p>" );
+ok( 'and the last field ends where it ends',       $dze_got['meta:rank_math_title'] ?? '', 'Rosyjska kamizelka Smersh „SSO" %page% %sep% %sitename%' );
+// ANSWERED TWICE: the one it stood by is the last.
+$dze_twice = "{\"meta:rank_math_description\":\"Первый вариант.\"}\n\nWait, let me redo this properly.\n\n{\"meta:rank_math_description\":\"Второй вариант.\"}";
+ok( 'answered twice, the last answer is kept',
+	$dze_read->invoke( null, $dze_twice, [ 'meta:rank_math_description' => 'x' ] ), [ 'meta:rank_math_description' => 'Второй вариант.' ] );
+// A KEY SENT BACK WITH ITS LABEL is still the key.
+ok( 'a key sent back with its label is still read',
+	$dze_read->invoke( null, "{\"title (Title)\": \"Sac „tactique\" noir\"}", [ 'title' => 'x' ] ), [ 'title' => 'Sac „tactique" noir' ] );
+// AND AN ANSWER WITH NOTHING OF OURS IN IT IS STILL A FAILURE, said as one.
+$dze_none = '';
+try { $dze_read->invoke( null, "I don't see any fields to translate.", [ 'title' => 'x' ] ); } catch ( \Throwable $e ) { $dze_none = $e->getMessage(); }
+ok( 'an answer with none of our fields is refused', false !== strpos( $dze_none, 'expected format' ), true );
+
+echo "\nWHAT HAS NO WORD IN IT IS NEVER SENT\n";
+// « I don't see any fields to translate » — a piece of a long description that
+// held only an image was sent alone, and the whole description was lost.
+$dze_plan = new ReflectionMethod( 'DZE_Translate', 'plan' );
+$dze_plan->setAccessible( true );
+$dze_words = '<p>' . str_repeat( 'Tactical gear for every mission. ', 150 ) . '</p>';
+$dze_img   = "\n<p><img src=\"https://shop.test/a.jpg\" alt=\"\" /></p>";
+$dze_p     = $dze_plan->invoke( null, [ 'description' => $dze_words . $dze_img, 'meta:width' => '120' ], [] );
+$dze_sent  = [];
+foreach ( $dze_p['jobs'] as $dze_job ) { $dze_sent = array_merge( $dze_sent, array_keys( $dze_job ) ); }
+ok( 'the piece with words is sent',                in_array( 'description~p0', $dze_sent, true ), true );
+ok( 'the piece that is only an image is not',      in_array( 'description~p1', $dze_sent, true ), false );
+ok( 'nor a field that is only a figure',           in_array( 'meta:width', $dze_sent, true ), false );
+ok( 'both are kept as they are',                   array_keys( $dze_p['keep'] ), [ 'description~p1', 'meta:width' ] );
+$dze_asm = new ReflectionMethod( 'DZE_Translate', 'assemble' );
+$dze_asm->setAccessible( true );
+$dze_back = $dze_asm->invoke( null, [ 'jobs' => [ [ 'description~p0' ] ], 'parts' => $dze_p['parts'], 'keep' => $dze_p['keep'] ], [ [ 'description~p0' => '<p>Équipement tactique.</p>' ] ] );
+ok( 'the description comes back whole, image included', $dze_back['description'] ?? '', '<p>Équipement tactique.</p>' . $dze_img );
+ok( 'and the figure as it was',                    $dze_back['meta:width'] ?? '', '120' );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

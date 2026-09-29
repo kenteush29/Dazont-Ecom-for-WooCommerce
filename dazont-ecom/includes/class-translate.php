@@ -1584,6 +1584,7 @@ final class DZE_Translate {
 				'lang'  => $code,
 				'jobs'  => $jobs,
 				'parts' => $plan['parts'],
+				'keep'  => $plan['keep'],
 				'unit'  => 'translate' . ( '' !== $subject ? ':' . $subject : '' ),
 				'by'    => (int) $e['by'],
 			];
@@ -2125,7 +2126,9 @@ final class DZE_Translate {
 				// PAS LA FAUTE DU TEXTE : trop de demandes, un service surchargé, un
 				// transport tombé — ou un lot repris pour partir tout de suite. La
 				// langue reprend sa place, et aucun essai n'est compté contre elle.
-				if ( 'retry' === $type || ( 'canceled' === $type && ! empty( $b['hurried'] ) ) ) {
+				// ANNULÉE OU EXPIRÉE, ce n'est pas non plus la faute du texte : elle
+				// repart si sa demande est encore dans la file.
+				if ( in_array( $type, [ 'retry', 'canceled', 'expired' ], true ) ) {
 					$encore[ $tk ] = true;
 					$ralentir       = $ralentir || 'retry' === $type;
 					continue;
@@ -2263,6 +2266,22 @@ final class DZE_Translate {
 		foreach ( array_keys( $encore ) as $tk ) {
 			unset( $faits[ $tk ], $partiel[ $tk ], $rates[ $tk ] );
 		}
+		// À MOITIÉ REVENUE, ELLE EST REDEMANDÉE — jamais montrée à moitié tant
+		// qu'il reste un essai. « 6 translations came back with nothing » était
+		// dit de textes presque entiers, rangés en relecture avec un trou. Seul le
+		// dernier essai range ce qui est revenu, et le dit.
+		$essais = [];
+		foreach ( self::asked() as $e ) {
+			foreach ( $e['langs'] as $c ) {
+				$essais[ self::ref( $e ) . '|' . $c ] = (int) ( $e['fails'][ $c ] ?? 0 );
+			}
+		}
+		foreach ( $partiel as $tk => $why ) {
+			if ( isset( $essais[ $tk ] ) && $essais[ $tk ] + 1 < self::TRIES ) {
+				$rates[ $tk ] = $why;
+				unset( $faits[ $tk ], $partiel[ $tk ] );
+			}
+		}
 		// CE QUI EST REVENU ATTEND UNE DÉCISION, contre les mots qui ont été
 		// envoyés — et au nom de celui qui l'a demandé, pas de la passe.
 		$par_objet = [];
@@ -2374,7 +2393,7 @@ final class DZE_Translate {
 				$lang,
 				sprintf(
 					/* translators: %s: why part of the text did not come back */
-					__( 'Part of it did not come back (%s). What came back waits in « To review », not published.', 'dazont-ecom' ),
+					__( 'Part of it still did not come back after three tries (%s). What came back waits in « To review », not published.', 'dazont-ecom' ),
 					$why
 				)
 			);
@@ -2452,13 +2471,16 @@ final class DZE_Translate {
 			}
 		}
 		$parts = (array) ( $task['parts'] ?? [] );
+		$keep  = (array) ( $task['keep'] ?? [] );
 		$out   = [];
 		foreach ( array_keys( $ordre ) as $fid ) {
 			if ( isset( $parts[ $fid ] ) ) {
 				$tout = '';
 				for ( $k = 0; $k < (int) $parts[ $fid ]; $k++ ) {
-					$piece = (string) ( $sac[ $fid . self::PART . $k ] ?? '' );
-					if ( '' === trim( $piece ) ) {
+					$cle   = $fid . self::PART . $k;
+					// A PIECE WITH NO WORD WAS NEVER SENT: it is put back as it was.
+					$piece = isset( $keep[ $cle ] ) ? (string) $keep[ $cle ] : (string) ( $sac[ $cle ] ?? '' );
+					if ( '' === trim( $piece ) && ! isset( $keep[ $cle ] ) ) {
 						$tout = '';
 						break;
 					}
@@ -2472,6 +2494,12 @@ final class DZE_Translate {
 			$v = (string) ( $sac[ $fid ] ?? '' );
 			if ( '' !== trim( $v ) ) {
 				$out[ $fid ] = $v;
+			}
+		}
+		// A FIELD WITH NO WORD IN IT was never sent, and is the same in any language.
+		foreach ( $keep as $cle => $v ) {
+			if ( false === strpos( (string) $cle, self::PART ) && '' !== trim( (string) $v ) ) {
+				$out[ (string) $cle ] = (string) $v;
 			}
 		}
 		return $out;
@@ -6022,6 +6050,11 @@ final class DZE_Translate {
 	private static function plan( array $texts, array $names ): array {
 		$jobs  = [];
 		$parts = [];
+		// WHAT HAS NO WORD IN IT IS NOT SENT: a piece that is only a line break
+		// or an image, a field that is only a number. Sent alone, the model
+		// answered « I don't see any fields to translate » and the whole
+		// description was lost. It is kept as it is, in any language.
+		$keep  = [];
 		$batch = [];
 		$len   = 0;
 		foreach ( $texts as $fid => $v ) {
@@ -6037,6 +6070,10 @@ final class DZE_Translate {
 				$parts[ $fid ] = count( $pieces );
 				foreach ( $pieces as $n => $piece ) {
 					$key           = $fid . self::PART . $n;
+					if ( ! self::has_words( $piece ) ) {
+						$keep[ $key ] = $piece;
+						continue;
+					}
 					$names[ $key ] = sprintf(
 						/* translators: 1: the field's name, 2: which piece, 3: how many pieces */
 						__( '%1$s — part %2$d of %3$d', 'dazont-ecom' ),
@@ -6046,6 +6083,10 @@ final class DZE_Translate {
 					);
 					$jobs[] = [ $key => $piece ];
 				}
+				continue;
+			}
+			if ( ! self::has_words( $v ) ) {
+				$keep[ $fid ] = $v;
 				continue;
 			}
 			if ( $batch && $len + $l > self::CHUNK ) {
@@ -6059,7 +6100,13 @@ final class DZE_Translate {
 		if ( $batch ) {
 			$jobs[] = $batch;
 		}
-		return [ 'jobs' => $jobs, 'parts' => $parts, 'names' => $names ];
+		return [ 'jobs' => $jobs, 'parts' => $parts, 'names' => $names, 'keep' => $keep ];
+	}
+
+	/** Does this text hold a single word to translate — a letter, not only tags, spaces or figures? */
+	private static function has_words( string $v ): bool {
+		$plain = html_entity_decode( wp_strip_all_tags( $v ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		return (bool) preg_match( '/\p{L}/u', $plain );
 	}
 
 	/**
@@ -6170,7 +6217,7 @@ final class DZE_Translate {
 				// NOT THE WHOLE OBJECT. An Elementor page of 63 fields once
 				// translated nothing because its seventh call answered badly,
 				// on a page whose first fifty-four fields were already paid for.
-				$bag = [];
+				$bag = (array) ( $p['keep'] ?? [] ); // what has no word in it comes back as it went.
 				foreach ( $p['jobs'] as $i => $job ) {
 					if ( isset( $first[ $tk ] ) && array_key_exists( $i, $first[ $tk ] ) ) {
 						$got = $first[ $tk ][ $i ];
@@ -6192,7 +6239,7 @@ final class DZE_Translate {
 				foreach ( $p['parts'] as $fid => $n ) {
 					for ( $k = 0; $k < $n; $k++ ) {
 						$key = $fid . self::PART . $k;
-						if ( '' !== trim( (string) ( $bag[ $key ] ?? '' ) ) ) {
+						if ( '' !== trim( (string) ( $bag[ $key ] ?? '' ) ) || isset( $p['keep'][ $key ] ) ) {
 							continue;
 						}
 						$piece = self::split_text( (string) $texts[ $fid ], self::CHUNK )[ $k ] ?? '';
@@ -6220,7 +6267,7 @@ final class DZE_Translate {
 						$whole = '';
 						for ( $k = 0; $k < $p['parts'][ $fid ]; $k++ ) {
 							$piece = (string) ( $bag[ $fid . self::PART . $k ] ?? '' );
-							if ( '' === trim( $piece ) ) {
+							if ( '' === trim( $piece ) && ! isset( $p['keep'][ $fid . self::PART . $k ] ) ) {
 								$whole = '';
 								break;
 							}
@@ -6388,7 +6435,7 @@ final class DZE_Translate {
 	 *                     ligne quand la cle est venue habillee.
 	 * @return array<string,string>
 	 */
-	private static function decode_map( string $raw, ?int &$nb = null ): array {
+	private static function decode_map( string $raw, ?int &$nb = null, array $keys = [] ): array {
 		$json = trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', $raw ) );
 		$rows = json_decode( $json, true );
 		if ( ! is_array( $rows ) ) {
@@ -6397,6 +6444,17 @@ final class DZE_Translate {
 			if ( false !== $a && false !== $b && $b > $a ) {
 				$rows = json_decode( substr( $json, $a, $b - $a + 1 ), true );
 			}
+		}
+		// NOT STRICT JSON, BUT THE FIELDS ARE THERE — read by the keys we sent.
+		// « „SSO" », « „taktisches Werkzeug" »: German, Polish and Russian
+		// quotes close on a straight " the model does not escape, and one of
+		// them threw away a whole translated description. Twenty answers of one
+		// send were lost that way, and one more said « Wait, let me redo this »
+		// between two answers. The keys are ours, so each value is cut between
+		// its own key and the next one.
+		if ( ! is_array( $rows ) && $keys ) {
+			$rows = self::salvage_map( $json, $keys );
+			$rows = $rows ? $rows : null;
 		}
 		if ( ! is_array( $rows ) ) {
 			throw new RuntimeException( __( 'The model did not answer with the expected format.', 'dazont-ecom' ) );
@@ -6415,6 +6473,60 @@ final class DZE_Translate {
 		}
 		return $by;
 	}
+	/**
+	 * AN ANSWER THAT IS NOT QUITE JSON, READ BY THE KEYS WE SENT.
+	 *
+	 * Each value runs from its key to the next key found after it — or to the
+	 * last closing quote before the final brace — so an unescaped quote inside
+	 * a translation is text, not the end of it. When the model answered twice,
+	 * the LAST answer of each key is the one kept: it is the one it stood by.
+	 *
+	 * @param string[] $keys
+	 * @return array<string,string>
+	 */
+	private static function salvage_map( string $json, array $keys ): array {
+		$at = [];
+		foreach ( $keys as $k ) {
+			$pat = '/"' . preg_quote( (string) $k, '/' ) . '(?:\s*\([^"]*\))?"\s*:\s*"/u';
+			if ( preg_match_all( $pat, $json, $m, PREG_OFFSET_CAPTURE ) ) {
+				$last          = end( $m[0] );
+				$at[ (string) $k ] = [ (int) $last[1], (int) $last[1] + strlen( (string) $last[0] ) ];
+			}
+		}
+		if ( ! $at ) {
+			return [];
+		}
+		uasort( $at, static fn( array $a, array $b ): int => $a[1] <=> $b[1] );
+		$order = array_keys( $at );
+		$out   = [];
+		foreach ( $order as $i => $k ) {
+			$from = $at[ $k ][1];
+			$next = $order[ $i + 1 ] ?? null;
+			if ( null !== $next ) {
+				$seg = substr( $json, $from, $at[ $next ][0] - $from );
+				$seg = (string) preg_replace( '/"\s*,\s*$/s', '', $seg );
+			} else {
+				$seg = substr( $json, $from );
+				if ( ! preg_match( '/^(.*)"\s*}/s', $seg, $mm ) ) {
+					continue;
+				}
+				$seg = $mm[1];
+			}
+			// The JSON escapes it did write are read as JSON; the quotes and line
+			// breaks it did not escape are escaped first.
+			$esc = (string) preg_replace( '/(?<!\\\\)"/', '\\"', $seg );
+			$esc = str_replace( [ "\r\n", "\n", "\r", "\t" ], [ '\n', '\n', '\r', '\t' ], $esc );
+			$val = json_decode( '"' . $esc . '"' );
+			if ( ! is_string( $val ) ) {
+				$val = stripcslashes( $seg );
+			}
+			if ( '' !== trim( $val ) ) {
+				$out[ (string) $k ] = $val;
+			}
+		}
+		return $out;
+	}
+
 	private static function translate_batch( array $texts, string $lang_code, array $names ): array {
 		if ( ! $texts ) {
 			return [];
@@ -6475,7 +6587,7 @@ final class DZE_Translate {
 	 */
 	private static function batch_read( string $raw, array $texts ): array {
 		$nb = 0;
-		$by = self::decode_map( $raw, $nb );
+		$by = self::decode_map( $raw, $nb, array_map( 'strval', array_keys( $texts ) ) );
 		$out = [];
 		foreach ( $texts as $fid => $_ ) {
 			$v = isset( $by[ $fid ] ) ? (string) $by[ $fid ] : '';
@@ -7418,7 +7530,7 @@ final class DZE_Translate {
 				/* translators: %s: how many items are on their way */
 				'nProgress'    => __( '%s items are being translated in the background.', 'dazont-ecom' ),
 				/* translators: 1: how many failed, 2: the most recent reason */
-				'failed'       => __( '%1$s translation(s) came back with nothing. Last reason: %2$s', 'dazont-ecom' ),
+				'failed'       => __( '%1$s translation(s) could not be finished after three tries. Last reason: %2$s', 'dazont-ecom' ),
 				'error'        => __( 'Something went wrong.', 'dazont-ecom' ),
 				// ---- The editor of one object ----
 				// ASKED BEFORE IT IS SPENT. "Translate everything again" pays
