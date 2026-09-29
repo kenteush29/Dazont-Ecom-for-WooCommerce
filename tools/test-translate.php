@@ -70,7 +70,10 @@ function is_wp_error( $t ) { return $t instanceof WP_Error; }
 
 $GLOBALS['opts'] = [];
 $GLOBALS['tr']   = [];
-function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
+// LITESPEED'S OBJECT CACHE CAN ANSWER AN OLD VALUE: $GLOBALS['stale_opts'] is
+// what it answers when a check sets it. The database is $GLOBALS['opts'].
+function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['stale_opts'] ?? [] ) ? $GLOBALS['stale_opts'][ $k ] : ( $GLOBALS['opts'][ $k ] ?? $d ); }
+if ( ! function_exists( 'maybe_unserialize' ) ) { function maybe_unserialize( $v ) { if ( ! is_string( $v ) ) { return $v; } $u = @unserialize( $v ); return ( false !== $u || 'b:0;' === $v ) ? $u : $v; } }
 function get_transient( $k ) { return $GLOBALS['tr'][ $k ] ?? false; }
 function set_transient( $k, $v, $t = 0 ) { $GLOBALS['tr'][ $k ] = $v; return true; }
 function delete_transient( $k ) { unset( $GLOBALS['tr'][ $k ] ); return true; }
@@ -170,6 +173,7 @@ function do_action( ...$a ) {}
 /** WPML's two tables, and what was written to them. */
 class DZE_Tr_Test_Wpdb {
 	public $prefix = 'wp_';
+	public $options = 'wp_options';
 	public $last_error = '';
 	/**
 	 * NAMED LOCKS, AS MYSQL GIVES THEM: taken whole or not at all, and handed
@@ -258,6 +262,19 @@ class DZE_Tr_Test_Wpdb {
 	}
 	public function get_var( $q ) {
 		$sql = (string) $q;
+		// THE DATABASE ITSELF, read around the object cache.
+		if ( preg_match( "/SELECT option_value FROM wp_options WHERE option_name = '([^']+)'/", $sql, $m ) ) {
+			if ( ! array_key_exists( $m[1], $GLOBALS['opts'] ?? [] ) ) {
+				return null;
+			}
+			$v = $GLOBALS['opts'][ $m[1] ];
+			return is_array( $v ) || is_object( $v ) ? serialize( $v ) : (string) $v;
+		}
+		if ( preg_match( "/SELECT meta_value FROM wp_(term|post)meta WHERE (?:term|post)_id = (\\d+) AND meta_key = '([^']+)'/", $sql, $m ) ) {
+			$store = 'term' === $m[1] ? ( $GLOBALS['termmeta'] ?? [] ) : ( $GLOBALS['meta'] ?? [] );
+			$v     = $store[ (int) $m[2] ][ $m[3] ] ?? null;
+			return null === $v ? null : ( is_array( $v ) ? serialize( $v ) : (string) $v );
+		}
 		if ( false !== stripos( $sql, '_LOCK(' ) ) {
 			$got = $this->lock_sql( $sql );
 			return false === $got ? null : $got;
@@ -3341,6 +3358,19 @@ $dze_age();
 DZE_Translate::drain();
 ok( 'a batch read before its marks were tied still counts its failure', DZE_Translate::asked()[0]['fails'] ?? [], [ 'fr' => 1 ] );
 $GLOBALS['model_answer_fn'] = $dze_good;
+// THE CACHE THAT LIED — « ça me semble long encore ». A page read the queue
+// while a step emptied it, and LiteSpeed's object cache kept that old read:
+// three categories published at 11:09:35 still turned on screen at 11:09:48.
+// The queue is read in the database, whatever the cache says.
+$dze_clean();
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+$GLOBALS['stale_opts'][ DZE_Translate::OPT_ASKED ] = $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ];
+$dze_age();
+DZE_Translate::drain();
+ok( 'what the cache still says does not make a finished language turn', DZE_Translate::running(), [] );
+ok( 'nor keep it in the queue',                            DZE_Translate::asked(), [] );
+unset( $GLOBALS['stale_opts'] );
 echo "\nA MARK LEFT BY A STEP THAT DIED DOES NOT STAY FOR EVER\n";
 $dze_clean();
 $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr', 'de' ],
