@@ -424,6 +424,37 @@
 		polling = null;
 		refresh(turning());
 	}
+	// HOW FAR IT HAS GOT. « À l'écran rien n'indique que ça avance » : the line
+	// read the same at minute one and at minute forty. Anthropic counts each
+	// request as it answers it, so the bar moves while a batch is still open,
+	// and « last checked » says the page itself is alive.
+	function ago(sec) {
+		sec = Math.max(0, parseInt(sec, 10) || 0);
+		if (sec < 60) { return sprintf(i18n.agoS, num(sec)); }
+		var m = Math.floor(sec / 60);
+		if (m < 60) { return sprintf(i18n.agoM, num(m)); }
+		return sprintf(i18n.agoH, num(Math.floor(m / 60)), num(m % 60));
+	}
+	function progressBar(q, paused) {
+		var reqs = parseInt(q.reqs, 10) || 0, answered = parseInt(q.answered, 10) || 0;
+		var $bar = $('#dze-trd-bar');
+		if (q.n && reqs) {
+			$bar.prop('hidden', false);
+			$('#dze-trd-barfill').css('width', Math.max(2, Math.min(100, Math.round(100 * answered / reqs))) + '%');
+		} else {
+			$bar.prop('hidden', true);
+		}
+		var bits = [], now = parseInt(q.now, 10) || 0;
+		if (q.n && reqs) {
+			bits.push(sprintf(i18n.progAnswered, num(answered), num(reqs)));
+			if (q.since && now) { bits.push(sprintf(1 === q.batches ? i18n.progSentOne : i18n.progSentMany, ago(now - q.since), num(q.batches))); }
+			if (q.polled && now) { bits.push(sprintf(i18n.progChecked, ago(now - q.polled))); }
+		} else if (q.n && !paused) {
+			bits.push(i18n.progSending);
+		}
+		if (q.n && q.landed) { bits.push(sprintf(i18n.progLanded, num(q.landed))); }
+		$('#dze-trd-progdetail').text(bits.join(' · ')).prop('hidden', !bits.length);
+	}
 	function queueSaid(q) {
 		if (!q) { return; }
 		queue = q;
@@ -438,6 +469,7 @@
 		$('#dze-trd-stop').prop('hidden', !paused);
 		$('#dze-trd-stopsaid').text(paused ? q.stop : '');
 		$('#dze-trd-progwhy').text(paused ? (i18n.progPaused || '') : (i18n.progBatch || ''));
+		progressBar(q, paused);
 		// A STEP THAT WAITS FOR NOBODY. Work is waiting and nothing runs: the
 		// page asks for one — a few seconds that send, check and write, never a
 		// translation made inside the page. One at a time, and not more than
@@ -449,6 +481,10 @@
 			post('dze_tr_runqueue', {}).always(function () { kicking = false; });
 		}
 	}
+	// THE FIGURES THE PAGE WAS DRAWN WITH, shown at once rather than after the
+	// first poll: the bar is on screen from the first second.
+	var q0 = $('#dze-trd-progress').data('q');
+	if (q0 && 'object' === typeof q0) { queueSaid(q0); watch(); }
 	$(document).on('click', '.dze-trd-cancel', function () {
 		var $b = $(this), $row = $b.closest('.dze-trd-row');
 		var ref = String($row.data('ref')), lang = String($b.data('lang'));

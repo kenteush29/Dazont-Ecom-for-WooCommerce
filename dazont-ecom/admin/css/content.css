@@ -2125,6 +2125,12 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-trd-sendrow { margin: 16px 0 0; display: flex; align-items: center; gap: 12px; }
 #dze-trd-sendsaid.is-ko { color: #b32d2e; }
 .dze-trd-progress p, .dze-trd-failed p { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+/* How far the batches have got: Anthropic's own count, moving while a batch is open. */
+.dze-trd-bar { height: 8px; max-width: 560px; margin: 0 0 6px; background: #e6e9ec; border-radius: 4px; overflow: hidden; }
+.dze-trd-barfill { display: block; width: 2%; height: 100%; background: #2271b1; border-radius: 4px; transition: width .6s ease; }
+.dze-trd-progress p.dze-trd-progdetail { display: block; margin: 0 0 8px; color: #50575e; }
+.dze-trd-bar[hidden], .dze-trd-progdetail[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .dze-trd-barfill { transition: none; } }
 .dze-trd-fields { max-width: 1280px; margin: 22px 0 0; }
 .dze-trd-fields h4 { margin: 14px 0 6px; }
 .dze-trd-rule.is-ok { color: #0a7040; }

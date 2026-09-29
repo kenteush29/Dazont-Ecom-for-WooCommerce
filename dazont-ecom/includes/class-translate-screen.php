@@ -616,15 +616,59 @@ trait DZE_Translate_Screen {
 	 * @return array{n:int,busy:bool,sent:int,stop:string,errors:int,last:string,review:int}
 	 */
 	public static function queue_said(): array {
-		$refs = [];
-		$sent = 0;
+		$refs   = [];
+		$sent   = 0;
+		$langs  = 0;
+		$landed = 0;
 		foreach ( self::asked() as $e ) {
 			$refs[ self::ref( $e ) ] = true;
-			$sent += count( array_intersect( $e['langs'], array_keys( (array) $e['sent'] ) ) );
+			$sent   += count( array_intersect( $e['langs'], array_keys( (array) $e['sent'] ) ) );
+			$langs  += count( $e['langs'] );
+			$landed += count( array_intersect( $e['langs'], array_keys( (array) $e['land'] ) ) );
+		}
+		// WHERE THE BATCHES STAND, from Anthropic's own counts, read at every
+		// poll. « À l'écran rien n'indique que ça avance. » The line said
+		// « being translated » over 540 items for as long as the batches took,
+		// word for word the same at minute one and at minute forty: a screen
+		// that does not move reads as a queue that does not move. Anthropic
+		// counts each request as it is answered, so the bar can move while a
+		// batch is still open — and the last time it was asked is said too,
+		// because that is what shows the page is not frozen.
+		$reqs     = 0;
+		$answered = 0;
+		$open     = 0;
+		$since    = 0;
+		$polled   = 0;
+		foreach ( self::batches() as $b ) {
+			$st = (string) ( $b['status'] ?? '' );
+			if ( ! in_array( $st, [ 'creating', 'in_progress', 'canceling', 'ended' ], true ) ) {
+				continue;
+			}
+			$open++;
+			$n    = (int) ( $b['n'] ?? 0 );
+			$c    = (array) ( $b['counts'] ?? [] );
+			$done = (int) ( $c['succeeded'] ?? 0 ) + (int) ( $c['errored'] ?? 0 ) + (int) ( $c['canceled'] ?? 0 ) + (int) ( $c['expired'] ?? 0 );
+			$reqs     += $n;
+			$answered += 'ended' === $st ? $n : min( $n, $done );
+			$at        = (int) ( $b['at'] ?? 0 );
+			$since     = $since && $at ? min( $since, $at ) : max( $since, $at );
+			$polled    = max( $polled, (int) ( $b['polled'] ?? 0 ) );
 		}
 		$errs = self::drain_log();
 		$stop = self::stop_said();
 		return [
+			// The translations still in the queue, one per object and language,
+			// and those back from Anthropic that are being written now.
+			'langs'    => $langs,
+			'landed'   => $landed,
+			// The batches with Anthropic: how many, how many requests, how many
+			// answered, since when, and when this site last asked.
+			'batches'  => $open,
+			'reqs'     => $reqs,
+			'answered' => $answered,
+			'since'    => $since,
+			'polled'   => $polled,
+			'now'      => time(),
 			'n'      => count( $refs ),
 			// A STEP IS RUNNING RIGHT NOW — read from the lock MySQL holds, so a
 			// step that died no longer reads as busy for a quarter of an hour.
@@ -643,7 +687,7 @@ trait DZE_Translate_Screen {
 	/** The line itself, printed once and kept up to date by the page. */
 	public static function progress_notice( array $q ): void {
 		?>
-		<div class="notice notice-info inline dze-trd-progress" id="dze-trd-progress"<?php echo $q['n'] ? '' : ' hidden'; ?>>
+		<div class="notice notice-info inline dze-trd-progress" data-q="<?php echo esc_attr( (string) wp_json_encode( $q ) ); ?>" id="dze-trd-progress"<?php echo $q['n'] ? '' : ' hidden'; ?>>
 			<p>
 				<span class="dze-trd-spin" aria-hidden="true"></span>
 				<strong id="dze-trd-progn"><?php
@@ -663,12 +707,19 @@ trait DZE_Translate_Screen {
 				<span id="dze-trd-progwhy"><?php
 					echo esc_html( '' !== (string) ( $q['stop'] ?? '' )
 						? __( 'Nothing is sent while the queue is paused.', 'dazont-ecom' )
-						: __( 'It is translated by Anthropic in one batch, at half price: usually within minutes, at most 24 hours. You can leave this page — each language appears on its row as soon as it is done.', 'dazont-ecom' ) );
+						: __( 'Anthropic translates it in batches, at half price. A large send can take up to an hour — 24 hours at most — and each language appears on its row as soon as its batch is back. You can leave this page.', 'dazont-ecom' ) );
 				?></span>
 				<a href="<?php echo esc_url( self::url( [ 'tstatus' => 'progress' ] ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
 				&middot;
 				<button type="button" class="button-link dze-trd-cancelall" id="dze-trd-cancelall"><?php esc_html_e( 'Cancel all', 'dazont-ecom' ); ?></button>
 			</p>
+			<?php
+			// HOW FAR IT HAS GOT, AND THAT THE PAGE IS ALIVE: Anthropic's own count
+			// of the requests it has answered, since when, and when this site
+			// last asked. Filled by the page from the same figures on every poll.
+			?>
+			<div class="dze-trd-bar" id="dze-trd-bar" hidden><span class="dze-trd-barfill" id="dze-trd-barfill"></span></div>
+			<p class="dze-trd-progdetail" id="dze-trd-progdetail" hidden></p>
 		</div>
 		<?php
 		// PAUSED, AND WHY — when it is not the fault of any text: the month's
