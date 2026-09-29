@@ -37,21 +37,33 @@ final class DZE_Wpml {
 			return [];
 		}
 		$languages = apply_filters( 'wpml_active_languages', null, [ 'skip_missing' => 0 ] );
-		if ( ! is_array( $languages ) || ! $languages ) {
-			// A FILTER ONLY ANSWERS WHERE ITS PLUGIN'S HOOKS ARE LOADED — and
-			// this one answering NOTHING in admin-ajax is what made a whole
-			// batch say "nothing had moved": `produce()` walks the languages it
-			// was asked for and skips any that is not a target, so with no
-			// languages at all it did nothing, silently, and the screen
-			// concluded the site was up to date.
-			//
-			// WPML keeps its active languages in a table of its own. Sixth time
-			// this trap is paid for: ANY READING THAT MUST BE RIGHT OUTSIDE A
-			// PAGE LOAD ASKS THE TABLE.
-			$languages = self::languages_from_table();
-		}
-		if ( ! is_array( $languages ) ) {
-			return [];
+		$languages = is_array( $languages ) ? $languages : [];
+		// A FILTER ONLY ANSWERS WHERE ITS PLUGIN'S HOOKS ARE LOADED — and this
+		// one answering NOTHING in admin-ajax is what made a whole batch say
+		// "nothing had moved": `produce()` walks the languages it was asked for
+		// and skips any that is not a target, so with no languages at all it
+		// did nothing, silently, and the screen concluded the site was up to
+		// date.
+		//
+		// AND WHERE IT ANSWERS, IT IS THE LANGUAGE SWITCHER'S LIST, which moves
+		// with the request. On Kula it names Russian only when the request is
+		// English. The translation queue runs from WP-Cron, fired by a visit to
+		// whichever domain: in a French or Spanish one Russian was not a target
+		// any more, `dispatch()` dropped every Russian request without a word,
+		// and the automatic pass lost all of its work in Russian.
+		//
+		// WPML keeps its active languages in a table of its own. Seventh time
+		// this trap is paid for: THE TABLE SAYS WHICH LANGUAGES EXIST; the
+		// filter, when it answers, only gives their order and their flags.
+		global $sitepress;
+		foreach ( self::languages_from_table() as $code => $data ) {
+			if ( isset( $languages[ $code ] ) ) {
+				continue;
+			}
+			if ( '' === (string) ( $data['country_flag_url'] ?? '' ) && is_object( $sitepress ) && method_exists( $sitepress, 'get_flag_url' ) ) {
+				$data['country_flag_url'] = (string) $sitepress->get_flag_url( (string) $code );
+			}
+			$languages[ $code ] = $data;
 		}
 		$result = [];
 		foreach ( $languages as $code => $data ) {
@@ -64,6 +76,17 @@ final class DZE_Wpml {
 			];
 		}
 		return $result;
+	}
+
+	/**
+	 * The codes of every active language, the default one included — the same
+	 * whatever language the request is in. Read this, never
+	 * `wpml_active_languages` itself (see get_active_languages()).
+	 *
+	 * @return string[]
+	 */
+	public static function language_codes(): array {
+		return array_values( array_filter( array_map( static fn( array $l ): string => (string) ( $l['code'] ?? '' ), self::get_active_languages() ) ) );
 	}
 
 	/**

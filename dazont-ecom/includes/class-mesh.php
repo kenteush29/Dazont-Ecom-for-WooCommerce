@@ -617,7 +617,7 @@ final class DZE_Mesh {
 		if ( class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'url_shape' ) && method_exists( 'DZE_Wpml', 'has_marker' ) ) {
 			$dze_shape = DZE_Wpml::url_shape();
 			if ( in_array( (int) $dze_shape['type'], [ 1, 3 ], true ) ) {
-				foreach ( array_keys( (array) apply_filters( 'wpml_active_languages', null, [] ) ) as $dze_code ) {
+				foreach ( DZE_Wpml::language_codes() as $dze_code ) {
 					if ( (string) $dze_code !== (string) $dze_shape['default'] && DZE_Wpml::has_marker( $url, (string) $dze_code ) ) {
 						return '';
 					}

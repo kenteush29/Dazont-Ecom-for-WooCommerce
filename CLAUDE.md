@@ -2496,6 +2496,20 @@ whose screen has not been thought through yet.
   tell them apart), and **`produce()` fails loudly** — a language it cannot
   resolve is an error on the screen, never a silent skip. An answer nobody
   asked for is worse than an error nobody wanted.
+- **A FILTER THAT ANSWERS PART OF THE LIST IS NOT THE LIST — seventh time.**
+  Where `wpml_active_languages` does answer, it is the LANGUAGE SWITCHER's
+  list, and it moves with the request: on Kula it names Russian only when the
+  request is English. The translation queue runs from WP-Cron, fired by a visit
+  to any domain; in a French or Spanish one Russian was no target, `dispatch()`
+  dropped every Russian request with no batch and no error, and the automatic
+  pass lost its Russian work (seen on 29/09/2026, 4.496.1).
+  `get_active_languages()` now takes the SET from `icl_languages` (active = 1)
+  and only the order and the flags from the filter. **Read the languages that
+  exist through `DZE_Wpml::get_active_languages()` / `language_codes()` —
+  never `apply_filters( 'wpml_active_languages' )` directly** (a test counts
+  the direct readers and wants none outside `class-wpml.php`). To check it on a
+  site: `do_action( 'wpml_switch_language', 'fr' )` in `wp eval`, then read
+  `DZE_Translate::target_codes()`.
 - **A VARIABLE PRODUCT WITHOUT ITS VARIATIONS IS NOT A PRODUCT.**
   `create_translation()` made a post of type `product` carrying the term
   `variable` and nothing under it — no axes, no variations, no price — which

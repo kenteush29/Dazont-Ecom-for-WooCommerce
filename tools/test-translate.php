@@ -3662,6 +3662,41 @@ $GLOBALS['opts']['dze_translate_settings']['lane'] = 'direct';
 ok( 'an old request without a speed is cheap',     DZE_Translate::entry( [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr' ] ] )['lane'], 'batch' );
 $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
 
+echo "\nA FILTER THAT ANSWERS PART OF THE LIST IS NOT THE LIST — seventh time\n";
+// On Kula `wpml_active_languages` is the language switcher's list, and it names
+// Russian only when the request is English. The queue runs from WP-Cron, fired
+// by a visit to any domain: in a French or a Spanish one Russian was no target,
+// and dispatch() dropped every Russian request without a word — the automatic
+// pass lost two attributes in a row that way on 29/09, with no batch and no
+// error. WPML's table says which languages exist.
+$GLOBALS['wpdb']->langs = [
+	[ 'code' => 'en', 'english_name' => 'English', 'default_locale' => 'en_US', 'tag' => 'en' ],
+	[ 'code' => 'fr', 'english_name' => 'French',  'default_locale' => 'fr_FR', 'tag' => 'fr' ],
+	[ 'code' => 'de', 'english_name' => 'German',  'default_locale' => 'de_DE', 'tag' => 'de' ],
+	[ 'code' => 'ru', 'english_name' => 'Russian', 'default_locale' => 'ru_RU', 'tag' => 'ru' ],
+];
+ok( 'the switcher forgets Russian, the module does not', DZE_Wpml::language_codes(), [ 'en', 'fr', 'de', 'ru' ] );
+ok( 'so Russian stays a target',                   in_array( 'ru', DZE_Translate::target_codes(), true ), true );
+ok( 'and it keeps its English name for the model', array_column( DZE_Wpml::get_active_languages(), 'english_name', 'code' )['ru'] ?? '', 'Russian' );
+$dze_direct_fresh();
+$GLOBALS['model_answer_fn'] = $dze_good;
+DZE_Translate::ask( [ $o940 ], false, [ 'ru' ], false, $dze_nx, 'batch' );
+$GLOBALS['batch_status'] = 'in_progress';
+DZE_Translate::drain();
+unset( $GLOBALS['batch_status'] );
+ok( 'a Russian request leaves in its batch',       count( $GLOBALS['batch_store'] ), 1 );
+ok( 'and is still there, on its way',              array_keys( (array) ( DZE_Translate::asked()[0]['sent'] ?? [] ) ), [ 'ru' ] );
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ]   = [];
+$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] = [];
+$GLOBALS['wpdb']->langs = [];
+$dze_wpml_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-wpml.php' );
+$dze_readers  = '';
+foreach ( glob( __DIR__ . '/../' . $dir . '/includes/*.php' ) as $dze_f ) {
+	if ( 'class-wpml.php' !== basename( $dze_f ) ) { $dze_readers .= (string) file_get_contents( $dze_f ); }
+}
+ok( 'and nothing else reads the switcher\'s list for the languages that exist',
+	substr_count( $dze_readers, "apply_filters( 'wpml_active_languages'" ), 0 );
+
 echo "\nA WAVE IS SHORT\n";
 $dze_trsrc = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
 ok( 'a wave carries at most its own size, and a cheap batch its chunk',

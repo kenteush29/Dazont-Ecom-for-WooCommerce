@@ -1280,15 +1280,14 @@ PROMPT;
 		if ( null !== $bases ) {
 			return $bases;
 		}
-		$bases  = [];
-		$active = apply_filters( 'wpml_active_languages', null, [ 'skip_missing' => 0 ] );
-		if ( is_array( $active ) ) {
-			foreach ( $active as $code => $l ) {
-				$code = (string) ( $l['language_code'] ?? $code );
-				$url  = (string) apply_filters( 'wpml_permalink', home_url( '/' ), $code );
-				if ( '' !== $url ) {
-					$bases[ $code ] = untrailingslashit( $url );
-				}
+		$bases = [];
+		// Every active language, whatever the request's own: WPML's switcher
+		// list drops Russian outside an English request (see
+		// DZE_Wpml::get_active_languages()).
+		foreach ( class_exists( 'DZE_Wpml' ) ? DZE_Wpml::language_codes() : [] as $code ) {
+			$url = (string) apply_filters( 'wpml_permalink', home_url( '/' ), $code );
+			if ( '' !== $url ) {
+				$bases[ $code ] = untrailingslashit( $url );
 			}
 		}
 		// Longest base first, so /fr wins over / when both match.
