@@ -859,6 +859,30 @@ whose screen has not been thought through yet.
       right away » was removed in 4.496.0): "l'option est maintenant dispo
       avant le lancement des traductions". The speed is chosen before the
       send and a batch comes back whole. Do not bring a hurry button back.
+  - **WPML'S MENU SYNC RUNS AFTER A TRANSLATION LANDS** (`DZE_Menu_Sync`,
+    4.497.0). "Est-ce possible d'utiliser la fonction de synchro du menu
+    automatiquement, de WPML, quand on traduit une nouvelle taxonomie ?"
+    - `accept()` calls `DZE_Menu_Sync::wanted( $o )` once something is
+      written. Only an ORIGINAL that a published menu item points at
+      (`_menu_item_object_id` / `_menu_item_type` / `_menu_item_object`)
+      books a run, a minute later. A burst of translations makes ONE run: only
+      a `pending` Action Scheduler action counts as booked, never one in
+      progress.
+    - The run is WPML's own code, in WPML's own two steps. First the preview:
+      `ICLMenusSync::get_menus_tree()` + `render_items_tree_default()`, in the
+      DEFAULT language, with the hidden fields read back as the browser posts
+      them. Then the apply: `do_sync()`, fed the way the confirm screen feeds
+      it (`WPML_Menu_Sync_Display`): the preview's `[kind][menu][item][lang]`
+      becomes `[kind][menu][lang][item]`, and a move keeps `[order]`.
+    - **Never removed, never created**: `del` and `menu_translation(s)` are
+      counted and said ("that stays your decision, in WPML → WP Menus Sync"),
+      never passed on. A link added on purpose to one language's menu looks
+      exactly like a ghost to WPML.
+    - One run at a time (MySQL `GET_LOCK`): two runs reading the same preview
+      would both add the same item. A setting (`menus`, on by default) and the
+      last run's result live in Translations → Settings.
+    - Checked on Kula before release, read-only: the new class, renamed, gave
+      the same preview as WPML's own screen in `en`, `fr` and `ru` contexts.
     - The « right away » lane sends waves of `DIRECT_WAVE` requests in
       parallel (`DZE_Marketing_Ai::messages_now()`). Each wave comes back in
       the time of its slowest call.
