@@ -731,6 +731,8 @@ trait DZE_Content_Ajax {
 			'pastes'   => isset( $_POST['pastes'] ) ? (array) $_POST['pastes'] : [],
 			'src_ids'  => isset( $_POST['src_ids'] ) ? array_map( 'absint', (array) $_POST['src_ids'] ) : [],
 			'src_id'   => isset( $_POST['src_id'] ) ? absint( $_POST['src_id'] ) : 0,
+			// « Only the photographs from elsewhere », when that tile is the one picked.
+			'only_pasted' => ! empty( $_POST['only_pasted'] ) ? 1 : 0,
 			'note'     => isset( $_POST['note'] ) ? (string) $_POST['note'] : '',
 			'mode'     => 'defer',
 			'stash'    => 1,
@@ -799,7 +801,7 @@ trait DZE_Content_Ajax {
 	 * It used to be the AJAX handler itself: three hundred lines reading
 	 * $_POST and ending in wp_send_json_*, which meant nothing could call it.
 	 * An automatic pass therefore had a choice between a second copy of this
-	 * — the sources, the "not like this" references, the scene, the variation
+	 * — the sources, the scene, the variation
 	 * instructions, the shop's notes, the ratio — and doing without them. Two
 	 * copies of a prompt this careful drift apart, and the day they do it is
 	 * the catalogue that pays.
@@ -969,6 +971,20 @@ trait DZE_Content_Ajax {
 		if ( ! empty( $in['only_main'] ) ) {
 			$thumb       = (int) get_post_thumbnail_id( $pid );
 			$product_ids = ( $thumb && wp_attachment_is_image( $thumb ) ) ? [ $thumb ] : array_slice( $product_ids, 0, 1 );
+			$src_id      = 0;
+			$src_ids     = [];
+		}
+		// SEULEMENT LES PHOTOS VENUES D'AILLEURS. « Il est toujours impossible
+		// d'utiliser les images externes comme unique image à retravailler. »
+		// Ce qui était collé partait TOUJOURS derrière les photos du produit :
+		// aucune réponse du sélecteur ne disait « celles-ci, et rien d'autre ».
+		// C'est un choix explicite — une case de plus sur le même sélecteur —
+		// et jamais un défaut : la photo d'un fournisseur ajoutée pour le décor
+		// est déjà devenue le produit, dans SA couleur, le jour où coller
+		// suffisait à la mettre en tête.
+		$only_pasted = ! empty( $in['only_pasted'] ) && $pastes;
+		if ( $only_pasted ) {
+			$product_ids = [];
 			$src_id      = 0;
 			$src_ids     = [];
 		}
@@ -1171,7 +1187,7 @@ trait DZE_Content_Ajax {
 			// PICKED PHOTOGRAPHS TRAVEL ALONE: the screen says « only these »,
 			// and other colours added behind them were a second answer the
 			// owner never saw.
-			if ( ! $src_ids && '' === $v_value && $tpl && self::wants_variants( self::registry_row( (string) ( $tpl['id'] ?? '' ) ) ) ) {
+			if ( ! $src_ids && ! $only_pasted && '' === $v_value && $tpl && self::wants_variants( self::registry_row( (string) ( $tpl['id'] ?? '' ) ) ) ) {
 				foreach ( $this->variant_images( $pid, $product_ids ) as $uri ) {
 					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
 						break;
@@ -1181,45 +1197,19 @@ trait DZE_Content_Ajax {
 					$variants++;
 				}
 			}
-			// What this prompt has already produced here goes out WITH the
-			// order, right after the product photographs: told in words that
-			// the last one must not come back, the model handed it back anyway.
-			// Never on a main image — there is one right main image, not four
-			// different ones — and never on a variation, where the whole point
-			// is one image per colour.
+			// NO PICTURE THE MODEL MADE GOES BACK IN AS « NOT LIKE THIS ».
+			//
+			// « Le slop commence à partir de la 2e image générée. La première est
+			// mieux en général. » It did, and this is why: every gallery image after
+			// the first was sent the one made just before it, told to be « clearly
+			// different — another angle, another distance, another part ». An edit
+			// model conditions on every picture it is handed, so image 3 was built
+			// on image 2, which was built on image 1 — its smoothed camouflage and
+			// its guessed geometry compounding — and « another part » of a product
+			// shown in two photographs is a part the model has never seen, so it
+			// invented one. The lane is gone: every image is made from the product's
+			// photographs alone, exactly like the first one.
 			$avoid = 0;
-			if ( '' === $src && ! $src_ids && 'main' !== $target && '' === $v_value ) {
-				// ONE, not two, and not four before that. These are images the
-				// model MADE: every one of them is a chance for a detail it
-				// invented last time to come back as a reference this time, and
-				// a product photographed six ways that then gets its own bad
-				// guesses handed back to it is how a run of images drifts
-				// further from the product with each attempt. One says "not
-				// like this" as clearly as two did, and contaminates half as
-				// much.
-				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 1, $target, (array) ( $ids_out ?? [] ) ) as $ref ) {
-					if ( is_int( $ref ) ) {
-						// One already on the product: read from disk, and only
-						// while the request body stays a sane size.
-						try {
-							$uri = $this->fal_source_data_uri( $ref, 'medium_large' );
-						} catch ( \Throwable $e ) {
-							continue;
-						}
-						if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
-							break;
-						}
-						$sources[] = $uri;
-						$labels[]  = [ 'what' => __( 'A picture this prompt already made — « not like this »', 'dazont-ecom' ), 'thumb' => $dze_thumb( $ref ) ];
-					} else {
-						// One still waiting: it lives on fal's own CDN, so it
-						// travels as a URL and weighs nothing.
-						$sources[] = $ref;
-						$labels[]  = [ 'what' => __( 'A picture this prompt already made — « not like this »', 'dazont-ecom' ), 'thumb' => (string) $ref ];
-					}
-					$avoid++;
-				}
-			}
 			// The scene is always last: it is the only image in the request
 			// that is not the product.
 			if ( $scene ) {
@@ -1247,16 +1237,13 @@ trait DZE_Content_Ajax {
 			// What the owner knows and no photograph shows — about the product,
 			// and about this variation when there is one.
 			$prompt .= self::note_lines( $pid, '' !== $v_value ? $v_attr . '::' . $v_value : '', $note );
-			// A second shot from the same prompt is asked for a different
-			// framing, otherwise it comes back as the first one again.
 			// NOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS. A hint that
 			// asked the second attempt for "a detail of the material, the
 			// stitching or the fastening" is the plugin choosing the subject of
 			// the shot, on a product whose fastenings may never have been
 			// photographed — which is where invented hardware comes from. What
 			// two attempts of one prompt differ by is what the owner's prompt
-			// says; the photograph already made travels with the request and
-			// the legend asks for something clearly different from it.
+			// says, and nothing else: no picture already made travels with it.
 			DZE_Ai_Usage::unit( 'product_img' );
 			DZE_Ai_Usage::about( $pid );
 			// WHAT TRAVELLED, NAMED — read from the very counts the paragraph
@@ -1267,7 +1254,6 @@ trait DZE_Content_Ajax {
 				[ __( 'of the product', 'dazont-ecom' ), $product_count - $dze_paste_n ],
 				[ __( 'pasted in', 'dazont-ecom' ), $dze_paste_n ],
 				[ __( 'of its other colours', 'dazont-ecom' ), $variants ],
-				[ __( 'said "not like this"', 'dazont-ecom' ), $avoid ],
 			] );
 			if ( $scene ) {
 				$dze_made .= ( '' !== $dze_made ? ' · ' : '' ) . sprintf(

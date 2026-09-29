@@ -1570,11 +1570,6 @@ EOT;
 				'when'    => __( 'Sent when the prompt asks for the product\'s other colours to travel too.', 'dazont-ecom' ),
 				'default' => '{images}: the same product in another colour. Read them for the shape and the construction only — never for the colour, the pattern or the material, which come from the photographs of the product alone.',
 			],
-			'made'    => [
-				'label'   => __( 'A picture this prompt already made', 'dazont-ecom' ),
-				'when'    => __( 'Sent when a second picture is asked of the same prompt for the same product: the first one travels, so the second is not the same again.', 'dazont-ecom' ),
-				'default' => '{images}: a picture already made for this product with these same instructions. Make a clearly different one — another angle, another distance, another part — and never use it as the reference for the product: the photographs of the product are.',
-			],
 			'variation_own' => [
 				'label'   => __( 'One colour, from its own photograph', 'dazont-ecom' ),
 				'when'    => __( 'Sent when an image is made for one variation and a photograph of that variation travels. {attribute} and {variation} become the attribute and its value — « Colour », « Olive ».', 'dazont-ecom' ),
@@ -1612,13 +1607,16 @@ EOT;
 	/**
 	 * The paragraph that tells the model what each image it received IS —
 	 * assembled from the notes above, in the order the images travel: the
-	 * product, its other colours, a picture already made, the scene.
+	 * product, its other colours, the scene.
 	 *
 	 * @param int        $count         Photographs of THE PRODUCT sent — its
 	 *                                  own and any handed in beside them.
 	 * @param array|null $scene         The scene, when one is used, sent last.
-	 * @param int        $avoid         Pictures this prompt already made, sent
-	 *                                  after the product's and its colours'.
+	 * @param int        $avoid         Unused. No picture already made is sent
+	 *                                  any more (it compounded the model's own
+	 *                                  guesses from one image to the next); the
+	 *                                  argument keeps its place so the ones
+	 *                                  after it do not move.
 	 * @param int        $variants      Photographs of its other colours.
 	 * @param bool       $subject_first A picture already made is being
 	 *                                  retouched: it is image 1.
@@ -1640,11 +1638,8 @@ EOT;
 		if ( $variants > 0 ) {
 			$out .= "\n" . self::images_named( self::photo_note( 'colours' ), $count + 1, $variants );
 		}
-		if ( $avoid > 0 ) {
-			$out .= "\n" . self::images_named( self::photo_note( 'made' ), $count + $variants + 1, $avoid );
-		}
 		if ( $scene ) {
-			$out .= "\n" . self::images_named( self::photo_note( 'scene' ), $count + $variants + $avoid + 1, 1 );
+			$out .= "\n" . self::images_named( self::photo_note( 'scene' ), $count + $variants + 1, 1 );
 			if ( '' !== trim( (string) ( $scene['prompt'] ?? '' ) ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
 			}
@@ -1940,104 +1935,6 @@ EOT;
 
 	/** Attachment meta: the prompt a photograph came out of. */
 	public const META_RECIPE = '_dze_prompt';
-
-	/**
-	 * What this prompt has ALREADY made for this product.
-	 *
-	 * Two places hold it and neither one alone is the answer: the images still
-	 * waiting for a decision, and the images that were accepted and are now on
-	 * the product. Counting only the waiting list is why a second click on
-	 * "+ Product in use", the day after the first batch was accepted, came back
-	 * with a photograph the product already had.
-	 *
-	 * Cheap on purpose: one indexed meta read for the waiting list, one query
-	 * for the accepted ones, and only ever on the way to a generation that is
-	 * about to cost a fal call anyway.
-	 *
-	 * @return array{urls:string[],ids:int[]} Waiting images (fal URLs, newest
-	 *                                        last) and accepted ones (newest first).
-	 */
-	public static function made_already( int $pid, string $recipe_id, string $target = '' ): array {
-		$out = [ 'urls' => [], 'ids' => [] ];
-		if ( ! $pid || ( '' === $recipe_id && '' === $target ) ) {
-			return $out;
-		}
-		$p     = self::pending( $pid );
-		$shots = array_map( 'strval', (array) ( $p['shots'] ?? [] ) );
-		// WHERE IT IS GOING, NOT WHICH PROMPT ASKED. Keyed on the prompt alone
-		// this answered NOTHING the moment somebody changed prompt between two
-		// attempts — "when it gives me bad option and I am trying to change it,
-		// mostly it gives me same exact image" — because a different prompt id
-		// has made nothing yet, so no photograph was sent back as "not this
-		// one" and the model, given the same product shots, returned the same
-		// picture. Two gallery photographs of one product are the same job
-		// whichever prompt asked for them; the slot they are going into is what
-		// says so.
-		$where = (array) ( $p['targets'] ?? [] );
-		foreach ( (array) ( $p['recipes'] ?? [] ) as $url => $rid ) {
-			// A refused attempt leaves the waiting list: it is not something
-			// this product has, so it is not something to avoid repeating.
-			if ( ! in_array( (string) $url, $shots, true ) ) {
-				continue;
-			}
-			$same = '' !== $target
-				? (string) ( $where[ (string) $url ] ?? '' ) === $target
-				: (string) $rid === $recipe_id;
-			if ( $same ) {
-				$out['urls'][] = (string) $url;
-			}
-		}
-		global $wpdb;
-		$ids = $wpdb->get_col( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin, one product, on the way to a paid generation.
-			"SELECT p.ID FROM {$wpdb->posts} p
-			 INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = %s
-			 WHERE p.post_type = 'attachment' AND p.post_parent = %d AND m.meta_value = %s
-			 ORDER BY p.ID DESC LIMIT 20",
-			self::META_RECIPE,
-			$pid,
-			$recipe_id
-		) );
-		$out['ids'] = array_map( 'intval', (array) $ids );
-		return $out;
-	}
-
-	/**
-	 * The few already-made photographs worth showing the model, newest first.
-	 *
-	 * Two of them: enough to say "not these again", little enough that the
-	 * request stays light and the product photographs keep the upper hand on
-	 * what the product looks like. A waiting image is a fal URL — it travels as
-	 * a link and costs nothing to send; an accepted one is a file of ours and
-	 * is returned as an attachment id for the caller to read.
-	 *
-	 * @return array<int, int|string> Attachment ids and fal URLs, mixed.
-	 */
-	public static function avoid_sources( int $pid, string $recipe_id, int $max = 2, string $target = '', array $skip = [] ): array {
-		$made = self::made_already( $pid, $recipe_id, $target );
-		$out  = [];
-		// A picture already made that now sits in the gallery can travel as
-		// a photograph OF the product: sent again as « not like this », the
-		// model is told to copy it and to avoid it in the same request.
-		$skip = array_map( 'intval', $skip );
-		foreach ( array_reverse( $made['urls'] ) as $url ) {
-			if ( count( $out ) >= $max ) {
-				return $out;
-			}
-			if ( self::is_fal_url( (string) $url ) ) {
-				$out[] = (string) $url;
-			}
-		}
-		foreach ( $made['ids'] as $id ) {
-			if ( count( $out ) >= $max ) {
-				return $out;
-			}
-			if ( in_array( (int) $id, $skip, true ) ) {
-				continue;
-			}
-			$out[] = (int) $id;
-		}
-		return $out;
-	}
 
 	/**
 	 * NOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS.
@@ -4339,6 +4236,12 @@ Answer with STRICT JSON and nothing else: "
 					'srcOneSaid' => __( 'Only this photograph of the product is sent, for every prompt of this product — with the row\'s background, if it has one: the model works from it alone.', 'dazont-ecom' ),
 					/* translators: %s: number of photographs picked */
 					'srcManySaid'=> __( 'These %s photographs of the product are sent, and no other, for every prompt of this product — with the row\'s background, if it has one — in the order you clicked them: the first one is image 1.', 'dazont-ecom' ),
+					// « Il est toujours impossible d'utiliser les images externes comme
+					// unique image à retravailler. » The answer the picker could not give.
+					'srcPastedTile'  => __( 'Only the photographs from elsewhere', 'dazont-ecom' ),
+					'srcPastedState' => __( '— only the photographs from elsewhere', 'dazont-ecom' ),
+					/* translators: %s: how many photographs were added from elsewhere */
+					'srcPastedSaid'  => __( 'Only the %s photographs from elsewhere are sent, in the order they were added — the product\'s own photographs are not. The first one is image 1.', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
 					'confirmClear' => __( 'Take every product out of this list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
@@ -5437,6 +5340,8 @@ Answer with STRICT JSON and nothing else: "
 				/* translators: %s: how many photographs were picked */
 				'srcManySaid'=> __( 'These %s photographs of the product are sent, and no other — with the background, if one is chosen — in the order you clicked them: the first one is image 1.', 'dazont-ecom' ),
 				'srcNewSaid' => __( 'The photographs you add here travel with the product\'s own, as more views of the same product.', 'dazont-ecom' ),
+				'srcNewOnlySaid' => __( 'Only the photographs you add here are sent — the product\'s own photographs are not. The first one is image 1.', 'dazont-ecom' ),
+				'onlyPasted' => __( 'Send only these photographs — not the product\'s own', 'dazont-ecom' ),
 				// SEEING WHAT GOES OUT, BEFORE IT COSTS ANYTHING.
 				'preview'    => __( 'See what will be sent', 'dazont-ecom' ),
 				'previewTip' => __( 'Shows the words the model will read and the pictures it will see, in their order. Nothing is generated and nothing is paid for.', 'dazont-ecom' ),
@@ -6897,8 +6802,23 @@ Answer with STRICT JSON and nothing else: "
 		return $n > 0 ? max( 1, min( self::MAX_SOURCES, $n ) ) : 10;
 	}
 
+	/**
+	 * THE PHOTOGRAPHS OF THE PRODUCT — never the pictures the model made of it.
+	 *
+	 * An accepted picture joins the gallery, and the gallery is what every
+	 * later run sends as « photographs of the product », under a legend saying
+	 * they take precedence over everything. So an invented front view, a
+	 * smoothed camouflage, two tabs merged into one became ground truth for
+	 * the next picture, and the next: 501 of Kula's 2,104 products already
+	 * carried at least one. A picture the model made is recognised by the
+	 * prompt it was made from (META_RECIPE) and left out whenever at least one
+	 * real photograph remains. A product with nothing else still sends what it
+	 * has — and a picture picked by hand is always the owner's choice.
+	 */
 	public static function product_source_ids( int $pid ): array {
-		return array_slice( self::product_own_image_ids( $pid ), 0, self::source_cap() );
+		$all  = self::product_own_image_ids( $pid );
+		$real = array_values( array_filter( $all, static fn( $id ) => '' === (string) get_post_meta( (int) $id, self::META_RECIPE, true ) ) );
+		return array_slice( $real ? $real : $all, 0, self::source_cap() );
 	}
 
 	public function fal_source_data_uri( int $attachment_id, string $wanted = 'large' ): string {

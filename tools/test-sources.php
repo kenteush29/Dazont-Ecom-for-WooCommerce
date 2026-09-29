@@ -161,6 +161,7 @@ class WC_Product {
 	public function is_type( $t ) { return false; }
 	public function get_children() { return []; }
 	public function get_regular_price() { return '10'; }
+	public function get_gallery_image_ids() { return $GLOBALS['gallery'][ $this->id ] ?? []; }
 }
 function wc_get_product( $id ) { return new WC_Product( $id ); }
 function wc_placeholder_img_src() { return 'http://shop.test/ph.png'; }
@@ -197,7 +198,7 @@ function get_posts( ...$a ) { return []; }
 function wp_json_encode( $v, $f = 0 ) { return json_encode( $v, $f ); }
 function get_the_title( $id ) { return 'P' . (int) $id; }
 function wp_get_attachment_image_url( ...$a ) { return ''; }
-function get_post_thumbnail_id( ...$a ) { return 0; }
+function get_post_thumbnail_id( ...$a ) { return (int) ( $GLOBALS['thumbs'][ (int) ( $a[0] ?? 0 ) ] ?? 0 ); }
 function get_the_post_thumbnail_url( ...$a ) { return ''; }
 $GLOBALS['wpdb'] = new class {
 	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
@@ -463,13 +464,14 @@ $dze_other = DZE_Content::instance()->sanitize( [ 'store_context' => 'A tactical
 ok( 'and a form that did not carry the notes leaves them alone', (array) ( $dze_other['photo_notes'] ?? [] ), [ 'one' => 'Mine.' ] );
 if ( null === $dze_keep_settings ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_settings; }
 // EVERY PICTURE IS NUMBERED WHERE IT TRAVELS: the product, its other colours,
-// a picture already made, the scene — in that order, whatever each note says.
+// the scene — in that order, whatever each note says. No picture already made
+// travels any more: asked for one, the legend still names none.
 $dze_all = DZE_Content::sources_instruction( 2, [ 'image' => 9, 'prompt' => 'Slate surface' ], 1, 1, false );
 ok( 'another colour is numbered after the product',  false !== strpos( $dze_all, 'Image 3: the same product in another colour' ), true );
-ok( 'a picture already made comes next',             false !== strpos( $dze_all, 'Image 4: a picture already made' ), true );
-ok( 'the scene last',                                false !== strpos( $dze_all, 'Image 5: the scene' ), true );
+ok( 'no picture already made is ever named',        false !== strpos( $dze_all, 'already made' ), false );
+ok( 'the scene last',                                false !== strpos( $dze_all, 'Image 4: the scene' ), true );
 ok( 'with the shop\'s own words for that scene after it',
-	strpos( $dze_all, 'Slate surface' ) > strpos( $dze_all, 'Image 5: the scene' ), true );
+	strpos( $dze_all, 'Slate surface' ) > strpos( $dze_all, 'Image 4: the scene' ), true );
 ok( 'several pictures of a kind are numbered as a range',
 	false !== strpos( DZE_Content::sources_instruction( 2, null, 0, 2, false ), 'Images 3 to 4: the same product in another colour' ), true );
 
@@ -997,6 +999,20 @@ ok( 'the Done tab counts the whole register',
 	(int) DZE_Content::screen_counts()['log'], count( DZE_Content::register() ) );
 // AND THE DONE TAB CARRIES IT TOO — drawn, never only counted: a figure on a
 // tab proves nothing about the rows under it.
+echo "\nA PICTURE THE MODEL MADE IS NOT A PHOTOGRAPH OF THE PRODUCT\n";
+// An accepted picture joins the gallery, and the gallery was sent to every
+// later run as « photographs of the product » that « take precedence »: an
+// invented view became the reference for the next one.
+if ( ! function_exists( 'wp_attachment_is_image' ) ) { function wp_attachment_is_image( $id ) { return true; } }
+$GLOBALS['thumbs']  = [ 70 => 71 ];
+$GLOBALS['gallery'] = [ 70 => [ 72, 73 ] ];
+$GLOBALS['dze_meta'][72][ DZE_Content::META_RECIPE ] = 'img_another_angle';
+ok( 'only the real photographs travel', DZE_Content::product_source_ids( 70 ), [ 71, 73 ] );
+$GLOBALS['dze_meta'][71][ DZE_Content::META_RECIPE ] = 'img_main';
+$GLOBALS['dze_meta'][73][ DZE_Content::META_RECIPE ] = 'img_scene';
+ok( 'a product with nothing else still sends what it has', DZE_Content::product_source_ids( 70 ), [ 71, 72, 73 ] );
+unset( $GLOBALS['dze_meta'][71], $GLOBALS['dze_meta'][72], $GLOBALS['dze_meta'][73], $GLOBALS['thumbs'], $GLOBALS['gallery'] );
+
 // CET HEBERGEUR DESACTIVE shell_exec. Une fatale ici arretait le fichier au
 // milieu, et la suite annoncait « 0 wrong » sur des portes qui navaient jamais
 // tourne — le pire des deux mondes. La partie qui a besoin dun second
@@ -1317,24 +1333,12 @@ DZE_Content::settle_shots( 7, [ 'https://fal.media/b.jpg' ] );
 ok( 'the last one empties the row',   DZE_Content::pending( 7 ), [] );
 ok( 'settling nothing does nothing',  DZE_Content::settle_shots( 7, [] ), 0 );
 
-// "NOT LIKE THIS" FOLLOWS THE SLOT, NOT THE PROMPT. Asked by prompt alone it
-// answered nothing the moment somebody changed prompt between two attempts,
-// which is exactly the gesture that came back with the same picture.
-$GLOBALS['dze_meta'][7]['_dze_pending_review'] = [
-	'shots'   => [ 'https://fal.media/g1.jpg' ],
-	'targets' => [ 'https://fal.media/g1.jpg' => 'gallery' ],
-	'recipes' => [ 'https://fal.media/g1.jpg' => 'tpl_one' ],
-];
-ok( 'the same prompt still finds its own',
-	DZE_Content::made_already( 7, 'tpl_one' )['urls'], [ 'https://fal.media/g1.jpg' ] );
-ok( 'a DIFFERENT prompt used to find nothing',
-	DZE_Content::made_already( 7, 'tpl_two' )['urls'], [] );
-ok( 'but asked by the slot it finds it',
-	DZE_Content::made_already( 7, 'tpl_two', 'gallery' )['urls'], [ 'https://fal.media/g1.jpg' ] );
-// AND A DIFFERENT SLOT IS A DIFFERENT JOB: the main image is not a gallery
-// photograph, and there is one right main image rather than four.
-ok( 'another slot is not the same job',
-	DZE_Content::made_already( 7, 'tpl_two', 'main' )['urls'], [] );
+// NO PICTURE THE MODEL MADE GOES BACK IN AS « NOT LIKE THIS ». « Le slop
+// commence à partir de la 2e image générée » : image 3 was built on image 2,
+// which was built on image 1. The lane and the two functions that fed it are
+// gone from the file, not merely unused.
+ok( 'nothing reads what a prompt already made', method_exists( 'DZE_Content', 'made_already' ), false );
+ok( 'nor hands it back',                         method_exists( 'DZE_Content', 'avoid_sources' ), false );
 
 echo "\nNOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS\n";
 // "Image 1 : détails fake. C'est encore une fois un réel problème, ça arrive
@@ -1365,10 +1369,10 @@ ok( 'and it appends nothing whatever',           $dze_said, '' );
 // source images saying "make it different" beats a sentence saying so, which
 // is why this line was a second way of saying what the images already say.
 $dze_avoid = DZE_Content::sources_instruction( 2, null, 1, 0, false );
-ok( 'the one already made is still named',
-	false !== strpos( $dze_avoid, 'Image 3: a picture already made' ), true );
-ok( 'and still asked to be different',
-	false !== strpos( $dze_avoid, 'Make a clearly different one' ), true );
+ok( 'no picture already made is named any more',
+	false !== strpos( $dze_avoid, 'already made' ), false );
+ok( 'nor asked to be different from one',
+	false !== strpos( $dze_avoid, 'Make a clearly different one' ), false );
 // AND THE SOURCE OF THE FAULT IS GONE FROM THE FILE, not merely unused: a
 // sentence nothing sends is a sentence somebody wires back up next year.
 // THE WHOLE APPENDED TEXT IS LOCKED, so nothing joins it by accident. Every

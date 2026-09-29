@@ -576,6 +576,30 @@ whose screen has not been thought through yet.
   changed IS the job — which is the only lane allowed to look like its source,
   and the only reason `sources_instruction()` needed to be told which lane it
   is on.
+- **NO PICTURE THE MODEL MADE IS EVER A REFERENCE FOR THE NEXT ONE.** « Le
+  slop commence à partir de la 2e image générée. La première est mieux en
+  général. » Two lanes fed the model its own output back:
+  - a « not like this » lane sent the previous shot of the same slot with
+    every gallery image after the first (« make a clearly different one —
+    another angle, another part »). Image 3 was therefore built on image 2,
+    and image 2 on image 1. An edit model conditions on EVERY image it is
+    handed, so its guesses compounded, and « another part » of a product
+    shown in two photographs meant a part it had never seen;
+  - an ACCEPTED picture joined the gallery, and the gallery travels as
+    « photographs of the product » that « take precedence ». An invented
+    view became ground truth for every later run: 501 of Kula's 2,104
+    products carried one.
+
+  The lane and its functions are gone from the file. `product_source_ids()`
+  leaves out any attachment carrying `META_RECIPE` while one real
+  photograph remains, and only a pick by hand can send a made picture.
+  Variety between two attempts is the prompt's to ask for, in words.
+- **« ONLY THE PHOTOGRAPHS FROM ELSEWHERE » IS AN ANSWER OF THE PICKER, NEVER A
+  DEFAULT.** Pasted photographs always travelled BEHIND the product's own, and
+  no control could say « these, and nothing else ». It is `only_pasted`: a tile
+  on the bulk panel's strip, and a box under the popup's paste area. It stays
+  opt-in, because the day pasting alone decided the subject, a supplier shot
+  added for the setting came back as the product, in its colours.
 - **TWO SOURCES WAS THE WRONG TRADE.** `source_cap()` sent 2 photographs of a
   five-photograph product. The fear was an edit model reconciling six angles
   into a seventh; the cost was worse — asked for a close-up of fastenings it
@@ -2580,7 +2604,7 @@ whose screen has not been thought through yet.
   "6 reference photograph(s) attached · aspect ratio auto" — a figure, and the
   only question being asked is WHICH of them did it. Every lane is already
   counted where it is filled (the product's own, the pasted ones, the other
-  colours, the one said "not like this", the ones handed in, the scene), so
+  colours, the ones handed in, the scene), so
   the same figures say what they are, and the SCENE IS NAMED — it is the one
   that decides the surface, the background and the light, and the one a shop
   changes without thinking about it. Three rules: the counts are read where
@@ -3036,7 +3060,7 @@ whose screen has not been thought through yet.
   handler is a thin wrapper over it — it used to BE the handler, three hundred
   lines reading `$_POST` and ending in `wp_send_json_*`, so nothing could call
   it and any automatic pass had to copy the whole prompt assembly (sources,
-  "not like this" references, scene, notes, ratio) or do without it. The gate
+  scene, notes, ratio) or do without it. The gate
   runs the real function against a fake shop and reads WHAT IS SENT — the
   prompt, the sources, the ratio, where the result is filed — and holds two
   structural lines: `shoot()` never ends the request and never asks for a

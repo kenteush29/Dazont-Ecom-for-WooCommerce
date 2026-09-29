@@ -105,7 +105,6 @@ final class DZE_Shoot_Host {
 	public static function attribute_value_label( ...$a ) { return 'Olive'; }
 	public static function variation_instruction( ...$a ) { return "\nVARIATION LINE."; }
 	public static function variation_line( ...$a ) { return ''; }
-	public static function avoid_sources( ...$a ) { $GLOBALS['avoid_args'] = $a; return $GLOBALS['avoid'] ?? []; }
 	// The real signature: the product, the variation group, and the note typed
 	// for THIS RUN. The gate reads back what was handed to it.
 	public static function note_lines( ...$a ) { $GLOBALS['noted'] = $a; return "\nNOTE LINE." . ( '' !== (string) ( $a[2] ?? '' ) ? ' ' . $a[2] : '' ); }
@@ -161,7 +160,6 @@ function shop(): void {
 	$GLOBALS['scene_idx']   = -1;
 	$GLOBALS['validated']   = true;
 	$GLOBALS['over_budget'] = false;
-	$GLOBALS['avoid']       = [];
 	$GLOBALS['tpls']        = [
 		[ 'id' => 'main1',  'name' => 'Main image', 'target' => 'main',    'prompt' => 'MAIN PROMPT', 'ratio' => '1:1' ],
 		[ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery', 'prompt' => 'ANGLE PROMPT', 'ratio' => '4:5' ],
@@ -344,16 +342,31 @@ $GLOBALS['images'][16] = true;
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0, 'src_ids' => [ 16, 13, 12, 11 ] ] );
 ok( 'four picked for the main image, four sent', count( (array) ( $GLOBALS['sent']['sources'] ?? [] ) ), 4 );
 ok( 'in the order they were picked', $GLOBALS['sent']['sources'][0] ?? '', 'data:image/jpeg;base64,IMG16/full' );
-// PICKED PHOTOGRAPHS TRAVEL ALONE: no « not like this » picture behind them.
-$GLOBALS['avoid'] = [ 12 ];
+// PICKED PHOTOGRAPHS TRAVEL ALONE.
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_ids' => [ 13 ] ] );
-ok( 'no picture already made rides behind a pick', $GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG13/full' ] );
-// Without a pick it does, and it is never one of the photographs sent as
-// the product: the photographs that travel are handed over to be skipped.
-$GLOBALS['avoid_args'] = null;
+ok( 'nothing rides behind a pick', $GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG13/full' ] );
+// AND WITHOUT A PICK, NOTHING THE MODEL MADE EITHER. « Le slop commence à
+// partir de la 2e image générée » : every gallery image after the first was
+// sent the one made just before it, and built on it.
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1 ] );
-ok( 'the photographs that travel are named to the avoid list', array_map( 'intval', (array) ( $GLOBALS['avoid_args'][4] ?? [] ) ), [ 11, 12 ] );
-unset( $GLOBALS['avoid'] );
+ok( 'a gallery image is made from the product photographs alone',
+	$GLOBALS['sent']['sources'], [ 'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large' ] );
+ok( 'and the legend is told of none', $GLOBALS['told'][2] ?? null, 0 );
+
+echo "\nONLY THE PHOTOGRAPHS FROM ELSEWHERE, WHEN THAT IS WHAT WAS PICKED\n";
+// « Il est toujours impossible d'utiliser les images externes comme unique
+// image à retravailler. »
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one', 'data:two' ], 'only_pasted' => 1 ] );
+ok( 'only what was pasted travels', $GLOBALS['sent']['sources'] ?? null, [ 'data:pasted', 'data:pasted' ] );
+ok( 'and the legend counts them as the product', $GLOBALS['told'][0] ?? null, 2 );
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'only_pasted' => 1 ] );
+ok( 'one pasted is one photograph', $GLOBALS['sent']['sources'] ?? null, [ 'data:pasted' ] );
+// ASKED FOR WITH NOTHING PASTED, IT IS NOT AN ORDER TO SEND NOTHING.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'only_pasted' => 1 ] );
+ok( 'nothing pasted: the product photographs travel', count( (array) ( $GLOBALS['sent']['sources'] ?? [] ) ), 2 );
+// AND NEVER BY DEFAULT: pasted without the tile, they follow the product.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ] ] );
+ok( 'pasted alone, the product still leads', $GLOBALS['sent']['sources'][0] ?? '', 'data:image/jpeg;base64,IMG11/full' );
 // A COLOUR'S OWN PHOTOGRAPH IS STILL THIS PRODUCT'S. The picker shows it, its
 // colour written on the tile; dropping it in silence sent every photograph.
 $GLOBALS['colour_ids'] = [ 14 ];
