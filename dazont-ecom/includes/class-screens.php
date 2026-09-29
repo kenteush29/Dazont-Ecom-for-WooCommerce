@@ -207,6 +207,9 @@ final class DZE_Screens {
 				'tabs'   => [
 					'products'   => [ 'label' => __( 'Products', 'dazont-ecom' ), 'module' => 'content' ],
 					'categories' => [ 'label' => __( 'Categories', 'dazont-ecom' ), 'module' => 'category_content' ],
+					// WHAT WAS WRITTEN, for every kind: a tab of the bench, beside the
+					// two it records — it was a second row of tabs inside Products.
+					'done'       => [ 'label' => __( 'Done', 'dazont-ecom' ), 'module' => [ 'content', 'category_content' ] ],
 				],
 			],
 			'shortcodes'   => [
@@ -246,7 +249,9 @@ final class DZE_Screens {
 					'categories'     => [ 'label' => __( 'Categories', 'dazont-ecom' ), 'module' => 'category_content' ],
 					'reviews'        => [ 'label' => __( 'Reviews', 'dazont-ecom' ), 'module' => 'reviews' ],
 					'translate'      => [ 'label' => __( 'Translation', 'dazont-ecom' ), 'module' => 'translate' ],
-					'discounts'      => [ 'label' => __( 'Discounts', 'dazont-ecom' ), 'module' => 'discounts' ],
+					// « DISCOUNT RULES », like the Marketing tab these are the settings of:
+					// « Settings → Discounts » named a screen that shows « Discount rules ».
+					'discounts'      => [ 'label' => __( 'Discount rules', 'dazont-ecom' ), 'module' => 'discounts' ],
 					// The PREFERENCES of the marketing work — calendar languages,
 					// countries, context, prompt. Not the work itself, which is
 					// Dazont Ecom → Marketing: two screens, two names.
@@ -270,11 +275,21 @@ final class DZE_Screens {
 	}
 
 	/** Is a module on? A class file always exists, so this is the check. */
-	private static function on( string $module ): bool {
-		if ( '' === $module ) {
+	private static function on( $module ): bool {
+		if ( ! $module ) {
 			return true;
 		}
-		return ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $module );
+		// A TAB THAT SERVES SEVERAL MODULES is there while any of them is: the
+		// bulk screen's « Done » lists what products AND categories received.
+		if ( is_array( $module ) ) {
+			foreach ( $module as $one ) {
+				if ( self::on( (string) $one ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+		return ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( (string) $module );
 	}
 
 	/**
@@ -285,7 +300,7 @@ final class DZE_Screens {
 	 */
 	public static function offered( string $id, string $tab = '' ): bool {
 		$page = self::catalog()[ $id ] ?? null;
-		if ( ! $page || ! self::on( (string) ( $page['module'] ?? '' ) ) ) {
+		if ( ! $page || ! self::on( $page['module'] ?? '' ) ) {
 			return false;
 		}
 		if ( '' === $tab ) {
@@ -295,7 +310,7 @@ final class DZE_Screens {
 			// tabs' modules and take the others down with it.
 			if ( '' === (string) ( $page['module'] ?? '' ) && ! empty( $page['tabs'] ) ) {
 				foreach ( $page['tabs'] as $one ) {
-					if ( self::on( (string) ( $one['module'] ?? '' ) ) ) {
+					if ( self::on( $one['module'] ?? '' ) ) {
 						return true;
 					}
 				}
@@ -304,7 +319,7 @@ final class DZE_Screens {
 			return true;
 		}
 		$one = $page['tabs'][ $tab ] ?? null;
-		return null !== $one && self::on( (string) ( $one['module'] ?? '' ) );
+		return null !== $one && self::on( $one['module'] ?? '' );
 	}
 
 	/** The host this page is a tab of right now, or null when it stands alone. */
@@ -340,7 +355,7 @@ final class DZE_Screens {
 	public static function tabs_of( string $id ): array {
 		$out = [];
 		foreach ( (array) ( self::catalog()[ $id ]['tabs'] ?? [] ) as $key => $one ) {
-			if ( self::on( (string) ( $one['module'] ?? '' ) ) ) {
+			if ( self::on( $one['module'] ?? '' ) ) {
 				$out[ (string) $key ] = (string) $one['label'];
 			}
 		}

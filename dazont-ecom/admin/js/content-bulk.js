@@ -622,6 +622,9 @@
 			var $c = $('.dze-cb-tabs a[data-tab="' + pair[0] + '"] .dze-cb-count');
 			if ($c.length) { $c.text(pair[1] ? String(pair[1]) : ''); }
 		});
+		// THE BENCH'S OWN TAB ROW: « Products » carries the selection's figure,
+		// empty at nought like every badge of the plugin.
+		$('.nav-tab-wrapper .nav-tab[data-tab="selection"] .dze-tab-n').text(c.all ? String(c.all) : '');
 	}
 
 	// ---- Global progress, pinned to the bottom of the window ----

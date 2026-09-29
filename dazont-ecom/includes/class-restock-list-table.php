@@ -17,6 +17,9 @@ final class DZE_Restock_List_Table extends WP_List_Table {
 
 	public const PER_PAGE_CHOICES = [ 20, 30, 50, 100, 200 ];
 
+	/** term_id => how many out-of-stock lines of THIS list the category holds. */
+	private array $cat_counts = [];
+
 	public static function current_per_page(): int {
 		$pp = isset( $_GET['per_page'] ) ? (int) $_GET['per_page'] : self::PER_PAGE_DEFAULT;
 		if ( $pp < 1 ) {
@@ -80,6 +83,7 @@ final class DZE_Restock_List_Table extends WP_List_Table {
 	protected function get_sortable_columns(): array {
 		return [
 			'title' => [ 'title', false ],
+			'oos'   => [ 'oos', true ],
 			'sales' => [ 'sales', true ],
 		];
 	}
@@ -97,6 +101,14 @@ final class DZE_Restock_List_Table extends WP_List_Table {
 		if ( $ids ) {
 			_prime_post_caches( $ids, false, true );
 		}
+
+		// ---- What each category holds OF THIS LIST ----
+		//
+		// The menu said « (48) » beside a category — every product filed in it —
+		// and choosing it showed three lines, or none. A filter says what it will
+		// show before it is chosen: the out-of-stock lines, counted in one query,
+		// before the list is narrowed.
+		$this->cat_counts = self::count_by_category( $ids );
 
 		// ---- Category filter ----
 		$cat = isset( $_GET['product_cat'] ) ? sanitize_key( wp_unslash( $_GET['product_cat'] ) ) : '';
@@ -140,9 +152,13 @@ final class DZE_Restock_List_Table extends WP_List_Table {
 			$order = 'desc';
 		}
 		usort( $rows, static function ( $a, $b ) use ( $orderby, $order ) {
-			$cmp = ( $orderby === 'title' )
-				? strcasecmp( $a['title'], $b['title'] )
-				: ( $a['sales'] <=> $b['sales'] );
+			if ( 'title' === $orderby ) {
+				$cmp = strcasecmp( $a['title'], $b['title'] );
+			} elseif ( 'oos' === $orderby ) {
+				$cmp = $a['oos'] <=> $b['oos'];
+			} else {
+				$cmp = $a['sales'] <=> $b['sales'];
+			}
 			return $order === 'asc' ? $cmp : -$cmp;
 		} );
 
@@ -229,7 +245,23 @@ final class DZE_Restock_List_Table extends WP_List_Table {
 			return;
 		}
 		$current = isset( $_GET['product_cat'] ) ? sanitize_key( wp_unslash( $_GET['product_cat'] ) ) : '';
-		$terms   = get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => true ] );
+		// ONLY THE CATEGORIES THAT HOLD A LINE OF THIS LIST, with that count — and
+		// the one already chosen, so the menu says what the screen shows.
+		$terms = $this->cat_counts
+			? get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false, 'include' => array_map( 'intval', array_keys( $this->cat_counts ) ) ] )
+			: [];
+		if ( ! is_wp_error( $terms ) ) {
+			// The one already chosen stays in the menu even when it holds nothing
+			// any more — restocked since — or the menu would say « All categories »
+			// over a filtered, empty list.
+			if ( '' !== $current && ! in_array( $current, array_map( static fn( $t ) => (string) $t->slug, $terms ), true ) ) {
+				$chosen = get_term_by( 'slug', $current, 'product_cat' );
+				if ( $chosen instanceof WP_Term ) {
+					$terms[] = $chosen;
+				}
+			}
+			usort( $terms, static fn( $a, $b ) => strcasecmp( (string) $a->name, (string) $b->name ) );
+		}
 
 		echo '<div class="alignleft actions">';
 
@@ -241,8 +273,8 @@ final class DZE_Restock_List_Table extends WP_List_Table {
 					'<option value="%s" %s>%s (%d)</option>',
 					esc_attr( $term->slug ),
 					selected( $current, $term->slug, false ),
-					esc_html( $term->name ),
-					(int) $term->count
+					esc_html( html_entity_decode( (string) $term->name, ENT_QUOTES, 'UTF-8' ) ),
+					(int) ( $this->cat_counts[ (int) $term->term_id ] ?? 0 )
 				);
 			}
 			echo '</select>';
@@ -268,5 +300,30 @@ final class DZE_Restock_List_Table extends WP_List_Table {
 			echo ' <a class="dze-trd-clear" style="margin-left:6px;line-height:30px;" href="' . esc_url( add_query_arg( [ 'page' => $page ], admin_url( 'admin.php' ) ) ) . '"><span class="dashicons dashicons-no-alt" aria-hidden="true"></span>' . esc_html__( 'Clear filters', 'dazont-ecom' ) . '</a>';
 		}
 		echo '</div>';
+	}
+	/**
+	 * How many of these lines each category holds, in one query.
+	 *
+	 * Read from the relationships table rather than term by term: a list of
+	 * three hundred lines would otherwise cost three hundred reads.
+	 *
+	 * @param int[] $ids Product-line ids.
+	 * @return array<int,int> term_id => lines.
+	 */
+	private static function count_by_category( array $ids ): array {
+		global $wpdb;
+		$ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+		if ( ! $ids || ! $wpdb ) {
+			return [];
+		}
+		$out = [];
+		foreach ( array_chunk( $ids, 500 ) as $chunk ) {
+			$in = implode( ',', $chunk );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- integers only.
+			foreach ( (array) $wpdb->get_results( "SELECT tt.term_id AS tid, COUNT( DISTINCT tr.object_id ) AS n FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'product_cat' WHERE tr.object_id IN ( {$in} ) GROUP BY tt.term_id", ARRAY_A ) as $r ) {
+				$out[ (int) $r['tid'] ] = (int) ( $out[ (int) $r['tid'] ] ?? 0 ) + (int) $r['n'];
+			}
+		}
+		return array_filter( $out );
 	}
 }

@@ -561,7 +561,9 @@ echo "\nUN SEUL ETABLI, UN ONGLET PAR SUJET\n";
 // « Menu Categories existant et vide, aucun sens. Plutot regrouper dans bulk
 // writing. Avec products. On pourra plus tard y mettre blog post aussi. »
 $bl_tabs = DZE_Screens::tabs_of( 'bulk' );
-ok( 'letabli a les deux sujets', array_keys( $bl_tabs ), [ 'products', 'categories' ] );
+// ET CE QUI A ETE FAIT, pour les deux : un onglet du banc, plus une rangee
+// d onglets cachee dans Products (4.501.0).
+ok( 'letabli a les deux sujets, et ce qui a ete fait', array_keys( $bl_tabs ), [ 'products', 'categories', 'done' ] );
 ok( 'et les categories nont plus dentree a elles',
 	in_array( 'categories', DZE_Screens::menu_order(), true ), false );
 // Ladresse dun onglet doit exister, sinon la barre envoie dans le vide.

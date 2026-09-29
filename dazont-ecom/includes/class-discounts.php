@@ -132,6 +132,15 @@ final class DZE_Discounts {
 					'autoload'          => true,
 					'default'           => 'product',
 				] );
+				// WHAT NO PROMOTION MAY TOUCH is a setting of the whole module, and
+				// it is saved like every other setting: WordPress's own Save
+				// Changes, through options.php. It had a form and a handler of its
+				// own on the work screen, under the list of rules.
+				register_setting( 'dze_discount_exclusions_options', self::OPT_EXCLUSIONS, [
+					'type'              => 'array',
+					'sanitize_callback' => [ __CLASS__, 'sanitize_exclusions' ],
+					'autoload'          => false,
+				] );
 			} );
 			add_filter( 'submenu_file',          [ $this, 'keep_menu_open' ] );
 			add_action( 'admin_menu',            [ $this, 'register_menu' ] );
@@ -140,7 +149,6 @@ final class DZE_Discounts {
 			add_action( 'admin_post_dze_discount_delete', [ $this, 'handle_delete' ] );
 			add_action( 'admin_post_dze_discount_toggle', [ $this, 'handle_toggle' ] );
 			add_action( 'admin_post_dze_discount_bulk',   [ $this, 'handle_bulk' ] );
-			add_action( 'admin_post_dze_discount_exclusions', [ $this, 'handle_exclusions_save' ] );
 			add_action( 'admin_post_dze_sale_resync',     [ $this, 'handle_resync' ] );
 			add_action( 'wp_ajax_dze_auto_count',         [ $this, 'ajax_auto_count' ] );
 			add_action( 'wp_ajax_dze_hero_image',         [ $this, 'ajax_hero_image' ] );
@@ -1462,6 +1470,57 @@ final class DZE_Discounts {
 	 * on. They were scattered between a tab about API keys and nowhere at all;
 	 * a shop looking for "how my discounts behave" now has one place to look.
 	 */
+	/**
+	 * The "never discount" list, as options.php hands it over.
+	 *
+	 * @param mixed $in
+	 * @return array{products:int[],categories:int[]}
+	 */
+	public static function sanitize_exclusions( $in ): array {
+		if ( ! is_array( $in ) ) {
+			return self::get_exclusions();
+		}
+		$parts = preg_split( '/[\s,]+/', (string) ( $in['products'] ?? '' ), -1, PREG_SPLIT_NO_EMPTY );
+		return [
+			'products'   => array_values( array_filter( array_unique( array_map( 'absint', (array) $parts ) ) ) ),
+			'categories' => array_values( array_filter( array_unique( array_map( 'absint', (array) ( $in['categories'] ?? [] ) ) ) ) ),
+		];
+	}
+
+	/** The "never discount" list, among the module's settings. */
+	public static function render_exclusions_settings(): void {
+		$excl = self::get_exclusions();
+		$cats = get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false, 'number' => 500 ] );
+		?>
+		<h2><?php esc_html_e( 'Never discount these products', 'dazont-ecom' ); ?></h2>
+		<p class="description" style="max-width:900px;"><?php esc_html_e( 'Skipped by every promotion — automatic discounts, bulk offers and marketing events alike.', 'dazont-ecom' ); ?></p>
+		<form method="post" action="options.php" class="dze-admin" style="max-width:900px;">
+			<?php settings_fields( 'dze_discount_exclusions_options' ); ?>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><label for="dze-excl-products"><?php esc_html_e( 'Product IDs', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<input type="text" id="dze-excl-products" name="<?php echo esc_attr( self::OPT_EXCLUSIONS ); ?>[products]" class="large-text" value="<?php echo esc_attr( implode( ', ', (array) $excl['products'] ) ); ?>" placeholder="e.g. 123, 456" />
+						<p class="description"><?php esc_html_e( 'Comma-separated product IDs. Tip: the Products gallery and the product list both show each product’s #ID.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="dze-excl-cats"><?php esc_html_e( 'Categories', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<select id="dze-excl-cats" name="<?php echo esc_attr( self::OPT_EXCLUSIONS ); ?>[categories][]" multiple size="6" style="min-width:280px;">
+							<?php if ( ! is_wp_error( $cats ) ) : foreach ( $cats as $c ) : ?>
+								<option value="<?php echo esc_attr( (string) $c->term_id ); ?>" <?php selected( in_array( (int) $c->term_id, (array) $excl['categories'], true ) ); ?>><?php echo esc_html( html_entity_decode( (string) $c->name, ENT_QUOTES, 'UTF-8' ) ); ?></option>
+							<?php endforeach; endif; ?>
+						</select>
+						<p class="description"><?php esc_html_e( 'Ctrl/Cmd-click to select several. Every product in these categories is excluded.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+			</table>
+			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ), 'secondary' ); ?>
+		</form>
+		<?php
+	}
+
 	public static function render_general_settings(): void {
 		$mode  = self::badge_mode();
 		$where = self::badge_where();
@@ -2850,19 +2909,6 @@ final class DZE_Discounts {
 		require DZE_DIR . 'admin/views/discounts-page.php';
 	}
 
-	/** Saves the global "never discount" list. */
-	public function handle_exclusions_save(): void {
-		check_admin_referer( 'dze_discount_exclusions' );
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
-		}
-		$products   = $this->parse_ids( wp_unslash( $_POST['excl_products'] ?? '' ) );
-		$categories = array_values( array_filter( array_map( 'absint', (array) ( $_POST['excl_categories'] ?? [] ) ) ) );
-		update_option( self::OPT_EXCLUSIONS, [ 'products' => $products, 'categories' => $categories ], false );
-
-		wp_safe_redirect( add_query_arg( [ 'page' => self::MENU_SLUG, 'excl_saved' => 1 ], admin_url( 'admin.php' ) ) );
-		exit;
-	}
 
 	/** AJAX: preview how many products an automatic-discount rule would cover. */
 	public function ajax_auto_count(): void {
