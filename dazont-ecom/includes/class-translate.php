@@ -1064,6 +1064,10 @@ final class DZE_Translate {
 			}
 			// Le verrou des passes d'avant, s'il en reste un, ne veut plus rien dire.
 			delete_transient( self::LOCK_DRAIN );
+			// LES MARQUES D'ABORD, avant qu'un lot ne soit relevé : un lot lu
+			// avant que ses langues ne soient rattachées laissait passer ses
+			// échecs et ses réponses partielles.
+			self::repair_marks();
 			self::collect( $t0, $budget );
 			self::publish( $t0, $budget );
 			self::dispatch();
@@ -1275,7 +1279,6 @@ final class DZE_Translate {
 		if ( (int) get_option( self::OPT_BACKOFF, 0 ) > time() ) {
 			return;
 		}
-		self::repair_marks();
 		// UN LOT DONT ON NE SAIT PAS S'IL EXISTE bloque tout nouvel envoi de ce
 		// qu'il porte tant qu'on ne l'a pas retrouvé : renvoyer, ce serait
 		// peut-être payer deux fois.
@@ -1558,10 +1561,22 @@ final class DZE_Translate {
 					}
 					if ( 'landed' === $st ) {
 						unset( $file[ $i ]['sent'][ $code ] );
-						if ( ! empty( $e['accept'] ) && empty( $e['keep'][ $code ] ) ) {
-							$file[ $i ]['land'][ $code ] = 1;
-							$reste[]                     = $code;
+						if ( ! empty( $e['keep'][ $code ] ) ) {
+							continue;
 						}
+						// RELEVÉ SANS ELLE : ce qui attend vraiment en relecture part
+						// être publié si c'était demandé ; sinon elle reprend sa place
+						// — jamais rayée en silence.
+						$o   = self::obj( $e['kind'], $e['id'], $e['type'] );
+						$att = $o ? self::waiting( $o ) : [];
+						if ( isset( $att['langs'][ $code ] ) ) {
+							if ( ! empty( $e['accept'] ) ) {
+								$file[ $i ]['land'][ $code ] = 1;
+								$reste[]                     = $code;
+							}
+							continue;
+						}
+						$reste[] = $code;
 						continue;
 					}
 					$reste[] = $code;
@@ -1585,6 +1600,7 @@ final class DZE_Translate {
 			return;
 		}
 		$etat            = (string) ( $lot['processing_status'] ?? '' );
+		$fiche['tried']  = array_values( array_unique( array_merge( (array) ( $fiche['tried'] ?? [] ), [ $bid ] ) ) );
 		$fiche['id']     = $bid;
 		$fiche['status'] = in_array( $etat, [ 'ended', 'canceling' ], true ) ? $etat : 'in_progress';
 		$fiche['polled'] = time();
@@ -1684,13 +1700,19 @@ final class DZE_Translate {
 			}
 			$cands[] = $lot;
 		}
-		if ( 1 === count( $cands ) ) {
+		// PLUSIEURS POSSIBLES : le plus proche de l'envoi est essayé tout de
+		// suite. Chaque demande porte la signature de son envoi : si ce n'était
+		// pas lui, on le saura à son retour — rien ne sera écrit ni compté — et
+		// le suivant sera essayé. Attendre un jour pour finalement racheter,
+		// c'était payer deux fois.
+		$deja = array_map( 'strval', (array) ( $fiche['tried'] ?? [] ) );
+		$cands = array_values( array_filter( $cands, static fn( $l ) => ! in_array( (string) ( $l['id'] ?? '' ), $deja, true ) ) );
+		usort( $cands, static fn( $x, $y ) => abs( (int) strtotime( (string) ( $x['created_at'] ?? '' ) ) - (int) $fiche['at'] ) <=> abs( (int) strtotime( (string) ( $y['created_at'] ?? '' ) ) - (int) $fiche['at'] ) );
+		if ( $cands ) {
+			$fiche['resolved'] = 1;
 			self::batch_adopt( $jeton, $fiche, $cands[0] );
 			self::clear_stop();
 			return;
-		}
-		if ( $cands && time() - (int) ( $fiche['at'] ?? 0 ) < DAY_IN_SECONDS ) {
-			return; // plusieurs possibles : on ne choisit pas au hasard.
 		}
 		// JAMAIS PARTI : rien n'est facturé, et tout reprend sa place.
 		self::batch_save( $jeton, null );
@@ -1928,6 +1950,27 @@ final class DZE_Translate {
 		// PAS UNE RÉPONSE DE CET ENVOI : ce lot n'est pas le sien — adopté par
 		// erreur. Rien n'est écrit, rien n'est compté, et ce qu'il devait porter
 		// reprend sa place sans qu'aucun essai soit compté contre personne.
+		if ( $lignes > 0 && 0 === $siennes && ! empty( $b['resolved'] ) && '' !== (string) ( $b['token'] ?? '' ) ) {
+			// RETROUVÉ PAR ERREUR : ce n'était pas lui. La fiche redevient « en
+			// suspens » sous son jeton, ce lot écarté, et le suivant sera essayé.
+			$jeton = (string) $b['token'];
+			$retour = $b;
+			unset( $retour['id'], $retour['polled'], $retour['counts'], $retour['booked'], $retour['read_fail'], $retour['read_next'], $retour['poll_fail'], $retour['poll_fail_at'] );
+			$retour['status'] = 'creating';
+			self::batch_save( $jeton, $retour );
+			self::with_queue( static function ( array $file ) use ( $bid, $jeton ): array {
+				foreach ( $file as $i => $e ) {
+					foreach ( (array) $e['sent'] as $code => $v ) {
+						if ( $v === $bid ) {
+							$file[ $i ]['sent'][ $code ] = $jeton;
+						}
+					}
+				}
+				return $file;
+			} );
+			self::batch_save( $bid, [ 'id' => $bid, 'at' => (int) ( $b['at'] ?? 0 ), 'status' => 'lost', 'landed' => time(), 'n' => (int) ( $b['n'] ?? 0 ), 'err' => 'not this site\'s batch' ] );
+			return;
+		}
 		if ( $lignes > 0 && 0 === $siennes ) {
 			self::with_queue( static function ( array $file ) use ( $bid ): array {
 				foreach ( $file as $i => $e ) {
@@ -2016,12 +2059,14 @@ final class DZE_Translate {
 		// (sans relecture) ; ce qui a échoué retourne dans la file, et sort au
 		// bout de trois fois en disant pourquoi.
 		$notes = [];
-		self::with_queue( static function ( array $file ) use ( $bid, $faits, $partiel, $rates, $global, &$notes ): array {
+		$tok   = (string) ( $b['token'] ?? '' );
+		self::with_queue( static function ( array $file ) use ( $bid, $tok, $faits, $partiel, $rates, $global, &$notes ): array {
 			foreach ( $file as $i => $e ) {
 				$ref   = self::ref( $e );
 				$reste = [];
 				foreach ( $e['langs'] as $code ) {
-					if ( ( $e['sent'][ $code ] ?? '' ) !== $bid ) {
+					$m = (string) ( $e['sent'][ $code ] ?? '' );
+					if ( $m !== $bid && ( '' === $tok || $m !== $tok ) ) {
 						$reste[] = $code;
 						continue;
 					}

@@ -3300,6 +3300,47 @@ ok( 'a batch that is not this site\'s writes nothing',   DZE_Translate::waiting(
 ok( 'and books nothing',                                 $GLOBALS['recorded'], [] );
 ok( 'what it was to carry leaves again, no try counted', [ count( $GLOBALS['waves'] ), DZE_Translate::asked()[0]['fails'] ?? [] ], [ 2, [] ] );
 
+// SEVERAL LOOK ALIKE: the closest is tried; a stranger is known when it comes
+// back — nothing written, nothing booked — and the next one is tried.
+$dze_clean();
+$GLOBALS['batch_lost_answer'] = true;
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+unset( $GLOBALS['batch_lost_answer'] );
+$GLOBALS['batch_store']['msgbatch_elsewhere'] = [ 'dzzzzzzzzzz_r0' => [ 'system' => 'x', 'user' => "Translate every field below.\n\n### title (Title)\nAnother shop", 'max' => 100 ] ];
+$GLOBALS['batch_made']['msgbatch_elsewhere']  = time();
+$dze_rewind = static function () {
+	foreach ( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] as $k => $b ) {
+		if ( 'creating' === ( $b['status'] ?? '' ) ) {
+			$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $k ]['at'] = time() - 120;
+		}
+	}
+};
+for ( $dze_i = 0; $dze_i < 4; $dze_i++ ) {
+	$dze_rewind();
+	$dze_age();
+	DZE_Translate::drain();
+}
+ok( 'among look-alikes, the right one is found in the end', array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr' ] );
+ok( 'the stranger wrote nothing and was booked nothing',   count( $GLOBALS['recorded'] ), 1 );
+ok( 'and nothing was bought twice',                        $GLOBALS['waves'], [ 1 ] );
+ok( 'the stranger is filed aside',
+	(string) ( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ]['msgbatch_elsewhere']['status'] ?? '' ), 'lost' );
+// A BATCH READ BEFORE ITS LANGUAGES WERE TIED TO IT — an adoption cut between
+// two writes — still counts its failures: nothing leaves in silence.
+$dze_clean();
+$GLOBALS['model_answer_fn'] = static function () { return 'not json'; };
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+DZE_Translate::drain();
+$dze_bid = (string) array_key_last( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] );
+$dze_tok = (string) ( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $dze_bid ]['token'] ?? '' );
+foreach ( $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] as $dze_i => $dze_e ) {
+	$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ][ $dze_i ]['sent']['fr'] = $dze_tok;
+}
+$dze_age();
+DZE_Translate::drain();
+ok( 'a batch read before its marks were tied still counts its failure', DZE_Translate::asked()[0]['fails'] ?? [], [ 'fr' => 1 ] );
+$GLOBALS['model_answer_fn'] = $dze_good;
 echo "\nA MARK LEFT BY A STEP THAT DIED DOES NOT STAY FOR EVER\n";
 $dze_clean();
 $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr', 'de' ],
