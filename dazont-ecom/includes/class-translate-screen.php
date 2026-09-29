@@ -621,8 +621,12 @@ trait DZE_Translate_Screen {
 		$langs  = 0;
 		$landed = 0;
 		$first  = 0;
+		$cheap  = 0;
 		foreach ( self::asked() as $e ) {
 			$refs[ self::ref( $e ) ] = true;
+			if ( 'batch' === (string) $e['lane'] ) {
+				$cheap += count( array_diff( $e['langs'], array_keys( (array) $e['land'] ) ) );
+			}
 			$first = $first && (int) $e['at'] ? min( $first, (int) $e['at'] ) : max( $first, (int) $e['at'] );
 			$sent   += count( array_intersect( $e['langs'], array_keys( (array) $e['sent'] ) ) );
 			$langs  += count( $e['langs'] );
@@ -673,7 +677,10 @@ trait DZE_Translate_Screen {
 			'now'      => time(),
 			// IMMÉDIAT : ce qui est fait depuis que la file s'est remplie, depuis
 			// quand, et la dernière réponse — la barre en est faite.
-			'lane'     => self::lane(),
+			// La voie de ce qui attend : économique dès qu'une demande l'est, et
+			// combien de traductions un clic ferait passer en rapide.
+			'lane'     => $cheap ? 'batch' : 'direct',
+			'cheap'    => $cheap,
 			'done'     => (int) ( ( (array) self::fresh_option( self::OPT_RUN, [] ) )['done'] ?? 0 ),
 			'last'     => (int) ( ( (array) self::fresh_option( self::OPT_RUN, [] ) )['last'] ?? 0 ),
 			'first'    => $first,
@@ -722,6 +729,8 @@ trait DZE_Translate_Screen {
 				<a href="<?php echo esc_url( self::url( [ 'tstatus' => 'progress' ] ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
 				&middot;
 				<button type="button" class="button-link dze-trd-cancelall" id="dze-trd-cancelall"><?php esc_html_e( 'Cancel all', 'dazont-ecom' ); ?></button>
+				<?php // TOO SLOW AT HALF PRICE? One press sends the rest right away. ?>
+				<button type="button" class="button button-small dze-trd-hurry" id="dze-trd-hurry"<?php echo ! empty( $q['cheap'] ) ? '' : ' hidden'; ?>><?php esc_html_e( 'Translate the rest right away — normal price', 'dazont-ecom' ); ?></button>
 			</p>
 			<?php
 			// HOW FAR IT HAS GOT, AND THAT THE PAGE IS ALIVE: Anthropic's own count
@@ -910,6 +919,18 @@ trait DZE_Translate_Screen {
 						<option value="publish"><?php esc_html_e( 'Publish without review', 'dazont-ecom' ); ?></option>
 					</select>
 					<span class="description" id="dze-trd-reviewsaid"></span>
+				</div>
+
+				<?php
+				// RAPIDE OU ÉCONOMIQUE, À CHAQUE ENVOI. « On pourrait ici garder de la
+				// flexibilité et donner le choix : traduction rapide ou traduction
+				// cheap. » Le prix et l'attente côte à côte : le choix est entre les deux.
+				$dze_lane = self::lane();
+				?>
+				<div class="dze-trd-card dze-trd-lanebox">
+					<strong><?php esc_html_e( 'How fast?', 'dazont-ecom' ); ?></strong>
+					<label style="display:block;margin-top:4px;"><input type="radio" name="dze-trd-lane" value="direct" <?php checked( 'direct', $dze_lane ); ?> /> <?php esc_html_e( 'Right away — each language is back within a minute or two. Normal price.', 'dazont-ecom' ); ?></label>
+					<label style="display:block;"><input type="radio" name="dze-trd-lane" value="batch" <?php checked( 'batch', $dze_lane ); ?> /> <?php esc_html_e( 'Cheap — half price. Anthropic answers when it has room: often minutes, sometimes hours, 24 hours at most. You can switch to « right away » while it waits.', 'dazont-ecom' ); ?></label>
 				</div>
 
 				<div class="dze-trd-card dze-trd-summary">

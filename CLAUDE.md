@@ -836,10 +836,23 @@ whose screen has not been thought through yet.
 
     The page's `dze_tr_runqueue` runs one tick with a short budget and never a
     translation.
-  - **TWO LANES, AND « RIGHT AWAY » IS THE DEFAULT** (`lane()`, a setting).
-    "Je n'attendrais en aucun cas 24h pour des traductions." A batch is half
-    price because Anthropic answers it when it has room. Two small batches came
-    back in two minutes; two large ones sat at nought answers for twenty.
+  - **TWO LANES, CHOSEN AT EACH SEND** (`entry['lane']`). The shop's setting
+    (`lane()`) only says which one the screen opens on and what the automatic
+    pass uses. "Je n'attendrais en aucun cas 24h pour des traductions" —
+    followed by "on pourrait garder de la flexibilité : traduction rapide ou
+    traduction cheap." A batch is half price because Anthropic answers it when
+    it has room. Two small batches came back in two minutes; two large ones sat
+    at nought answers for forty.
+    - The cheap lane sends SMALL batches (`BATCH_CHUNK`, several per tick). A
+      batch only comes back whole, so one of a thousand requests gave nothing
+      for hours and then everything.
+    - A request from before the choice has no lane and counts as `batch`,
+      because that is how it was sent.
+    - Asked again « right away », a request is upgraded, and never the other
+      way round.
+    - « Translate the rest right away » (`hurry()`) moves every cheap request
+      to the fast lane. It flags the waiting batches `hurry`; `collect()`
+      cancels them, and nothing is billed for what Anthropic had not started.
     - The « right away » lane sends waves of `DIRECT_WAVE` requests in
       parallel (`DZE_Marketing_Ai::messages_now()`). Each wave comes back in
       the time of its slowest call.
@@ -856,9 +869,9 @@ whose screen has not been thought through yet.
       `direct` record found at the start of a tick is a dead wave, because
       only one tick runs at a time: its languages are requeued and the record
       is deleted.
-    - On the « right away » lane, `collect()` CANCELS a batch still in
-      progress (`hurried`). Its `canceled` lines come back uncounted and leave
-      as waves; what Anthropic had already answered is kept.
+    - A batch that was hurried (`hurried`) comes back with `canceled` lines.
+      They are requeued uncounted and leave as waves; what Anthropic had
+      already answered is kept.
   - **Only one tick runs at a time, through MySQL `GET_LOCK`**, never through a
     transient that is read and then written. The lock is taken whole or not at
     all, and MySQL gives it back when the process dies.

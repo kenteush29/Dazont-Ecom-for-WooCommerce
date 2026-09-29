@@ -268,6 +268,9 @@
 		if (!$dash.length) { return; }
 		var list = refs(), m = methods(), over = overwrite();
 		var loading = false, anyDone = false, auto = 0, work = 0, free = 0, total = 0, bits = [];
+		// THE PRICE OF THE SPEED CHOSEN: the figures are read at half price, and
+		// « right away » is the full one.
+		var factor = 'direct' === laneNow() ? 1 / (parseFloat(cfg.batchRate) || 0.5) : 1;
 		list.forEach(function (ref) { if (!words[ref]) { loading = true; } });
 		(cfg.langs || []).forEach(function (code) {
 			var w = 0, c = 0, noise = 0, on = m[code] === 'auto';
@@ -279,6 +282,7 @@
 				w += over ? (x.a || 0) : (x.o || 0);
 				c += over ? (x.ca || 0) : (x.co || 0);
 			});
+			c = c * factor;
 			var $row = $('.dze-trd-pairs tr[data-lang="' + code + '"]');
 			$row.toggleClass('is-off', !on);
 			$row.find('.dze-trd-words').html(loading ? '<span class="dze-trd-spin" aria-hidden="true"></span>' : esc(num(w)));
@@ -318,7 +322,12 @@
 	// Nothing is set to translate the first time: a default that spends must
 	// be a choice, never an oversight. « Je l'ai envoyé seulement en RU » —
 	// five languages were ticked by default, and the shop paid five times.
-	var METHODS = 'dze-trd-methods', REVIEW = 'dze-trd-review';
+	var METHODS = 'dze-trd-methods', REVIEW = 'dze-trd-review', LANE = 'dze-trd-lane';
+	// RIGHT AWAY OR CHEAP, for this send — the shop's setting opens it, and the
+	// last choice made in this browser is kept, as the others are.
+	function laneNow() {
+		return String($('input[name="dze-trd-lane"]:checked').val() || cfg.lane || 'direct');
+	}
 	function restoreChoices() {
 		var kept = {};
 		try { kept = JSON.parse(window.localStorage.getItem(METHODS) || '{}') || {}; } catch (e) { kept = {}; }
@@ -331,6 +340,9 @@
 		var rv = '';
 		try { rv = window.localStorage.getItem(REVIEW) || ''; } catch (e) { rv = ''; }
 		$('#dze-trd-review').val(rv === 'publish' ? 'publish' : 'review');
+		var ln = '';
+		try { ln = window.localStorage.getItem(LANE) || ''; } catch (e) { ln = ''; }
+		if ('direct' === ln || 'batch' === ln) { $('input[name="dze-trd-lane"][value="' + ln + '"]').prop('checked', true); }
 	}
 	function keepMethods() {
 		try { window.localStorage.setItem(METHODS, JSON.stringify(methods())); } catch (e) { /* never mind */ }
@@ -343,6 +355,10 @@
 		render();
 	});
 	$(document).on('change', 'input[name="dze-trd-existing"]', render);
+	$(document).on('change', 'input[name="dze-trd-lane"]', function () {
+		try { window.localStorage.setItem(LANE, laneNow()); } catch (e) { /* never mind */ }
+		render();
+	});
 	$(document).on('change', '#dze-trd-review', function () {
 		try { window.localStorage.setItem(REVIEW, String($(this).val())); } catch (e) { /* never mind */ }
 		render();
@@ -360,7 +376,8 @@
 			refs: list,
 			langs: langs,
 			accept: $('#dze-trd-review').val() === 'publish' ? 1 : 0,
-			all: overwrite() ? 1 : 0
+			all: overwrite() ? 1 : 0,
+			lane: laneNow()
 		}).done(function (r) {
 			sending = false;
 			if (!r || !r.success) { $st.addClass('is-ko').text(said(r)); render(); return; }
@@ -488,6 +505,7 @@
 		var paused = !!(q.stop && q.n);
 		$('#dze-trd-stop').prop('hidden', !paused);
 		$('#dze-trd-stopsaid').text(paused ? q.stop : '');
+		$('#dze-trd-hurry').prop('hidden', !(q.n && q.cheap));
 		$('#dze-trd-progwhy').text(paused ? (i18n.progPaused || '')
 			: ('direct' === q.lane ? (i18n.progDirect || '') : (i18n.progBatch || '')));
 		progressBar(q, paused);
@@ -506,6 +524,20 @@
 	// first poll: the bar is on screen from the first second.
 	var q0 = $('#dze-trd-progress').data('q');
 	if (q0 && 'object' === typeof q0) { queueSaid(q0); watch(); }
+	// TOO SLOW AT HALF PRICE: the rest goes right away, at the normal price.
+	$(document).on('click', '#dze-trd-hurry', function () {
+		var $b = $(this), label = $b.text();
+		$b.prop('disabled', true).text(i18n.hurrying || '…');
+		post('dze_tr_hurry', {}).done(function (r) {
+			if (!r || !r.success) { window.alert(said(r)); return; }
+			pageSaid(r.data.message);
+			queueSaid(r.data.queue);
+		}).fail(function () {
+			window.alert(i18n.error);
+		}).always(function () {
+			$b.prop('disabled', false).text(label);
+		});
+	});
 	$(document).on('click', '.dze-trd-cancel', function () {
 		var $b = $(this), $row = $b.closest('.dze-trd-row');
 		var ref = String($row.data('ref')), lang = String($b.data('lang'));
