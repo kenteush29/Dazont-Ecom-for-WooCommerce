@@ -3256,7 +3256,10 @@ Answer with STRICT JSON and nothing else: "
 	// =========================================================================
 
 	public function register_bulk_action( array $actions ): array {
-		$actions[ self::BULK_ACTION ] = __( 'Dazont: send to Products AI bulk', 'dazont-ecom' );
+		// NAMED BY THE CATALOGUE: « Products AI bulk » is a screen that was
+		// renamed long ago, and the bulk action kept sending people to it.
+		/* translators: %s: the name of the bulk writing screen */
+		$actions[ self::BULK_ACTION ] = sprintf( __( 'Dazont: send to %s', 'dazont-ecom' ), class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'bulk' ) : __( 'Bulk writing', 'dazont-ecom' ) );
 		return $actions;
 	}
 
@@ -3499,6 +3502,8 @@ Answer with STRICT JSON and nothing else: "
 						'type' => (string) ( $e['type'] ?? '' ),
 					] ),
 					'said'  => $langs ? implode( ' · ', $langs ) : __( 'nothing written', 'dazont-ecom' ),
+					// The codes themselves, for WPML's flags on the row.
+					'langs' => array_map( 'strtolower', $langs ),
 					'by'    => (int) ( $e['by'] ?? 0 ),
 					'time'  => (int) ( $e['time'] ?? 0 ),
 				];
@@ -3866,7 +3871,8 @@ Answer with STRICT JSON and nothing else: "
 					     them now and a list where a category and a product read
 					     the same is a list you have to open to understand. -->
 					<td class="description"><?php echo esc_html( (string) $dze_e['what'] ); ?></td>
-					<td><span class="dze-cb-badge"><?php echo esc_html( (string) $dze_e['said'] ); ?></span></td>
+					<?php // WPML'S FLAGS FOR A TRANSLATION, as on the translations screen: « FR · DE » is read, a flag is recognised. ?>
+					<td><?php if ( ! empty( $dze_e['langs'] ) && class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'flag_html' ) ) : ?><?php foreach ( (array) $dze_e['langs'] as $dze_l ) { echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_l ) ) . ' '; } ?><?php else : ?><span class="dze-cb-badge"><?php echo esc_html( (string) $dze_e['said'] ); ?></span><?php endif; ?></td>
 					<td class="description"><?php
 						// THE NAME, not the id: "12" on a row is a number
 						// somebody has to go and look up. A pass that ran on
@@ -4508,7 +4514,12 @@ Answer with STRICT JSON and nothing else: "
 			<?php $this->render_bulk_paste(); ?>
 
 			<?php if ( empty( $products ) ) : ?>
-				<p><?php esc_html_e( 'No products queued. Select products on the Products list and pick "Dazont: send to Products AI bulk" in the Bulk actions menu — or paste their IDs above.', 'dazont-ecom' ); ?></p>
+				<p><?php echo esc_html( sprintf(
+					/* translators: %s: the bulk action's own name */
+					__( 'No products queued. Select products on the Products list and pick "%s" in the Bulk actions menu — or paste their IDs above.', 'dazont-ecom' ),
+					/* translators: %s: the name of the bulk writing screen */
+					sprintf( __( 'Dazont: send to %s', 'dazont-ecom' ), class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'bulk' ) : __( 'Bulk writing', 'dazont-ecom' ) )
+				) ); ?></p>
 				<?php return; ?>
 			<?php endif; ?>
 

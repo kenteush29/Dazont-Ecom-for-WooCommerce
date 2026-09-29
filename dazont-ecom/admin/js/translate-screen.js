@@ -726,10 +726,10 @@
 	}
 	function reviewCount(n) {
 		n = Math.max(0, parseInt(n, 10) || 0);
-		// The tab keeps its badge, as it is printed: « 0 » is an answer.
+		// No badge at nought, as the tab is printed: a badge says « act on me ».
 		$('.nav-tab-wrapper .nav-tab').filter(function () {
 			return String($(this).attr('href') || '').indexOf('tab=review') !== -1;
-		}).find('.dze-tab-n').text(num(n));
+		}).find('.dze-tab-n').text(n ? num(n) : '');
 		// The menu shows its bubble only while something waits, as WordPress
 		// prints it.
 		$('#adminmenu a[href*="page=dazont-ecom-translations"]').each(function () {

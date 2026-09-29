@@ -4069,7 +4069,7 @@ final class DZE_Diagnostic {
 						// FIXED. Out of this list, and both figures follow it.
 						var $todo = $('.dze-diag-tab[data-tab="todo"] .dze-tab-n');
 						var $done = $('.dze-diag-tab[data-tab="fixed"] .dze-tab-n');
-						$todo.text(Math.max(0, (parseInt($todo.text(), 10) || 0) - 1));
+						$todo.text(Math.max(0, (parseInt($todo.text(), 10) || 0) - 1) || '');
 						$done.text((parseInt($done.text(), 10) || 0) + 1);
 						$row.css('background', '#edfaef').fadeOut(400, function () { $(this).remove(); });
 					});

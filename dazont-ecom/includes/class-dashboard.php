@@ -62,8 +62,7 @@ final class DZE_Dashboard {
 		}
 		// THE PAGE IS CALLED WHAT THE MENU CALLS IT. "Dazont Ecom — Dashboard"
 		// over a menu entry reading "Dashboard" is the same screen named twice.
-		echo '<div class="wrap"><h1>' . esc_html( DZE_Screens::label( 'dashboard' ) ) . '</h1>';
-		echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px;margin-top:12px;">';
+		echo '<div class="wrap dze-wrap"><h1>' . esc_html( DZE_Screens::label( 'dashboard' ) ) . '</h1>';
 		$blocks = [
 			// WHAT WAITS FOR A PERSON COMES FIRST. The home screen said what
 			// sold and what was spent and nothing about the three texts waiting
@@ -81,7 +80,10 @@ final class DZE_Dashboard {
 		// side and two screens of tables on the other: the block the page
 		// exists for was a narrow column beside a spend report. It is the first
 		// thing, full width, and the rest is a row of short cards under it.
-		echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:16px 18px;margin-bottom:16px;">';
+		// NO GRID AROUND IT: an outer grid of 440px columns put this block and
+		// the row of cards SIDE BY SIDE on any wide screen — the opposite of
+		// what is written above — and its extra <div> left the page unclosed.
+		echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:16px 18px;margin:12px 0 16px;">';
 		echo '<h2 style="margin:0 0 10px;font-size:14px;">' . esc_html__( 'Waiting for you', 'dazont-ecom' ) . '</h2>';
 		$this->block_waiting();
 		echo '</div>';

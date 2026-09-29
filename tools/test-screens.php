@@ -492,13 +492,15 @@ ok( 'mais la page reste enregistree',
 ok( 'et l\'ordre du menu ne la nomme plus',
 	in_array( 'automation', DZE_Screens::menu_order(), true ), false );
 // CHAQUE MODULE PORTE SON PROPRE INTERRUPTEUR.
+// L ECRAN MARKETING L IMPRIME DANS SA VUE, sous le titre : imprime par le
+// controleur, il sortait AU-DESSUS du titre et hors du cadre de la page.
 foreach ( [
-	'class-mesh.php'            => 'mesh_links',
-	'class-category-content.php' => 'cat_desc',
-	'class-translate-screen.php' => 'translate',
-	'class-discounts.php'       => 'events',
+	'includes/class-mesh.php'             => 'mesh_links',
+	'includes/class-category-content.php' => 'cat_desc',
+	'includes/class-translate-screen.php' => 'translate',
+	'admin/views/discounts-page.php'      => 'events',
 ] as $au_file => $au_task ) {
-	$au_one = file_get_contents( __DIR__ . '/../dazont-ecom/includes/' . $au_file );
+	$au_one = file_get_contents( __DIR__ . '/../dazont-ecom/' . $au_file );
 	ok( "$au_file porte l'interrupteur de $au_task",
 		false !== strpos( $au_one, "DZE_Automation::panel_form( [ '$au_task' ]" ), true );
 }
@@ -671,8 +673,8 @@ ok( 'et elle ne vole pas le nom de la barre de progression', [
 	false !== strpos( $ab_src, 'dze-auto dze-auto-bar"' ),
 ], [ true, false ] );
 // SUR CHAQUE ECRAN QUI EN PORTE UNE, avant le travail dont elle decide.
-foreach ( [ 'class-mesh.php', 'class-category-content.php', 'class-translate-screen.php', 'class-discounts.php' ] as $ab_f ) {
-	$ab_s = file_get_contents( __DIR__ . '/../dazont-ecom/includes/' . $ab_f );
+foreach ( [ 'includes/class-mesh.php', 'includes/class-category-content.php', 'includes/class-translate-screen.php', 'admin/views/discounts-page.php' ] as $ab_f ) {
+	$ab_s = file_get_contents( __DIR__ . '/../dazont-ecom/' . $ab_f );
 	ok( "$ab_f porte la barre", false !== strpos( $ab_s, 'DZE_Automation::panel_form(' ), true );
 }
 

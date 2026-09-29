@@ -20,7 +20,7 @@ for ( $i = $start; $i < $start + 3; $i++ ) {
 }
 ?>
 <div class="wrap dze-wrap">
-	<h1><?php esc_html_e( 'Product recommendations', 'dazont-ecom' ); ?></h1>
+	<h1><?php echo esc_html( class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'fbt' ) : __( 'Recommendations', 'dazont-ecom' ) ); ?></h1>
 	<p class="description" style="max-width:860px;">
 		<?php esc_html_e( 'A “Frequently bought together” block on each product page. Recommendations are automatic and work without any sales history: they are built from the product’s own attributes and categories — for example a Multicam jacket suggests Multicam pants.', 'dazont-ecom' ); ?>
 	</p>

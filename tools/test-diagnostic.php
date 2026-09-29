@@ -1023,14 +1023,15 @@ $GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-02 08:00:00';
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
 ok( 'an edit makes it read again',      count( $GLOBALS['dze_read_calls'] ) > 0, true );
 ok( 'and the row comes back to the work list', $dze_tab_n( $html, 'todo' ), '3' );
-ok( 'with nothing left on the other tab', $dze_tab_n( $html, 'fixed' ), '0' );
+// NOUGHT IS NO BADGE: the span stays for the script, empty.
+ok( 'with nothing left on the other tab', $dze_tab_n( $html, 'fixed' ), '' );
 
 // A product deleted since the reading is nobody's work: it is on neither tab.
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103, 999 ] ] );
 $GLOBALS['dze_transients'] = [];
 $html = $show( [] );
 ok( 'a deleted row is not work to do', $dze_tab_n( $html, 'todo' ), '3' );
-ok( 'and it is not "fixed" either', $dze_tab_n( $html, 'fixed' ), '0' );
+ok( 'and it is not "fixed" either', $dze_tab_n( $html, 'fixed' ), '' );
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
 $GLOBALS['dze_transients'] = [];
 

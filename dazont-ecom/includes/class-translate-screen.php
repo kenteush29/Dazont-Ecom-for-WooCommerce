@@ -927,7 +927,7 @@ trait DZE_Translate_Screen {
 				<div class="dze-trd-card dze-trd-lanebox">
 					<strong><?php esc_html_e( 'How fast?', 'dazont-ecom' ); ?></strong>
 					<label style="display:block;margin-top:4px;"><input type="radio" name="dze-trd-lane" value="direct" <?php checked( 'direct', $dze_lane ); ?> /> <?php esc_html_e( 'Right away — each language is back within a minute or two. Normal price.', 'dazont-ecom' ); ?></label>
-					<label style="display:block;"><input type="radio" name="dze-trd-lane" value="batch" <?php checked( 'batch', $dze_lane ); ?> /> <?php esc_html_e( 'Cheap — half price. Anthropic answers when it has room: often minutes, sometimes hours, 24 hours at most. You can switch to « right away » while it waits.', 'dazont-ecom' ); ?></label>
+					<label style="display:block;"><input type="radio" name="dze-trd-lane" value="batch" <?php checked( 'batch', $dze_lane ); ?> /> <?php esc_html_e( 'Cheap — half price. Anthropic answers when it has room: often minutes, sometimes hours, 24 hours at most.', 'dazont-ecom' ); ?></label>
 				</div>
 
 				<div class="dze-trd-card dze-trd-summary">
@@ -2189,17 +2189,14 @@ trait DZE_Translate_Screen {
 	public static function done_body(): void {
 		$rows = DZE_Translate::done_list( 200 );
 		?>
-		<p class="description" style="max-width:900px;margin:16px 0;">
-			<?php esc_html_e( 'Every translation this module has written, newest first. The name opens it for editing; the arrow opens it on the site, as a reader sees it.', 'dazont-ecom' ); ?>
-		</p>
 		<?php if ( ! $rows ) : ?>
-			<p><?php esc_html_e( 'Nothing has been written yet. What is accepted from “To review” lands here.', 'dazont-ecom' ); ?></p>
+			<p class="description" style="margin:16px 0;"><?php esc_html_e( 'Nothing has been written yet. What is accepted from “To review” lands here.', 'dazont-ecom' ); ?></p>
 			<?php return; ?>
 		<?php endif; ?>
-		<table class="widefat striped" style="max-width:1000px;">
+		<table class="widefat striped" style="max-width:1000px;margin-top:16px;">
 			<thead><tr>
 				<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
-				<th style="width:110px;"><?php esc_html_e( 'Language', 'dazont-ecom' ); ?></th>
+				<th style="width:90px;"><?php esc_html_e( 'Language', 'dazont-ecom' ); ?></th>
 				<th style="width:160px;"><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
 				<th style="width:170px;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
 				<?php // « Ne pas oublier d'afficher aussi par qui ça a été fait. Partout. » Ici c'est qui a dit oui. ?>
@@ -2218,7 +2215,8 @@ trait DZE_Translate_Screen {
 							<a class="dze-hub-visit" href="<?php echo esc_url( (string) $r['view'] ); ?>" target="_blank" rel="noopener" title="<?php esc_attr_e( 'See it on the site', 'dazont-ecom' ); ?>"><span class="dashicons dashicons-external"></span></a>
 						<?php endif; ?>
 					</td>
-					<td><?php echo esc_html( '' !== (string) $r['lang'] ? (string) $r['lang'] : '—' ); ?></td>
+					<?php // LE DRAPEAU DE WPML, comme sur le tableau de bord : un code se lit, un drapeau se reconnait. ?>
+					<td><?php echo '' !== (string) $r['lang'] ? wp_kses_post( self::flag_only( strtolower( (string) $r['lang'] ) ) ) : '—'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped in both branches. ?></td>
 					<td><span class="description"><?php echo esc_html( (string) $r['kind'] ); ?></span></td>
 					<td><span class="description"><?php
 						echo esc_html( '' !== (string) $r['when'] ? mysql2date( (string) get_option( 'date_format' ) . ' H:i', (string) $r['when'] ) : '—' );
@@ -2235,17 +2233,17 @@ trait DZE_Translate_Screen {
 			<?php endforeach; ?>
 			</tbody>
 		</table>
+		<p class="description" style="max-width:900px;margin:10px 0 0;">
+			<?php esc_html_e( 'Every translation this module has written, newest first. The name opens it for editing; the arrow opens it on the site, as a reader sees it.', 'dazont-ecom' ); ?>
+		</p>
 		<?php
 	}
 
 	public static function review_body(): void {
 		$rows = self::review_list();
 		?>
-		<p class="description" style="max-width:900px;margin:16px 0;">
-			<?php esc_html_e( 'What the last batches produced. Nothing here has been written to the site yet: open one, read it beside the original and beside what the translation holds today, and accept or refuse it field by field.', 'dazont-ecom' ); ?>
-		</p>
 		<?php if ( ! $rows ) : ?>
-			<p><?php esc_html_e( 'Nothing is waiting. Send something to translation from the Dashboard with « Review before publishing », and what comes back lands here.', 'dazont-ecom' ); ?></p>
+			<p class="description" style="margin:16px 0;"><?php esc_html_e( 'Nothing is waiting. Send something to translation from the Dashboard with « Review before publishing », and what comes back lands here.', 'dazont-ecom' ); ?></p>
 			<?php return; ?>
 		<?php endif; ?>
 		<?php
@@ -2373,6 +2371,9 @@ trait DZE_Translate_Screen {
 			<?php endforeach; ?>
 			</tbody>
 		</table>
+		<p class="description" style="max-width:900px;margin:10px 0 0;">
+			<?php esc_html_e( 'What the last batches produced. Nothing here has been written to the site yet: open one, read it beside the original and beside what the translation holds today, and accept or refuse it field by field.', 'dazont-ecom' ); ?>
+		</p>
 		<?php
 	}
 

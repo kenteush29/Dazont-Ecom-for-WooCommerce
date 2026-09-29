@@ -1624,6 +1624,8 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	font-size: 11px; line-height: 18px; text-align: center; font-weight: 600;
 }
 .nav-tab-active .dze-tab-n { background: #2271b1; color: #fff; }
+/* NOUGHT IS NOT A BADGE: the element stays for the scripts, the eye sees nothing. */
+.dze-tab-n:empty { display: none; }
 
 /* WHAT A PRODUCT IS SHORT OF, on its own row of the bulk screen — the same
    sentences the diagnostic prints, so the two screens never disagree. */
@@ -2161,3 +2163,17 @@ a.dze-nl-note.is-warn:hover { background: #f8dfc2; color: #6b3900; }
 	.dze-trd-global { position: static; }
 	.dze-trd-table th.dze-trd-date, .dze-trd-table td.dze-trd-date { display: none; }
 }
+
+/* ==========================================================================
+   WPML'S FLAGS, ON EVERY SCREEN. DZE_Wpml::flag_html() draws them with these
+   classes, and they lived only in admin.css — a sheet the Restock and the
+   Discounts pages load. With both of those modules off, every flag of the
+   plugin lost its frame. The same rules, in the sheet every screen loads.
+   ========================================================================== */
+.dze-langs{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:6px;vertical-align:middle;}
+.dze-lang{display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border:1px solid #dcdcde;
+	border-radius:3px;background:#fff;font-size:11px;line-height:1.6;color:#3c434a;}
+.dze-lang img{display:block;width:18px;height:12px;border-radius:1px;}
+.dze-lang.is-done{border-color:rgba(0,121,75,.25);background:#f2fbf5;}
+.dze-lang.is-todo{border-color:rgba(178,106,0,.25);background:#fdf8ef;}
+.dze-lang-code{font-weight:600;letter-spacing:.02em;}

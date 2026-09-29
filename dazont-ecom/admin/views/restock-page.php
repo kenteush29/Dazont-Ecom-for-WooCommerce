@@ -4,7 +4,7 @@ defined( 'ABSPATH' ) || exit;
 /** @var int $last_recalc */
 ?>
 <div class="wrap dze-wrap">
-	<h1 class="wp-heading-inline"><?php esc_html_e( 'Restock', 'dazont-ecom' ); ?></h1>
+	<h1 class="wp-heading-inline"><?php echo esc_html( class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'restock' ) : __( 'Restock', 'dazont-ecom' ) ); ?></h1>
 
 	<p class="description" style="margin:8px 0 16px; max-width:820px;">
 		<?php esc_html_e( 'Product-lines with at least one out-of-stock item, ranked by total sales. Click a variable product to reveal its out-of-stock variations.', 'dazont-ecom' ); ?>
