@@ -275,43 +275,15 @@ $klav_on    = null !== $klav;
 	</form>
 
 	<?php
-	// Global "never discount" list.
-	$excl      = DZE_Discounts::get_exclusions();
-	$excl_cats = get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false, 'number' => 500 ] );
+	// « NEVER DISCOUNT » IS A SETTING, and it lives with the module's settings
+	// now. One line says where, so nobody looks for it here in vain.
+	$dze_excl_url = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'settings', 'discounts' ) : '';
+	if ( '' !== $dze_excl_url ) :
+		?>
+		<p class="description" style="margin-top:24px;"><?php esc_html_e( 'Products no promotion may touch are chosen in the settings:', 'dazont-ecom' ); ?> <a href="<?php echo esc_url( $dze_excl_url ); ?>"><?php echo esc_html( DZE_Screens::name( 'settings', 'discounts' ) ); ?></a></p>
+		<?php
+	endif;
 	?>
-	<hr style="margin:24px 0;" />
-	<h2><?php esc_html_e( 'Never discount these products', 'dazont-ecom' ); ?></h2>
-	<p class="description" style="max-width:900px;">
-		<?php esc_html_e( 'Skipped by every promotion — automatic discounts, bulk offers and marketing events alike.', 'dazont-ecom' ); ?>
-	</p>
-	<?php if ( isset( $_GET['excl_saved'] ) ) : ?>
-		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Exclusions saved.', 'dazont-ecom' ); ?></p></div>
-	<?php endif; ?>
-	<form method="post" action="<?php echo esc_url( $admin_post ); ?>" style="max-width:900px;">
-		<input type="hidden" name="action" value="dze_discount_exclusions" />
-		<?php wp_nonce_field( 'dze_discount_exclusions' ); ?>
-		<table class="form-table" role="presentation">
-			<tr>
-				<th scope="row"><label for="dze-excl-products"><?php esc_html_e( 'Product IDs', 'dazont-ecom' ); ?></label></th>
-				<td>
-					<input type="text" id="dze-excl-products" name="excl_products" class="large-text" value="<?php echo esc_attr( implode( ', ', $excl['products'] ) ); ?>" placeholder="e.g. 123, 456" />
-					<p class="description"><?php esc_html_e( 'Comma-separated product IDs. Tip: the Products gallery and the product list both show each product’s #ID.', 'dazont-ecom' ); ?></p>
-				</td>
-			</tr>
-			<tr>
-				<th scope="row"><label for="dze-excl-cats"><?php esc_html_e( 'Categories', 'dazont-ecom' ); ?></label></th>
-				<td>
-					<select id="dze-excl-cats" name="excl_categories[]" multiple size="6" style="min-width:280px;">
-						<?php if ( ! is_wp_error( $excl_cats ) ) : foreach ( $excl_cats as $c ) : ?>
-							<option value="<?php echo esc_attr( $c->term_id ); ?>" <?php selected( in_array( (int) $c->term_id, $excl['categories'], true ) ); ?>><?php echo esc_html( $c->name ); ?></option>
-						<?php endforeach; endif; ?>
-					</select>
-					<p class="description"><?php esc_html_e( 'Ctrl/Cmd-click to select several. Every product in these categories is excluded.', 'dazont-ecom' ); ?></p>
-				</td>
-			</tr>
-		</table>
-		<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
-	</form>
 	<?php
 	// The full account of how discounts behave, behind the two "?" above.
 	DZE_Hub::more_assets( [

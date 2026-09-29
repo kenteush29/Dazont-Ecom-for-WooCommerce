@@ -109,6 +109,7 @@ class DZE_Transfer {
 class DZE_Discounts {
 	public static function events() { return []; }
 	public static function render_general_settings() { echo '<div id="dze-discounts"></div>'; }
+	public static function render_exclusions_settings() { echo '<div id="dze-discount-exclusions"></div>'; }
 	public static function promotions() { return []; }
 	// What the events view asks of it while drawing the banner's own choices,
 	// in the SHAPE the real ones answer with: a stub of the wrong type is a

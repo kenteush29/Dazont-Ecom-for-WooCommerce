@@ -3809,8 +3809,14 @@ Answer with STRICT JSON and nothing else: "
 	private function render_bulk_log(): void {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$all   = ! empty( $_GET['dze_all'] );
-		$log   = self::register( 200, $all );
+		// PAGED, NOT CUT: the list stopped at 200 lines and said nothing of the
+		// rest. Fifty a page, like WordPress's own lists.
+		$every = self::register( 1000, $all );
 		$quiet = self::register_quiet();
+		$per   = 50;
+		$pages = max( 1, (int) ceil( count( $every ) / $per ) );
+		$paged = min( $pages, max( 1, isset( $_GET['paged'] ) ? (int) $_GET['paged'] : 1 ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$log   = array_slice( $every, ( $paged - 1 ) * $per, $per );
 		if ( ! $log ) {
 			echo '<p>' . esc_html__( 'Nothing has been written yet. Everything this plugin writes — a product, a category, an article, a translation — is listed here with what it received, when, and who said yes.', 'dazont-ecom' ) . '</p>';
 			if ( $quiet ) {
@@ -3832,14 +3838,14 @@ Answer with STRICT JSON and nothing else: "
 			<span class="description"><?php
 				printf(
 					/* translators: %s: number of entries */
-					esc_html( _n( '%s thing written to the shop', '%s things written to the shop', count( $log ), 'dazont-ecom' ) ),
-					esc_html( number_format_i18n( count( $log ) ) )
+					esc_html( _n( '%s thing written to the shop', '%s things written to the shop', count( $every ), 'dazont-ecom' ) ),
+					esc_html( number_format_i18n( count( $every ) ) )
 				);
 			?></span>
 			<button type="button" class="button-link" id="dze-cb-clearlog" style="color:#b32d2e;margin-left:auto;" title="<?php esc_attr_e( 'Empty the products half of this register. What was written stays on the products; only the list is erased. Categories, articles and translations keep their own record.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Empty this log', 'dazont-ecom' ); ?></button>
 		</p>
-		<table class="dze-cb-table">
-			<tr>
+		<table class="dze-cb-table dze-cb-logtable">
+			<thead><tr>
 				<th style="width:70px;"></th>
 				<th><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
 				<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
@@ -3848,7 +3854,8 @@ Answer with STRICT JSON and nothing else: "
 				<th style="width:150px;"><?php esc_html_e( 'Decided by', 'dazont-ecom' ); ?></th>
 				<th style="width:170px;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
 				<th style="width:110px;"></th>
-			</tr>
+			</tr></thead>
+			<tbody>
 			<?php foreach ( $log as $dze_e ) :
 				$dze_id  = (int) ( $dze_e['pid'] ?? 0 );
 				$dze_thu = $dze_id ? (string) get_the_post_thumbnail_url( $dze_id, 'thumbnail' ) : '';
@@ -3905,7 +3912,27 @@ Answer with STRICT JSON and nothing else: "
 					<tr class="dze-cb-preview" data-id="<?php echo (int) $dze_id; ?>" style="display:none;"><td colspan="8"></td></tr>
 				<?php endif; ?>
 			<?php endforeach; ?>
+			</tbody>
 		</table>
+		<?php
+		// THE PAGES, in WordPress's own markup and classes.
+		if ( $pages > 1 ) {
+			$dze_base = add_query_arg( array_filter( [ 'tab' => 'done', 'dze_all' => $all ? 1 : null ] ), self::bulk_page_url() );
+			$dze_link = static function ( int $to, string $cls, string $sym, string $said, bool $off ) use ( $dze_base ): string {
+				if ( $off ) {
+					return '<span class="tablenav-pages-navspan button disabled" aria-hidden="true">' . $sym . '</span>';
+				}
+				return '<a class="' . esc_attr( $cls ) . ' button" href="' . esc_url( add_query_arg( 'paged', $to, $dze_base ) ) . '"><span class="screen-reader-text">' . esc_html( $said ) . '</span><span aria-hidden="true">' . $sym . '</span></a>';
+			};
+			echo '<div class="tablenav bottom"><div class="tablenav-pages"><span class="pagination-links">';
+			echo $dze_link( 1, 'first-page', '&laquo;', __( 'First page', 'dazont-ecom' ), $paged <= 1 ) . ' '; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
+			echo $dze_link( $paged - 1, 'prev-page', '&lsaquo;', __( 'Previous page', 'dazont-ecom' ), $paged <= 1 ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo ' <span class="paging-input"><span class="tablenav-paging-text">' . esc_html( sprintf( /* translators: 1: current page, 2: total pages */ __( '%1$s of %2$s', 'dazont-ecom' ), number_format_i18n( $paged ), number_format_i18n( $pages ) ) ) . '</span></span> ';
+			echo $dze_link( $paged + 1, 'next-page', '&rsaquo;', __( 'Next page', 'dazont-ecom' ), $paged >= $pages ) . ' '; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo $dze_link( $pages, 'last-page', '&raquo;', __( 'Last page', 'dazont-ecom' ), $paged >= $pages ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo '</span></div></div>';
+		}
+		?>
 		<?php
 		// WHAT WAS LEFT OUT, and the way to see it anyway: a list that silently
 		// drops rows is a list nobody trusts.
@@ -4386,22 +4413,37 @@ Answer with STRICT JSON and nothing else: "
 		$tabs = DZE_Screens::tabs_of( 'bulk' );
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading which tab to draw.
 		$tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+		// THE OLD ADDRESS OF THE HISTORY — « Done » was a second row of tabs
+		// inside Products, reached with dze_log=1 — lands on its tab.
+		if ( '' === $tab && ! empty( $_GET['dze_log'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+			$tab = 'done';
+		}
 		if ( ! isset( $tabs[ $tab ] ) ) {
 			$tab = (string) array_key_first( $tabs );
 		}
 		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'bulk' ) ) . '</h1>';
 		if ( count( $tabs ) > 1 ) {
-			$strip = [];
+			$strip  = [];
+			$counts = self::screen_counts();
 			foreach ( $tabs as $id => $label ) {
 				$strip[ (string) $id ] = [
 					'label' => $label,
 					'url'   => DZE_Screens::url( 'bulk', (string) $id ),
 				];
+				// THE PRODUCTS WAITING TO BE WORKED ON are a figure worth a badge,
+				// kept live by content-bulk.js through data-tab. What is done is not.
+				if ( 'products' === $id ) {
+					$strip['products']['n']    = (int) ( $counts['all'] ?? 0 );
+					$strip['products']['data'] = [ 'tab' => 'selection' ];
+				}
 			}
-			echo wp_kses_post( DZE_Screens::strip( $strip, $tab, 'margin:12px 0 0;' ) );
+			echo wp_kses_post( DZE_Screens::strip( $strip, $tab, 'margin:12px 0 16px;' ) );
 		}
-		if ( 'categories' === $tab && class_exists( 'DZE_Category_Content' ) ) {
+		if ( 'done' === $tab ) {
+			$this->bulk_assets();
+			$this->render_bulk_log();
+		} elseif ( 'categories' === $tab && class_exists( 'DZE_Category_Content' ) ) {
 			DZE_Category_Content::instance()->render_bench();
 		} else {
 			$this->bulk_body( self::bulk_page_url() );
@@ -4436,28 +4478,10 @@ Answer with STRICT JSON and nothing else: "
 			<?php
 			$dze_mode = $this->bulk_mode();
 			$dze_base = $base;
-			// Products are added to the list, worked on, decided on — and then
-			// they are done with. Two tabs is the whole story.
-			$dze_counts = self::screen_counts();
-			$dze_tabs   = [
-				'selection' => [ __( 'Selected products', 'dazont-ecom' ), $dze_base, $dze_counts['all'] ],
-				'log'       => [ __( 'Done', 'dazont-ecom' ), add_query_arg( 'dze_log', 1, $dze_base ), $dze_counts['log'] ],
-			];
+			// ONE ROW OF TABS: « Done » is a tab of the bench now, beside Products
+			// and Categories — it was a second row, inside Products, for a history
+			// that records every kind.
 			?>
-			<!-- Two states, and that is the whole screen: the products being
-			     worked on, and the products that are done with. -->
-			<ul class="subsubsub dze-cb-tabs">
-				<?php $dze_last = array_key_last( $dze_tabs ); ?>
-				<?php foreach ( $dze_tabs as $dze_key => $dze_tab ) : ?>
-					<li>
-						<a href="<?php echo esc_url( $dze_tab[1] ); ?>" data-tab="<?php echo esc_attr( $dze_key ); ?>" class="<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? 'current' : ''; ?>">
-							<?php echo esc_html( $dze_tab[0] ); ?>
-							<span class="dze-cb-count"><?php echo $dze_tab[2] ? esc_html( number_format_i18n( $dze_tab[2] ) ) : ''; ?></span>
-						</a><?php echo $dze_key === $dze_last ? '' : ' |'; ?>
-					</li>
-				<?php endforeach; ?>
-			</ul>
-			<div style="clear:both;"></div>
 			<?php
 			if ( 'log' === $dze_mode ) {
 				$this->render_bulk_log();

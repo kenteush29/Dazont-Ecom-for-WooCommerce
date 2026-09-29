@@ -925,6 +925,10 @@ final class DZE_Marketing_Ai {
 			// one.
 			if ( class_exists( 'DZE_Discounts' ) && $mod_on( 'discounts' ) ) {
 				DZE_Discounts::render_general_settings();
+				// AND WHAT NO PROMOTION MAY TOUCH — a setting of the whole module,
+				// moved here from under the list of rules on the work screen.
+				echo '<hr style="margin:28px 0;" />';
+				DZE_Discounts::render_exclusions_settings();
 			}
 			if ( class_exists( 'DZE_Price' ) ) {
 				echo '<hr style="margin:28px 0;" />';
