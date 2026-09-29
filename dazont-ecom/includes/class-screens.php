@@ -153,6 +153,12 @@ final class DZE_Screens {
 				'label'  => __( 'Netlinking', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-netlinking',
 				'module' => 'netlinking',
+				// LE TRAVAIL, ET D OU IL VIENT — comme les traductions. « Où je
+				// vois à quelle Search Console le site est lié ? » Dans son onglet.
+				'tabs'   => [
+					'categories' => [ 'label' => __( 'Categories', 'dazont-ecom' ) ],
+					'console'    => [ 'label' => __( 'Search Console', 'dazont-ecom' ) ],
+				],
 			],
 			'restock'      => [
 				'label'  => __( 'Restock', 'dazont-ecom' ),

@@ -1966,10 +1966,24 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
    Same idiom as the internal-linking table beside it: one table, figures on
    the right, the words that matter on the left.
    ========================================================================== */
-.dze-nl-table td { vertical-align: middle; }
-.dze-nl-table .dze-nl-fig  { width: 92px; text-align: right; white-space: nowrap; }
-.dze-nl-table .dze-nl-lang { width: 66px; }
-.dze-nl-table .dze-nl-kind { width: 96px; }
+.dze-nl-table td { vertical-align: top; }
+.dze-nl-table .dze-nl-fig  { width: 84px; text-align: right; white-space: nowrap; }
+.dze-nl-table th.dze-nl-fig .dze-trd-sort { justify-content: flex-end; width: 100%; }
+.dze-nl-table .dze-nl-name { width: 26%; min-width: 220px; }
+.dze-nl-table .dze-nl-name strong a { font-size: 14px; }
+.dze-nl-table .dze-nl-flag img, .dze-nl-table .dze-nl-flag span { vertical-align: middle; }
+.dze-nl-path { color: #646970; font-size: 12px; margin-top: 2px; word-break: break-all; }
+/* WHAT COMES BEFORE A LINK, said on the row itself: a title to rework, a page
+   the site does not support yet, a category that is no target at all. */
+.dze-nl-notes { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+.dze-nl-note {
+	display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11.5px;
+	background: #f0f0f1; color: #3c434a; text-decoration: none;
+}
+.dze-nl-note.is-warn { background: #fcf0e3; color: #8a4a00; }
+a.dze-nl-note.is-warn:hover { background: #f8dfc2; color: #6b3900; }
+.dze-nl-table td.dze-nl-fig.is-low { color: #b26200; font-weight: 600; }
+.dze-nl-table tr.is-skip td { color: #787c82; }
 /* THE LAST COLUMN GETS WHAT IS LEFT: the anchors are the only column of
    words that can run long, so the figures keep their known widths. */
 .dze-nl-table .dze-nl-anchors { width: auto; }
@@ -1977,6 +1991,7 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	display: inline-block; margin: 0 4px 4px 0; padding: 1px 7px;
 	border: 1px solid #dcdcde; border-radius: 10px; font-size: 12px;
 }
+.dze-nl-anchor.is-main { border-color: #2271b1; color: #135e96; font-weight: 600; }
 .dze-nl-chips { margin: 10px 0 4px; display: flex; gap: 6px; flex-wrap: wrap; }
 .dze-nl-chip {
 	display: inline-flex; align-items: center; gap: 5px;
@@ -1984,15 +1999,20 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	font-size: 12px; background: #fff;
 }
 .dze-nl-chip .dashicons { font-size: 14px; width: 14px; height: 14px; }
-.dze-nl-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 6px; }
-.dze-nl-bar .dze-nl-state { min-height: 1em; }
-/* THE SORTED COLUMN SAYS SO, the way WordPress's own list tables do. */
-.dze-nl-table th a { text-decoration: none; }
-.dze-nl-table th.is-sorted a { font-weight: 700; }
-.dze-nl-table th.is-sorted .dashicons { font-size: 13px; width: 13px; height: 13px; vertical-align: middle; }
-.dze-nl-props { margin-top: 16px; }
-.dze-nl-props > summary { font-weight: 600; }
-.dze-nl-props table { margin-top: 8px; max-width: 620px; }
+/* THE SORT LINKS WEAR THE SORT BUTTONS OF THE TRANSLATIONS DASHBOARD. */
+.dze-nl-table a.dze-trd-sort { text-decoration: none; }
+.dze-nl-table a.dze-trd-sort:focus { box-shadow: none; }
+.dze-admin .dze-nl-filters input[type="search"] { width: 200px !important; display: inline-block; margin: 0; }
+.dze-nl-filters .dze-nl-state { min-height: 1em; }
+.dze-nl-card { max-width: 900px; }
+.dze-nl-cardbody { padding: 4px 18px 14px; }
+.dze-nl-cardbody h2 { font-size: 15px; margin: 12px 0 6px; }
+.dze-nl-cardbody table { margin-top: 8px; max-width: 700px; }
+.dze-nl-cardrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dze-nl-how { max-width: 1100px; margin-top: 14px; }
+.dze-nl-how > summary { font-weight: 600; cursor: pointer; }
+.dze-nl-how ul { list-style: disc; margin: 8px 0 4px 20px; }
+.dze-nl-how li { margin-bottom: 4px; }
 .dze-nl-copy {
 	user-select: all; display: inline-block; padding: 3px 7px;
 	background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px; font-size: 12px;

@@ -25,6 +25,19 @@
  * appel paye, aucune ecriture, rien a relire. Il se rafraichit seul une fois
  * par jour et attend qu on le consulte.
  *
+ * LES CATEGORIES, ET RIEN D AUTRE.
+ *
+ * « Tu as intégré des recommandations de liens au niveau produit, ce qui est
+ * faux. […] Mieux vaut rester sur la data des produits remontée au niveau des
+ * catégories avec les ventes WooCommerce. Et data Google mise en relation
+ * seulement niveau catégories. »
+ *
+ * Une cible de lien externe est une page de categorie. Google est lu pour
+ * l adresse de la categorie elle-meme, jamais pour ses fiches produit ; les
+ * ventes, elles, sont celles des produits ranges dans la categorie, comptees
+ * dans la langue du produit vendu. Une fiche produit, un article ou une page
+ * n apparaissent donc plus du tout.
+ *
  * @package Dazont_Ecom
  */
 
@@ -102,9 +115,24 @@ final class DZE_Netlinking {
 		}
 		return [
 			'state'   => 'ok',
-			/* translators: 1: how many targets, 2: how long ago */
-			'message' => sprintf( __( '%1$s pages worth a link, read %2$s ago.', 'dazont-ecom' ), number_format_i18n( count( (array) ( $d['rows'] ?? [] ) ) ), human_time_diff( (int) $d['at'], time() ) ),
+			/* translators: 1: how many categories, 2: how long ago */
+			'message' => sprintf( __( '%1$s categories worth a link, read %2$s ago.', 'dazont-ecom' ), number_format_i18n( self::targets_count() ), human_time_diff( (int) $d['at'], time() ) ),
 		];
+	}
+
+	/**
+	 * COMBIEN DE CATEGORIES MERITENT UN LIEN AUJOURD HUI — celles « a portee »,
+	 * pas toutes celles que la lecture a vues. L accueil et le journal de sante
+	 * disent ce chiffre-la : c est le travail, le reste est le decor.
+	 */
+	public static function targets_count(): int {
+		$n = 0;
+		foreach ( (array) ( self::data()['rows'] ?? [] ) as $r ) {
+			if ( 'reach' === (string) ( $r['status'] ?? '' ) ) {
+				$n++;
+			}
+		}
+		return $n;
 	}
 	/** Ce que la derniere lecture a trouve. */
 	public const OPT_DATA = 'dze_nl_targets';
@@ -124,13 +152,14 @@ final class DZE_Netlinking {
 	private const GOOGLE_CONSENT     = 'https://console.cloud.google.com/apis/credentials/consent';
 	private const GOOGLE_API         = 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com';
 
-	/** Combien de pages on classe, et combien de requetes on garde par page. */
+	/** Combien de pages on lit, et combien de requetes on garde par categorie. */
 	private const MAX_PAGES   = 5000;
 	private const MAX_ROWS    = 25000;
-	private const KEEP        = 60;
-	/** Le plancher par langue : en dessous, on ne travaille pas un catalogue. */
-	private const MIN_PER_LANG = 10;
-	private const KEEP_ANCHOR = 6;
+	private const KEEP_ANCHOR = 5;
+	/** Combien de lignes par page du tableau. */
+	private const PER_PAGE = 50;
+	/** Le plancher d impressions sous lequel un gain calcule ne veut rien dire. */
+	private const MIN_IMPR = 20;
 
 	private static ?self $instance = null;
 
@@ -425,13 +454,6 @@ final class DZE_Netlinking {
 	}
 
 	/**
-	 * LA PROPRIETE DE CETTE BOUTIQUE, choisie seule quand c est evident.
-	 *
-	 * Une propriete de domaine (`sc-domain:kula-tactical.com`) couvre toutes
-	 * les langues de la boutique ; une propriete d URL n en couvre qu une. On
-	 * prefere donc le domaine, et on ne demande que si rien ne correspond.
-	 */
-	/**
 	 * AUTANT DE PROPRIETES QUE WPML A DE DOMAINES.
 	 *
 	 * « Un multidomaine = une search console par domaine. » C est le reglage de
@@ -462,36 +484,6 @@ final class DZE_Netlinking {
 		$found = array_keys( $found );
 		if ( $found ) {
 			$set['properties'] = $found;
-			update_option( self::OPT_SET, $set, false );
-		}
-		return $found;
-	}
-
-	public static function pick_property(): string {
-		$set = self::settings();
-		if ( ! empty( $set['property'] ) ) {
-			return (string) $set['property'];
-		}
-		$host  = (string) wp_parse_url( home_url(), PHP_URL_HOST );
-		$host  = preg_replace( '/^www\./', '', (string) $host );
-		$all   = self::properties();
-		$found = '';
-		foreach ( $all as $one ) {
-			if ( 'sc-domain:' . $host === $one ) {
-				$found = $one;
-				break;
-			}
-		}
-		if ( '' === $found ) {
-			foreach ( $all as $one ) {
-				if ( false !== strpos( $one, (string) $host ) ) {
-					$found = $one;
-					break;
-				}
-			}
-		}
-		if ( '' !== $found ) {
-			$set['property'] = $found;
 			update_option( self::OPT_SET, $set, false );
 		}
 		return $found;
@@ -556,8 +548,8 @@ final class DZE_Netlinking {
 	 * 550 converties ainsi, 300 sans taux — celles-la prennent le taux courant
 	 * de WCML, faute de mieux, et c est dit.
 	 *
-	 * Le fragment SQL est rendu seul pour que les deux lectures — categories et
-	 * produits — comptent l argent exactement de la meme facon.
+	 * Le fragment SQL est rendu seul pour que chaque lecture de ventes compte
+	 * l argent exactement de la meme facon.
 	 */
 	private static function revenue_sql(): string {
 		global $wpdb;
@@ -570,127 +562,6 @@ final class DZE_Netlinking {
 		return " LEFT JOIN {$wpdb->postmeta} rate ON rate.post_id = l.order_id AND rate.meta_key = '_wcpay_multi_currency_stripe_exchange_rate' ";
 	}
 
-	/**
-	 * CE QUE CHAQUE PRODUIT A VENDU, lui-meme.
-	 *
-	 * « Le module recroise-t-il la data des urls produits aussi ? » Il ne le
-	 * faisait pas : seules les categories portaient des ventes, et une fiche
-	 * produit bien placee en douzieme position n avait aucun chiffre en face
-	 * d elle. Or une fiche produit est une cible de lien parfaitement
-	 * legitime — et la plus fiable de toutes, puisqu on lit SES ventes et non
-	 * celles d un rayon entier.
-	 *
-	 * @return array<int,array{units:int,revenue:float}>
-	 */
-	public static function sales_by_product( int $days ): array {
-		global $wpdb;
-		if ( ! $wpdb ) {
-			return [];
-		}
-		$lookup = $wpdb->prefix . 'wc_order_product_lookup';
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WooCommerce's own table.
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $lookup ) ) !== $lookup ) {
-			return [];
-		}
-		$rev  = self::revenue_sql();
-		$join = self::revenue_join();
-		$rows = (array) $wpdb->get_results( $wpdb->prepare(
-			"SELECT l.product_id AS pid, SUM( l.product_qty ) AS units, {$rev} AS revenue
-			   FROM {$lookup} l {$join}
-			  WHERE l.date_created > DATE_SUB( NOW(), INTERVAL %d DAY )
-			  GROUP BY l.product_id",
-			max( 1, $days )
-		), ARRAY_A );
-		// phpcs:enable
-		$out = [];
-		foreach ( $rows as $r ) {
-			$out[ (int) $r['pid'] ] = [ 'units' => (int) $r['units'], 'revenue' => (float) $r['revenue'] ];
-		}
-		return $out;
-	}
-
-	/**
-	 * LE PRODUIT DERRIERE UNE ADRESSE, dans la langue de cette adresse.
-	 *
-	 * Resolu a la demande et non par une carte : cinq langues fois dix mille
-	 * produits font cinquante mille lignes a tenir en memoire pour retrouver
-	 * deux cents adresses. On ne cherche que pour les pages qui ont passe le
-	 * filtre de portee.
-	 */
-	/**
-	 * TOUS LES PRODUITS D UN COUP, plutot qu une requete par adresse.
-	 *
-	 * Mesure : la lecture est passee de 5 a 21 secondes des que chaque adresse
-	 * demandait son produit. Les slugs candidats sont connus d avance — ce sont
-	 * ceux des pages qui ont passe le filtre de portee — donc une seule requete
-	 * suffit, et la resolution unitaire n a plus qu a lire ce qui est deja la.
-	 *
-	 * @param array<int,string> $urls
-	 */
-	public static function warm_products( array $urls ): void {
-		global $wpdb;
-		if ( ! $wpdb || ! $urls ) {
-			return;
-		}
-		$slugs = [];
-		foreach ( $urls as $url ) {
-			$path = trim( (string) wp_parse_url( (string) $url, PHP_URL_PATH ), '/' );
-			if ( '' === $path ) {
-				continue;
-			}
-			$bits = explode( '/', $path );
-			$one  = (string) end( $bits );
-			if ( '' !== $one ) {
-				$slugs[ $one ] = true;
-			}
-		}
-		if ( ! $slugs ) {
-			return;
-		}
-		$slugs = array_keys( $slugs );
-		$holes = implode( ',', array_fill( 0, count( $slugs ), '%s' ) );
-		$icl   = $wpdb->prefix . 'icl_translations';
-		$wpml  = class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() && DZE_Wpml::has_table( $icl );
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own read, holes counted above.
-		$rows = (array) $wpdb->get_results( $wpdb->prepare(
-			$wpml
-				? "SELECT p.ID, p.post_name, COALESCE( ic.language_code, '' ) AS lang
-				     FROM {$wpdb->posts} p
-				     LEFT JOIN {$icl} ic ON ic.element_id = p.ID AND ic.element_type = 'post_product'
-				    WHERE p.post_type = 'product' AND p.post_status IN ( 'publish', 'private' )
-				      AND p.post_name IN ( {$holes} )"
-				: "SELECT p.ID, p.post_name, '' AS lang
-				     FROM {$wpdb->posts} p
-				    WHERE p.post_type = 'product' AND p.post_status IN ( 'publish', 'private' )
-				      AND p.post_name IN ( {$holes} )",
-			$slugs
-		), ARRAY_A );
-		// phpcs:enable
-		foreach ( $rows as $r ) {
-			self::$products[ (string) $r['post_name'] ][ (string) $r['lang'] ] = (int) $r['ID'];
-		}
-		self::$warmed = true;
-	}
-
-	/** Ce que warm_products() a trouve : slug => langue => id. */
-	private static array $products = [];
-	private static bool $warmed    = false;
-
-	public static function product_of_url( string $url ): int {
-		$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
-		$bits = '' === $path ? [] : explode( '/', $path );
-		$slug = $bits ? (string) end( $bits ) : '';
-		if ( '' === $slug || ! isset( self::$products[ $slug ] ) ) {
-			return 0;
-		}
-		$found = self::$products[ $slug ];
-		// PLUSIEURS LANGUES PORTENT LE MEME SLUG : celle de l adresse tranche.
-		$lang = self::lang_of_url( $url );
-		if ( '' !== $lang && isset( $found[ $lang ] ) ) {
-			return (int) $found[ $lang ];
-		}
-		return (int) reset( $found );
-	}
 	/**
 	 * CE QUE CHAQUE CATEGORIE A VENDU, toutes langues confondues.
 	 *
@@ -842,7 +713,12 @@ final class DZE_Netlinking {
 	 * boutique, et rendre une liste de domaines ferait croire le contraire.
 	 */
 	public static function domains(): array {
-		$home = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+		// L ADRESSE ENREGISTREE, PAS home_url() : WPML la reecrit dans la langue
+		// de la requete. La lecture tourne en cron, declenche par une visite sur
+		// n importe quel domaine ; sur le domaine francais, home_url() rendait
+		// kula-tactical.fr, deja dans la liste, et le domaine principal n y
+		// entrait plus — les pages anglaises perdaient leur langue.
+		$home = (string) wp_parse_url( (string) get_option( 'home' ), PHP_URL_HOST );
 		$home = (string) preg_replace( '/^www\./', '', (string) $home );
 		$def  = self::default_lang();
 		if ( 2 !== self::negotiation() ) {
@@ -1003,159 +879,311 @@ final class DZE_Netlinking {
 	/**
 	 * QUI MERITE UN LIEN, ET DANS QUEL ORDRE — sans reseau, donc eprouvable.
 	 *
-	 * « A portee » veut dire : au-dela de la premiere place et en deca de la
-	 * trentieme. Plus haut, un lien ne change presque rien, la page y est deja.
-	 * Plus bas, un lien seul ne suffira pas, et promettre le contraire est le
-	 * genre de conseil qui fait perdre un mois.
+	 * UNE LIGNE PAR CATEGORIE. Google rend des adresses, et une categorie peut
+	 * en avoir plusieurs (avec ou sans barre finale, un ancien slug) : elles
+	 * s additionnent, et la position est la moyenne ponderee par les
+	 * impressions, comme Search Console la calcule. Une adresse qui n est pas
+	 * une categorie — fiche produit, article, page — est ignoree : ni cible, ni
+	 * chiffre.
 	 *
-	 * Le plancher d impressions ecarte les pages que trois personnes ont vues :
-	 * un gain calcule sur cinq impressions est un chiffre, pas une information.
+	 * Une categorie que Google n a montree a personne mais qui VEND a sa ligne
+	 * aussi : c est une information, et souvent la plus utile.
 	 *
-	 * @param array<string,array<string,mixed>> $pages
-	 * @return array<int,array<string,mixed>>
+	 * CE QUE DIT LE STATUT :
+	 *   reach   un lien la ferait monter : au-dela de la 3e place, en deca de
+	 *           la 30e, assez d impressions pour qu un gain veuille dire
+	 *           quelque chose, et un taux de clic sous celui de la 5e place ;
+	 *   strong  deja dans les trois premiers, ou deja au taux de clic que la
+	 *           5e place donnerait ;
+	 *   unseen  vend, et Google ne l a montree a personne sur la periode ;
+	 *   far     au-dela de la 30e place, ou trop peu vue pour en juger ;
+	 *   skip    jamais une cible : noindex, vide, ou la categorie par defaut.
+	 *
+	 * @param array<string,array<string,mixed>> $pages    Ce que Search Console rend, par adresse.
+	 * @param array<int,array<string,mixed>>    $sales    Ventes par categorie (sales_by_term()).
+	 * @param array<string,int>                 $slug_map « langue|slug » => term_id (slug_map()).
+	 * @param array<int,array<string,mixed>>    $meta     Ce que la boutique sait de chaque categorie (term_meta()).
+	 * @return array<int,array<string,mixed>> Les categories, a portee d abord et par priorite.
 	 */
-	public static function rank( array $pages, array $sales = [], array $slug_map = [], array $psales = [] ): array {
-		// DEUX PASSES, ET LA PREMIERE NE COUTE RIEN : on ecarte d abord tout ce
-		// qui n est pas a portee, puis on demande a la base les produits des
-		// SEULES adresses restantes — une requete au lieu de deux cents.
-		$reach = [];
+	public static function rank( array $pages, array $sales = [], array $slug_map = [], array $meta = [] ): array {
+		$by = [];
 		foreach ( $pages as $p ) {
-			$pos = (float) ( $p['pos'] ?? 0 );
-			if ( $pos >= 4.0 && $pos <= 30.0 && (float) ( $p['impr'] ?? 0 ) >= 20 ) {
-				$reach[] = (string) ( $p['url'] ?? '' );
-			}
-		}
-		if ( $psales && $reach ) {
-			self::warm_products( $reach );
-		}
-		$out = [];
-		foreach ( $pages as $p ) {
-			$pos = (float) ( $p['pos'] ?? 0 );
-			if ( $pos < 4.0 || $pos > 30.0 || (float) ( $p['impr'] ?? 0 ) < 20 ) {
-				continue;
-			}
-			$gain = (float) $p['impr'] * max( 0.0, self::ctr_at( 5 ) - (float) ( $p['ctr'] ?? 0 ) );
-			if ( $gain < 1 ) {
-				continue; // deja au plafond de ce que la place permet.
-			}
-			$terms = (array) ( $p['terms'] ?? [] );
-			usort( $terms, static fn( $a, $b ) => (float) $b['impr'] <=> (float) $a['impr'] );
-			$p['terms'] = array_slice( $terms, 0, self::KEEP_ANCHOR );
-			$p['gain']  = $gain;
-
-			// CE QUE CETTE PAGE VEND — la categorie derriere elle, ou le produit.
-			//
-			// « Le module recroise-t-il la data des urls produits aussi ? » Il ne
-			// le faisait pas, et une fiche produit en douzieme position n avait
-			// aucun chiffre en face d elle. On cherche donc d abord une
-			// categorie, puis un produit : l adresse d un produit ne ressemble
-			// pas a celle d une categorie, donc les deux ne se marchent pas
-			// dessus, et le produit est la lecture la plus sure des deux —
-			// ce sont SES ventes, pas celles d un rayon entier.
 			$url = (string) ( $p['url'] ?? '' );
 			$tid = $slug_map ? self::term_of_url( $url, $slug_map ) : 0;
-			$pid = 0;
-			if ( ! $tid && $psales ) {
-				$pid = self::product_of_url( $url );
+			if ( ! $tid ) {
+				continue;
 			}
-			$sold = [];
-			if ( $tid && isset( $sales[ $tid ] ) ) {
-				$sold = (array) $sales[ $tid ];
-			} elseif ( $pid && isset( $psales[ $pid ] ) ) {
-				$sold = (array) $psales[ $pid ];
+			$impr = (float) ( $p['impr'] ?? 0 );
+			if ( ! isset( $by[ $tid ] ) ) {
+				$by[ $tid ] = [ 'url' => $url, 'prop' => (string) ( $p['prop'] ?? '' ), 'lang' => (string) ( $p['lang'] ?? '' ), 'clicks' => 0.0, 'impr' => 0.0, 'pos_w' => 0.0, 'best' => -1.0, 'terms' => [] ];
 			}
-			$p['tid']     = $tid;
-			$p['pid']     = $pid;
-			$p['kind']    = $tid ? 'category' : ( $pid ? 'product' : '' );
-			$p['units']   = (int) ( $sold['units'] ?? 0 );
-			$p['revenue'] = (float) ( $sold['revenue'] ?? 0.0 );
+			$by[ $tid ]['clicks'] += (float) ( $p['clicks'] ?? 0 );
+			$by[ $tid ]['impr']   += $impr;
+			$by[ $tid ]['pos_w']  += (float) ( $p['pos'] ?? 0 ) * $impr;
+			// L ADRESSE QUI COMPTE est celle que Google montre le plus.
+			if ( $impr > $by[ $tid ]['best'] ) {
+				$by[ $tid ]['best'] = $impr;
+				$by[ $tid ]['url']  = $url;
+				$by[ $tid ]['prop'] = (string) ( $p['prop'] ?? '' );
+			}
+			foreach ( (array) ( $p['terms'] ?? [] ) as $t ) {
+				$q = (string) ( $t['q'] ?? '' );
+				if ( '' === $q ) {
+					continue;
+				}
+				$ti = (float) ( $t['impr'] ?? 0 );
+				$by[ $tid ]['terms'][ $q ]['impr']  = (float) ( $by[ $tid ]['terms'][ $q ]['impr'] ?? 0 ) + $ti;
+				$by[ $tid ]['terms'][ $q ]['pos_w'] = (float) ( $by[ $tid ]['terms'][ $q ]['pos_w'] ?? 0 ) + (float) ( $t['pos'] ?? 0 ) * $ti;
+			}
+		}
+		// CE QUI VEND SANS ETRE VU : une ligne aussi, sans chiffre Google.
+		foreach ( $sales as $tid => $sold ) {
+			$tid = (int) $tid;
+			if ( $tid && ! isset( $by[ $tid ] ) && isset( $meta[ $tid ] ) && (int) ( $sold['units'] ?? 0 ) > 0 ) {
+				$by[ $tid ] = [ 'url' => '', 'prop' => '', 'lang' => '', 'clicks' => 0.0, 'impr' => 0.0, 'pos_w' => 0.0, 'best' => 0.0, 'terms' => [] ];
+			}
+		}
+		$marks = self::brand_marks();
+		$out   = [];
+		foreach ( $by as $tid => $row ) {
+			$m      = (array) ( $meta[ $tid ] ?? [] );
+			$impr   = (float) $row['impr'];
+			$clicks = (float) $row['clicks'];
+			$pos    = $impr > 0 ? (float) $row['pos_w'] / $impr : 0.0;
+			$ctr    = $impr > 0 ? $clicks / $impr : 0.0;
+			$sold   = (array) ( $sales[ $tid ] ?? [] );
+			$units  = (int) ( $sold['units'] ?? 0 );
+			$rev    = (float) ( $sold['revenue'] ?? 0.0 );
 
-			// CE QU UN CLIC RAPPORTE ICI. « Manque comptage de la valeur de
-			// chaque clic. » Le chiffre d affaires divise par les clics de
-			// Google : il SURESTIME, puisque les ventes viennent aussi du
-			// direct, de la publicite et des e-mails, et c est dit. Il sert a
-			// comparer deux pages entre elles.
-			$clicks           = max( 1.0, (float) ( $p['clicks'] ?? 0 ) );
-			$p['per_click']   = $p['revenue'] > 0 ? $p['revenue'] / $clicks : 0.0;
+			// LES ANCRES : ce que les gens tapent deja pour arriver ici, la plus
+			// vue en tete — SANS LA MARQUE. « kula tactical gorka » dit le nom de
+			// la boutique ; c est une ancre de marque, pas un mot a viser.
+			$terms = [];
+			foreach ( (array) $row['terms'] as $q => $t ) {
+				if ( self::is_brand( (string) $q, $marks ) ) {
+					continue;
+				}
+				$ti      = (float) $t['impr'];
+				$terms[] = [ 'q' => (string) $q, 'impr' => $ti, 'pos' => $ti > 0 ? (float) $t['pos_w'] / $ti : 0.0 ];
+			}
+			usort( $terms, static fn( $a, $b ) => $b['impr'] <=> $a['impr'] );
+			$terms = array_slice( $terms, 0, self::KEEP_ANCHOR );
 
+			// JAMAIS UNE CIBLE : un lien vers une page que Google ne doit pas
+			// indexer, ou vers un rayon vide, est un lien perdu.
+			$skip = '';
+			if ( ! empty( $m['default'] ) ) {
+				$skip = 'default';
+			} elseif ( ! empty( $m['noindex'] ) ) {
+				$skip = 'noindex';
+			} elseif ( ! empty( $m['empty'] ) ) {
+				$skip = 'empty';
+			}
+			$gain = 0.0;
+			if ( '' !== $skip ) {
+				$status = 'skip';
+			} elseif ( $impr <= 0 ) {
+				$status = 'unseen';
+			} elseif ( $pos < 4.0 ) {
+				$status = 'strong';
+			} elseif ( $pos <= 30.0 && $impr >= self::MIN_IMPR ) {
+				$gain   = $impr * max( 0.0, self::ctr_at( 5 ) - $ctr );
+				$status = $gain >= 1 ? 'reach' : 'strong';
+			} else {
+				$status = 'far';
+			}
+			if ( 'reach' !== $status ) {
+				$gain = 0.0;
+			}
 			// UNE PRIORITE, ET SURTOUT PAS UNE PREVISION.
 			//
 			// Le premier calcul multipliait les clics a gagner par « unites
 			// vendues / clics Google » : /military-balaclava sortait a +171
 			// unites pour +17 clics. Le rapport est structurellement faux.
-			//
-			// Ce qu on peut faire honnetement, c est CLASSER : le trafic a
-			// gagner, pondere par le fait que cette page vende. Le logarithme
-			// ecrase l ecart entre 50 et 500 sans effacer celui entre 0 et 50.
-			$p['worth'] = $p['units'] > 0 ? $gain * ( 1.0 + log10( 1.0 + (float) $p['units'] ) ) : 0.0;
-			$out[]      = $p;
-		}		// L ARGENT D ABORD, LE TRAFIC ENSUITE. Une page qui ne vend pas — un
-		// article, une page d information — n est pas jetee : elle se classe
-		// derriere celles qui vendent, entre elles sur les clics a gagner.
-		usort( $out, static function ( $a, $b ) {
-			$wa = (float) ( $a['worth'] ?? 0 );
-			$wb = (float) ( $b['worth'] ?? 0 );
-			if ( $wa !== $wb ) {
-				return $wb <=> $wa;
+			// Ce qu on peut faire honnetement, c est CLASSER : le trafic a gagner,
+			// pondere par le fait que la categorie vende. Le logarithme ecrase
+			// l ecart entre 50 et 500 sans effacer celui entre 0 et 50.
+			$worth = 'reach' === $status && $units > 0 ? $gain * ( 1.0 + log10( 1.0 + (float) $units ) ) : 0.0;
+
+			// UN TITRE AVANT UN LIEN. Bien placee et peu cliquee, une page a un
+			// probleme d extrait — titre, description — qu aucun lien ne regle,
+			// et qui se regle gratuitement.
+			$ctr_low = $impr >= 100 && $pos >= 1.0 && $pos <= 10.0 && $ctr < 0.5 * self::ctr_at( (int) round( $pos ) );
+
+			$out[] = [
+				'tid'       => (int) $tid,
+				'lang'      => '' !== (string) $row['lang'] ? (string) $row['lang'] : (string) ( $m['lang'] ?? '' ),
+				'name'      => (string) ( $m['name'] ?? '' ),
+				'url'       => (string) $row['url'],
+				'prop'      => (string) $row['prop'],
+				'clicks'    => $clicks,
+				'impr'      => $impr,
+				'ctr'       => $ctr,
+				'pos'       => $pos,
+				'units'     => $units,
+				'revenue'   => $rev,
+				// CE QU UN CLIC RAPPORTE ICI. « Manque comptage de la valeur de
+				// chaque clic. » Le chiffre d affaires de la categorie divise par
+				// les clics de Google sur elle : il SURESTIME, puisque les ventes
+				// viennent aussi du direct, de la publicite et des e-mails, et
+				// c est dit. Il sert a comparer deux categories entre elles.
+				'per_click' => $rev > 0 && $clicks >= 1 ? $rev / $clicks : 0.0,
+				'gain'      => $gain,
+				'worth'     => $worth,
+				'status'    => $status,
+				'skip'      => $skip,
+				'ctr_low'   => $ctr_low,
+				// Les liens internes qui arrivent deja, quand le maillage les a
+				// comptes ; null quand il ne sait pas.
+				'in'        => isset( $m['in'] ) ? (int) $m['in'] : null,
+				'terms'     => $terms,
+			];
+		}
+		// A PORTEE D ABORD, PAR PRIORITE PUIS PAR CLICS A GAGNER ; le reste par
+		// ce qu il vend, puis par ce que Google en montre.
+		$order = [ 'reach' => 0, 'strong' => 1, 'unseen' => 2, 'far' => 3, 'skip' => 4 ];
+		usort( $out, static function ( $a, $b ) use ( $order ) {
+			$sa = $order[ $a['status'] ] ?? 9;
+			$sb = $order[ $b['status'] ] ?? 9;
+			if ( $sa !== $sb ) {
+				return $sa <=> $sb;
 			}
-			return (float) $b['gain'] <=> (float) $a['gain'];
+			return [ $b['worth'], $b['gain'], $b['revenue'], $b['impr'] ] <=> [ $a['worth'], $a['gain'], $a['revenue'], $a['impr'] ];
 		} );
-		return self::share_out( $out );
+		return $out;
+	}
+
+	/** Un texte reduit a ses lettres et chiffres, en minuscules : « Kula-Tactical » → « kulatactical ». */
+	public static function squash( string $s ): string {
+		$s = function_exists( 'mb_strtolower' ) ? mb_strtolower( $s, 'UTF-8' ) : strtolower( $s );
+		return (string) preg_replace( '/[^\p{L}\p{N}]+/u', '', $s );
 	}
 
 	/**
-	 * CHAQUE LANGUE GARDE UNE PLACE DANS LA LISTE.
+	 * CE QUI DESIGNE LA BOUTIQUE ELLE-MEME dans une requete : son nom, et le
+	 * nom de chacun de ses domaines (kula-tactical.fr → « kulatactical »).
 	 *
-	 * Mesure sur la boutique : 58 cibles anglaises, une francaise, une
-	 * polonaise. Le plafond etant global, l anglais l absorbait et les quatre
-	 * catalogues traduits disparaissaient — alors qu on repare le maillage
-	 * externe d une langue, pas de la boutique entiere, et qu une langue dont
-	 * on ne voit jamais une page est une langue sur laquelle on ne travaille
-	 * jamais.
-	 *
-	 * Chacune emporte d abord sa part, dans SON ordre ; ce qui reste va aux
-	 * meilleures, quelle que soit la langue. L ordre general est ensuite rendu
-	 * tel quel, pour que la tete de liste reste la tete de liste.
-	 *
-	 * @param array<int,array<string,mixed>> $ranked Deja classees.
-	 * @return array<int,array<string,mixed>>
+	 * @return string[]
 	 */
-	public static function share_out( array $ranked ): array {
-		if ( count( $ranked ) <= self::KEEP ) {
-			return $ranked;
+	public static function brand_marks(): array {
+		$marks = [];
+		$name  = self::squash( (string) get_option( 'blogname' ) );
+		if ( strlen( $name ) >= 4 ) {
+			$marks[ $name ] = true;
 		}
-		$by = [];
-		foreach ( $ranked as $r ) {
-			$by[ (string) ( $r['lang'] ?? '' ) ][] = $r;
-		}
-		if ( count( $by ) < 2 ) {
-			return array_slice( $ranked, 0, self::KEEP );
-		}
-		// UN PLANCHER, PAS UN PARTAGE EGAL. Diviser le plafond par le nombre de
-		// langues donnait autant de place a un catalogue qui vend presque rien
-		// qu a celui qui porte la boutique — ce qui repousse hors de l ecran du
-		// vrai travail anglais au profit de lignes francaises marginales.
-		//
-		// Chacune est donc SEULEMENT assuree d etre la ; tout le reste se donne
-		// au merite, et l anglais garde naturellement la plus grosse part.
-		$share = self::MIN_PER_LANG;
-		$keep  = [];
-		foreach ( $by as $lang_rows ) {
-			foreach ( array_slice( $lang_rows, 0, $share ) as $one ) {
-				$keep[ (string) $one['url'] ] = true;
+		foreach ( self::domains() as $host ) {
+			$bits = explode( '.', (string) $host );
+			if ( count( $bits ) >= 2 ) {
+				$label = self::squash( (string) $bits[ count( $bits ) - 2 ] );
+				if ( strlen( $label ) >= 4 ) {
+					$marks[ $label ] = true;
+				}
 			}
 		}
-		// Ce qui reste va aux meilleures, sans regarder la langue.
-		foreach ( $ranked as $r ) {
-			if ( count( $keep ) >= self::KEEP ) {
-				break;
+		return array_keys( $marks );
+	}
+
+	/** Une requete qui nomme la boutique. */
+	public static function is_brand( string $q, array $marks ): bool {
+		$s = self::squash( $q );
+		foreach ( $marks as $m ) {
+			if ( '' !== (string) $m && false !== strpos( $s, (string) $m ) ) {
+				return true;
 			}
-			$keep[ (string) $r['url'] ] = true;
 		}
+		return false;
+	}
+
+	/**
+	 * CE QUE LA BOUTIQUE SAIT DE CHAQUE CATEGORIE, en trois requetes : son nom et
+	 * sa langue, si elle est vide, si Rank Math la dit « noindex », si c est la
+	 * categorie par defaut — et combien de ses propres pages pointent deja vers
+	 * elle, quand le maillage interne l a compte.
+	 *
+	 * VIDE VEUT DIRE VIDE AVEC SA DESCENDANCE : une categorie de tete ne porte
+	 * souvent rien elle-meme et tout son rayon dessous.
+	 *
+	 * @return array<int,array{name:string,lang:string,empty:bool,noindex:bool,default:bool,in?:int}>
+	 */
+	public static function term_meta(): array {
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return [];
+		}
+		$icl  = $wpdb->prefix . 'icl_translations';
+		$wpml = class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() && DZE_Wpml::has_table( $icl );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- core and WPML tables, read once per reading.
+		$rows = (array) $wpdb->get_results(
+			$wpml
+				? "SELECT t.term_id AS tid, t.name AS name, tt.parent AS parent, tt.count AS n, COALESCE( ic.language_code, '' ) AS lang, COALESCE( ic.trid, 0 ) AS trid
+				     FROM {$wpdb->terms} t
+				     INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				     LEFT JOIN {$icl} ic ON ic.element_id = tt.term_taxonomy_id AND ic.element_type = 'tax_product_cat'
+				    WHERE tt.taxonomy = 'product_cat'"
+				: "SELECT t.term_id AS tid, t.name AS name, tt.parent AS parent, tt.count AS n, '' AS lang, 0 AS trid
+				     FROM {$wpdb->terms} t
+				     INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				    WHERE tt.taxonomy = 'product_cat'",
+			ARRAY_A
+		);
+		$noindex = [];
+		foreach ( (array) $wpdb->get_results(
+			"SELECT tm.term_id AS tid, tm.meta_value AS v
+			   FROM {$wpdb->termmeta} tm
+			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = tm.term_id AND tt.taxonomy = 'product_cat'
+			  WHERE tm.meta_key = 'rank_math_robots'",
+			ARRAY_A
+		) as $r ) {
+			$v = maybe_unserialize( (string) $r['v'] );
+			if ( is_array( $v ) && in_array( 'noindex', $v, true ) ) {
+				$noindex[ (int) $r['tid'] ] = true;
+			}
+		}
+		// phpcs:enable
+		$own  = [];
+		$kids = [];
+		$trid = [];
+		foreach ( $rows as $r ) {
+			$tid          = (int) $r['tid'];
+			$own[ $tid ]  = (int) $r['n'];
+			$trid[ $tid ] = (int) $r['trid'];
+			$kids[ (int) $r['parent'] ][] = $tid;
+		}
+		// Ce que porte une categorie avec toute sa descendance, garde contre une
+		// boucle de parents qu une base abimee pourrait contenir.
+		$total = static function ( int $tid ) use ( &$total, $own, $kids ): int {
+			static $seen = [];
+			if ( isset( $seen[ $tid ] ) ) {
+				return 0;
+			}
+			$seen[ $tid ] = true;
+			$n = (int) ( $own[ $tid ] ?? 0 );
+			foreach ( (array) ( $kids[ $tid ] ?? [] ) as $k ) {
+				$n += $total( (int) $k );
+			}
+			unset( $seen[ $tid ] );
+			return $n;
+		};
+		// LA CATEGORIE PAR DEFAUT, dans toutes ses langues : WPML en donne une
+		// traduction par langue, et « Non classe » n est pas plus une cible en
+		// polonais qu en anglais.
+		$def      = (int) get_option( 'default_product_cat', 0 );
+		$def_trid = (int) ( $trid[ $def ] ?? 0 );
+		$census   = class_exists( 'DZE_Mesh' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'mesh' ) )
+			? (array) ( DZE_Mesh::census()['per'] ?? [] )
+			: [];
 		$out = [];
-		foreach ( $ranked as $r ) {
-			if ( isset( $keep[ (string) $r['url'] ] ) ) {
-				$out[] = $r;
+		foreach ( $rows as $r ) {
+			$tid         = (int) $r['tid'];
+			$out[ $tid ] = [
+				'name'    => (string) $r['name'],
+				'lang'    => (string) $r['lang'],
+				'empty'   => 0 === $total( $tid ),
+				'noindex' => isset( $noindex[ $tid ] ),
+				'default' => $tid === $def || ( $def_trid > 0 && $trid[ $tid ] === $def_trid ),
+			];
+			if ( isset( $census[ 'product_cat:' . $tid ]['in'] ) ) {
+				$out[ $tid ]['in'] = (int) $census[ 'product_cat:' . $tid ]['in'];
 			}
 		}
 		return $out;
@@ -1169,11 +1197,12 @@ final class DZE_Netlinking {
 		$days  = self::window();
 		$end   = gmdate( 'Y-m-d', time() - 2 * DAY_IN_SECONDS ); // Google a deux jours de retard.
 		$start = gmdate( 'Y-m-d', time() - ( $days + 2 ) * DAY_IN_SECONDS );
-
-		// UNE PROPRIETE PAR LANGUE, et toutes dans le meme panier : le classement
-		// se fait ensuite entre elles, parce que l effort de netlinking se decide
-		// sur toute la boutique et pas langue par langue.
+		// LES CATEGORIES D ABORD : seules leurs adresses sont gardees, et les
+		// requetes ne sont rangees que sous elles — cinq mille fiches produit
+		// n ont rien a faire en memoire pendant la lecture.
+		$map   = self::slug_map();
 		$pages = [];
+		$seen  = 0;
 		foreach ( $props as $prop ) {
 			$base = '/sites/' . rawurlencode( $prop ) . '/searchAnalytics/query';
 			foreach ( (array) ( self::call( $base, [
@@ -1187,16 +1216,18 @@ final class DZE_Netlinking {
 				if ( '' === $url ) {
 					continue;
 				}
+				$seen++;
+				if ( ! self::term_of_url( $url, $map ) ) {
+					continue;
+				}
 				$pages[ $url ] = [
 					'url'    => $url,
 					'clicks' => (float) ( $r['clicks'] ?? 0 ),
 					'impr'   => (float) ( $r['impressions'] ?? 0 ),
 					'ctr'    => (float) ( $r['ctr'] ?? 0 ),
 					'pos'    => (float) ( $r['position'] ?? 0 ),
-					// D OU ELLE VIENT : la propriete permet de renvoyer vers la
-					// source dans Search Console, la langue de filtrer un catalogue
-					// a la fois — cinq domaines veut dire cinq catalogues, et on
-					// repare le maillage externe d une langue, pas des cinq.
+					// D OU ELLE VIENT : la propriete renvoie a la source dans Search
+					// Console, la langue permet de travailler un catalogue a la fois.
 					'prop'   => $prop,
 					'lang'   => self::lang_of_url( $url ),
 					'terms'  => [],
@@ -1222,9 +1253,9 @@ final class DZE_Netlinking {
 			}
 		}
 
-		// 3. Le classement — separe de la lecture, parce qu une regle enfouie
-		// dans un appel reseau ne s eprouve pas.
-		$out = self::rank( $pages, self::sales_by_term( $days ), self::slug_map(), self::sales_by_product( $days ) );
+		// Le classement — separe de la lecture, parce qu une regle enfouie dans
+		// un appel reseau ne s eprouve pas.
+		$out = self::rank( $pages, self::sales_by_term( $days ), $map, self::term_meta() );
 
 		update_option( self::OPT_DATA, [
 			'at'       => time(),
@@ -1233,9 +1264,11 @@ final class DZE_Netlinking {
 			'from'     => $start,
 			'to'       => $end,
 			'rows'     => $out,
-			'seen'     => count( $pages ),
+			'seen'     => $seen,
+			'model'    => 2, // une ligne par categorie ; 1 melangeait produits et articles.
 		], false );
-		return [ 'targets' => count( $out ), 'pages' => count( $pages ) ];
+		$reach = count( array_filter( $out, static fn( $r ) => 'reach' === $r['status'] ) );
+		return [ 'targets' => $reach, 'categories' => count( $out ), 'pages' => $seen ];
 	}
 
 	public static function data(): array {
@@ -1320,38 +1353,55 @@ final class DZE_Netlinking {
 		);
 	}
 
+	/**
+	 * DEUX ONGLETS, COMME LES TRADUCTIONS : le travail, et d ou il vient.
+	 *
+	 * « Les menus du module traduction WPML devraient servir de modèle. » Le
+	 * premier onglet est la liste des categories ; le second dit a quelle
+	 * Search Console le site est relie, avec quel compte, et permet de
+	 * deconnecter — ce qui vivait en bas de page, plie, ou n existait pas.
+	 */
+	private static function tab_now(): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$want = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( (string) $_GET['tab'] ) ) : '';
+		return 'console' === $want ? 'console' : 'categories';
+	}
+
 	public static function render_page(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		echo '<div class="wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'netlinking' ) ) . '</h1>';
+		$tab = self::tab_now();
+		echo '<div class="wrap dze-wrap dze-admin dze-nl"><h1>' . esc_html( DZE_Screens::label( 'netlinking' ) ) . '</h1>';
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
 		if ( ! empty( $_GET['dze_nl_error'] ) ) {
 			echo '<div class="notice notice-error"><p>' . esc_html( sanitize_text_field( wp_unslash( (string) $_GET['dze_nl_error'] ) ) ) . '</p></div>'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		}
-		self::render_intro();
+		$names = DZE_Screens::tabs_of( 'netlinking' );
+		$strip = [];
+		foreach ( [ 'categories', 'console' ] as $id ) {
+			$strip[ $id ] = [
+				'label' => (string) ( $names[ $id ] ?? $id ),
+				'url'   => add_query_arg( 'tab', $id, self::page_url() ),
+				// UN BADGE VEUT DIRE « OCCUPE-TOI DE MOI » : les categories a
+				// pousser, et rien sur l onglet de la connexion.
+				'n'     => 'categories' === $id && self::connected() ? self::targets_count() : null,
+			];
+		}
+		echo wp_kses_post( DZE_Screens::strip( $strip, $tab ) );
 		if ( ! self::connected() ) {
 			self::render_connect();
 			echo '</div>';
 			return;
 		}
-		self::render_targets();
+		if ( 'console' === $tab ) {
+			self::render_console();
+		} else {
+			self::render_targets();
+		}
 		echo '</div>';
 	}
 
-	/**
-	 * CE QUE CET ECRAN EST, EN DEUX LIGNES ET PAS DIX.
-	 *
-	 * « Si un module est bien fait, il n'est pas nécessaire d'ajouter du texte
-	 * partout. » Ce qui doit etre su pour s en servir tient au-dessus ; ce qui
-	 * explique COMMENT les chiffres sont faits est replie sous le tableau, pour
-	 * qui veut le verifier.
-	 */
-	private static function render_intro(): void {
-		echo '<p class="description" style="max-width:900px;">';
-		esc_html_e( 'Which of your pages a link from another site would lift, and which words that link should be made of. Read from Search Console once a day; nothing is written to the shop and nothing is paid for.', 'dazont-ecom' );
-		echo '</p>';
-	}
 	private static function render_connect(): void {
 		$me  = self::instance();
 		$o   = self::client();
@@ -1425,16 +1475,51 @@ final class DZE_Netlinking {
 		}
 		echo '</div>';
 	}
+
+	/**
+	 * L ONGLET SEARCH CONSOLE : le compte, les proprietes lues, et la sortie.
+	 *
+	 * « Pas de paramètres pour ce module netlinking. Où je vois à quelle Search
+	 * Console le site est lié ? » Ici, en entier et ouvert.
+	 */
+	private static function render_console(): void {
+		$c = self::connection();
+		$d = self::data();
+		echo '<div class="dze-trd-sec dze-nl-card"><div class="dze-nl-cardbody">';
+		echo '<h2>' . esc_html__( 'Google account', 'dazont-ecom' ) . '</h2>';
+		echo '<p>';
+		if ( ! empty( $c['connected'] ) ) {
+			printf(
+				/* translators: %s: how long ago */
+				esc_html__( 'Connected %s ago, read-only: this can see your Search Console figures and can never change anything there.', 'dazont-ecom' ),
+				esc_html( human_time_diff( (int) $c['connected'], time() ) )
+			);
+		} else {
+			esc_html_e( 'Connected, read-only: this can see your Search Console figures and can never change anything there.', 'dazont-ecom' );
+		}
+		echo '</p><p class="dze-nl-cardrow">';
+		$next = wp_next_scheduled( self::HOOK );
+		if ( $next ) {
+			echo '<span class="description">' . esc_html( sprintf(
+				/* translators: 1: a number of days, 2: how long until the next reading */
+				__( 'Reads the last %1$s days once a day; next reading in %2$s.', 'dazont-ecom' ),
+				number_format_i18n( self::window() ),
+				human_time_diff( time(), (int) $next )
+			) ) . '</span>';
+		}
+		echo '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=dze_nl_disconnect' ), 'dze_nl_disconnect' ) ) . '">' . esc_html__( 'Disconnect', 'dazont-ecom' ) . '</a>';
+		echo '</p></div></div>';
+		self::render_props( $d );
+	}
+
 	/**
 	 * LE BOUTON ET SON ECOUTEUR NE SE SEPARENT PAS.
 	 *
 	 * « Il ne se passe rien. » Le script vivait a la FIN de la liste, apres le
 	 * retour anticipe qui sert quand il n y a rien a montrer — donc le jour ou
 	 * la liste etait vide, le bouton etait dessine et plus personne ne
-	 * l ecoutait. Un clic sans effet et sans message, c est-a-dire le pire des
-	 * deux mondes : celui ou l on croit que c est Google qui ne repond pas.
-	 *
-	 * Il est imprime avec le bouton, une fois, quoi qu il y ait dessous.
+	 * l ecoutait. Il est imprime avec le bouton, une fois, quoi qu il y ait
+	 * dessous.
 	 */
 	private static function render_script(): void {
 		?>
@@ -1461,7 +1546,7 @@ final class DZE_Netlinking {
 					.fail( function () { $b.prop( 'disabled', false ); $s.text( 'Error' ); } );
 			}
 			$( '#dze-nl-refresh' ).on( 'click', function () { read( 0 ); } );
-			// CHANGER LA FENETRE RELIT DANS LA FOULEE : un reglage enregistre qui
+			// CHANGER LA PERIODE RELIT DANS LA FOULEE : un reglage enregistre qui
 			// ne prend effet qu a la lecture suivante est un reglage dont on
 			// croit qu il n a rien fait.
 			$( '#dze-nl-days' ).on( 'change', function () { read( $( this ).val() ); } );
@@ -1481,24 +1566,25 @@ final class DZE_Netlinking {
 	}
 
 	/**
-	 * LES CHIFFRES DE TETE : ce qu il y a, sur quoi, et depuis quand.
+	 * CE QUE LA LISTE TIENT AUJOURD HUI, en une ligne et en chiffres.
 	 *
 	 * Une pastille se tait quand elle n a rien a dire — « 0 » se lit comme un
 	 * probleme la ou il n y a qu une absence.
 	 */
 	private static function render_chips( array $d, array $rows ): void {
-		$out = '';
-		if ( $rows ) {
+		$out   = '';
+		$reach = array_values( array_filter( $rows, static fn( $r ) => 'reach' === (string) ( $r['status'] ?? '' ) ) );
+		if ( $reach ) {
 			$out .= self::chip( 'admin-links', sprintf(
-				/* translators: %s: how many pages */
-				_n( '%s page worth a link', '%s pages worth a link', count( $rows ), 'dazont-ecom' ),
-				number_format_i18n( count( $rows ) )
+				/* translators: %s: how many categories */
+				_n( '%s category worth a link', '%s categories worth a link', count( $reach ), 'dazont-ecom' ),
+				number_format_i18n( count( $reach ) )
 			) );
-			// CE QUE CES PAGES PESENT DEJA, parce qu un classement sans ordre de
+			// CE QUE CES CATEGORIES PESENT DEJA : un classement sans ordre de
 			// grandeur ne dit pas s il vaut une matinee ou un trimestre.
 			$money = 0.0;
 			$units = 0;
-			foreach ( $rows as $r ) {
+			foreach ( $reach as $r ) {
 				$money += (float) ( $r['revenue'] ?? 0 );
 				$units += (int) ( $r['units'] ?? 0 );
 			}
@@ -1508,15 +1594,8 @@ final class DZE_Netlinking {
 					__( '%1$s units · %2$s', 'dazont-ecom' ),
 					number_format_i18n( $units ),
 					self::money( $money )
-				), __( 'What these pages already sell over the window read.', 'dazont-ecom' ) );
+				), __( 'What these categories already sell over the period read.', 'dazont-ecom' ) );
 			}
-		}
-		if ( ! empty( $d['seen'] ) ) {
-			$out .= self::chip( 'visibility', sprintf(
-				/* translators: %s: how many pages were read */
-				__( '%s pages read', 'dazont-ecom' ),
-				number_format_i18n( (int) $d['seen'] )
-			), __( 'Every page Search Console knows about, across every property.', 'dazont-ecom' ) );
 		}
 		if ( ! empty( $d['at'] ) ) {
 			$out .= self::chip( 'clock', sprintf(
@@ -1528,14 +1607,6 @@ final class DZE_Netlinking {
 				__( 'Covering %1$s to %2$s.', 'dazont-ecom' ),
 				(string) ( $d['from'] ?? '' ),
 				(string) ( $d['to'] ?? '' )
-			) );
-		}
-		$next = wp_next_scheduled( self::HOOK );
-		if ( $next ) {
-			$out .= self::chip( 'update', sprintf(
-				/* translators: %s: how long until the next reading */
-				__( 'next in %s', 'dazont-ecom' ),
-				human_time_diff( time(), (int) $next )
 			) );
 		}
 		if ( '' !== $out ) {
@@ -1582,55 +1653,9 @@ final class DZE_Netlinking {
 		echo '</p></div>';
 	}
 
-	/**
-	 * UNE LANGUE A LA FOIS, QUAND IL Y EN A PLUSIEURS.
-	 *
-	 * Cinq domaines veut dire cinq catalogues, et un classement qui les melange
-	 * ne se travaille pas. Le filtre est DANS L ADRESSE, donc une vue filtree
-	 * est un signet — la barre des Commentaires de WordPress, en plus petit.
-	 *
-	 * @param array<int,array<string,mixed>> $all
-	 */
-	private static function render_rail( array $all, string $now ): void {
-		$counts = [];
-		foreach ( $all as $r ) {
-			$code = (string) ( $r['lang'] ?? '' );
-			if ( '' !== $code ) {
-				$counts[ $code ] = ( $counts[ $code ] ?? 0 ) + 1;
-			}
-		}
-		if ( count( $counts ) < 2 ) {
-			return; // une langue n est pas un choix.
-		}
-		arsort( $counts );
-		$base = self::page_url();
-		$out  = [ sprintf(
-			'<a href="%1$s"%2$s>%3$s <span class="count">(%4$s)</span></a>',
-			esc_url( $base ),
-			'' === $now ? ' class="current"' : '',
-			esc_html__( 'All', 'dazont-ecom' ),
-			esc_html( number_format_i18n( count( $all ) ) )
-		) ];
-		foreach ( $counts as $code => $n ) {
-			// LES DRAPEAUX DE WPML, comme sur l ecran des traductions : une
-			// langue se reconnait d un coup d oeil, un code se lit.
-			$flag = class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'flag_html' )
-				? DZE_Wpml::flag_html( (string) $code )
-				: esc_html( strtoupper( (string) $code ) );
-			$out[] = sprintf(
-				'<a href="%1$s"%2$s>%3$s <span class="count">(%4$s)</span></a>',
-				esc_url( add_query_arg( 'lang', $code, $base ) ),
-				$now === $code ? ' class="current"' : '',
-				$flag,
-				esc_html( number_format_i18n( $n ) )
-			);
-		}
-		echo '<ul class="subsubsub" style="float:none;margin:0 0 10px;"><li>' . wp_kses_post( implode( ' |</li><li>', $out ) ) . '</li></ul>';
-	}
-
 	/** Le lien vers cette page DANS Search Console, pour aller voir la source. */
 	private static function gsc_url( string $page_url, string $property ): string {
-		if ( '' === $property ) {
+		if ( '' === $property || '' === $page_url ) {
 			return '';
 		}
 		return add_query_arg( [
@@ -1640,28 +1665,83 @@ final class DZE_Netlinking {
 	}
 
 	/**
+	 * CE QUE LA LISTE MONTRE, un filtre a la fois, comme les traductions.
+	 *
+	 * @return array<string,string> statut => libelle
+	 */
+	private static function statuses(): array {
+		return [
+			'reach'  => __( 'Worth a link', 'dazont-ecom' ),
+			'strong' => __( 'Already strong', 'dazont-ecom' ),
+			'unseen' => __( 'Selling, not seen in Google', 'dazont-ecom' ),
+			'far'    => __( 'Too far or too little seen', 'dazont-ecom' ),
+			'skip'   => __( 'Left out: noindex, empty', 'dazont-ecom' ),
+			'all'    => __( 'All categories', 'dazont-ecom' ),
+		];
+	}
+
+	/**
+	 * LES FILTRES, LUS DANS L ADRESSE : une vue filtree et triee est un signet,
+	 * comme les listes de WordPress. La liste s ouvre sur le travail — les
+	 * categories qui meritent un lien — et non sur tout le catalogue, comme le
+	 * tableau des traductions s ouvre sur « Not completed ».
+	 *
+	 * @return array{lang:string,status:string,s:string,by:string,dir:string,paged:int}
+	 */
+	private static function filters(): array {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$lang   = isset( $_GET['lang'] ) ? sanitize_key( wp_unslash( (string) $_GET['lang'] ) ) : '';
+		$status = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( (string) $_GET['status'] ) ) : 'reach';
+		$s      = isset( $_GET['s'] ) ? trim( sanitize_text_field( wp_unslash( (string) $_GET['s'] ) ) ) : '';
+		$paged  = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
+		// phpcs:enable
+		if ( ! isset( self::statuses()[ $status ] ) ) {
+			$status = 'reach';
+		}
+		[ $by, $dir ] = self::sort_now();
+		return [ 'lang' => $lang, 'status' => $status, 's' => $s, 'by' => $by, 'dir' => $dir, 'paged' => $paged ];
+	}
+
+	/** L adresse de la liste avec ces filtres, et ce qui change. */
+	private static function view_url( array $f, array $change = [] ): string {
+		$args = array_merge( [
+			'tab'    => 'categories',
+			'lang'   => $f['lang'],
+			'status' => $f['status'],
+			's'      => $f['s'],
+			'by'     => $f['by'],
+			'dir'    => $f['dir'],
+			'paged'  => $f['paged'],
+		], $change );
+		// Ce qui vaut le defaut ne s ecrit pas : l adresse reste lisible.
+		foreach ( [ 'lang' => '', 's' => '', 'status' => 'reach', 'by' => 'worth', 'dir' => 'desc', 'paged' => 1 ] as $k => $def ) {
+			if ( (string) $args[ $k ] === (string) $def ) {
+				unset( $args[ $k ] );
+			}
+		}
+		return add_query_arg( $args, self::page_url() );
+	}
+
+	/**
 	 * LES COLONNES, ET CELLE SUR LAQUELLE ON TRIE.
 	 *
-	 * « Manque fonction de tri par header. » Un tableau de soixante lignes dont
-	 * on ne peut pas changer l ordre impose la question qu il a choisie ; celui
-	 * qui cherche la page qui VEND le plus, ou celle qui a le plus
-	 * d impressions, doit pouvoir la poser.
+	 * « Manque fonction de tri par header. » Le tri est DANS L ADRESSE, comme
+	 * les filtres : une vue triee est un signet, et c est l idiome des tableaux
+	 * de WordPress.
 	 *
-	 * Le tri est DANS L ADRESSE, comme le filtre de langue : une vue triee est
-	 * un signet, et c est l idiome des tableaux de WordPress.
-	 *
-	 * @return array<string,array{label:string,title:string,num:bool}>
+	 * @return array<string,array{label:string,title:string}>
 	 */
 	private static function columns(): array {
 		return [
-			'pos'       => [ 'label' => __( 'Position', 'dazont-ecom' ), 'title' => __( 'Average position over the window.', 'dazont-ecom' ), 'num' => true ],
-			'impr'      => [ 'label' => __( 'Impressions', 'dazont-ecom' ), 'title' => __( 'How often Google showed it.', 'dazont-ecom' ), 'num' => true ],
-			'clicks'    => [ 'label' => __( 'Clicks', 'dazont-ecom' ), 'title' => __( 'How often it was clicked.', 'dazont-ecom' ), 'num' => true ],
-			'units'     => [ 'label' => __( 'Units', 'dazont-ecom' ), 'title' => __( 'What it sold over the same window, in this language.', 'dazont-ecom' ), 'num' => true ],
-			'revenue'   => [ 'label' => __( 'Revenue', 'dazont-ecom' ), 'title' => __( 'Converted to the shop currency at the rate recorded with each order.', 'dazont-ecom' ), 'num' => true ],
-			'per_click' => [ 'label' => __( 'Per click', 'dazont-ecom' ), 'title' => __( 'Revenue divided by the clicks Google sent. It overstates, because sales come from every source.', 'dazont-ecom' ), 'num' => true ],
-			'gain'      => [ 'label' => __( 'Clicks to gain', 'dazont-ecom' ), 'title' => __( 'Estimated: what it would do at about fifth place, against what it does now.', 'dazont-ecom' ), 'num' => true ],
-			'worth'     => [ 'label' => __( 'Priority', 'dazont-ecom' ), 'title' => __( 'No unit and no prediction: the traffic to gain, weighted by whether the page sells.', 'dazont-ecom' ), 'num' => true ],
+			'pos'       => [ 'label' => __( 'Position', 'dazont-ecom' ), 'title' => __( 'Average position of the category page in Google over the period.', 'dazont-ecom' ) ],
+			'impr'      => [ 'label' => __( 'Impressions', 'dazont-ecom' ), 'title' => __( 'How often Google showed the category page.', 'dazont-ecom' ) ],
+			'clicks'    => [ 'label' => __( 'Clicks', 'dazont-ecom' ), 'title' => __( 'How often the category page was clicked from Google.', 'dazont-ecom' ) ],
+			'in'        => [ 'label' => __( 'Internal links', 'dazont-ecom' ), 'title' => __( 'How many of your own pages link to it, as the internal linking module counted them.', 'dazont-ecom' ) ],
+			'units'     => [ 'label' => __( 'Units sold', 'dazont-ecom' ), 'title' => __( 'What the products filed in this category sold over the same period, in this language.', 'dazont-ecom' ) ],
+			'revenue'   => [ 'label' => __( 'Revenue', 'dazont-ecom' ), 'title' => __( 'Converted to the shop currency at the rate recorded with each order.', 'dazont-ecom' ) ],
+			'per_click' => [ 'label' => __( 'Per click', 'dazont-ecom' ), 'title' => __( 'Revenue divided by the clicks Google sent to the category. It overstates, because sales come from every source.', 'dazont-ecom' ) ],
+			'gain'      => [ 'label' => __( 'Clicks to gain', 'dazont-ecom' ), 'title' => __( 'Estimated: what the category would get at about fifth place, against what it gets now.', 'dazont-ecom' ) ],
+			'worth'     => [ 'label' => __( 'Priority', 'dazont-ecom' ), 'title' => __( 'No unit and no prediction: the clicks to gain, weighted by what the category sells.', 'dazont-ecom' ) ],
 		];
 	}
 
@@ -1671,188 +1751,322 @@ final class DZE_Netlinking {
 		$by  = isset( $_GET['by'] ) ? sanitize_key( wp_unslash( (string) $_GET['by'] ) ) : 'worth';
 		$dir = isset( $_GET['dir'] ) && 'asc' === $_GET['dir'] ? 'asc' : 'desc';
 		// phpcs:enable
-		if ( ! isset( self::columns()[ $by ] ) ) {
+		if ( 'name' !== $by && ! isset( self::columns()[ $by ] ) ) {
 			$by = 'worth';
 		}
 		return [ $by, $dir ];
 	}
 
-	/** Un en-tete qui trie, avec la fleche quand c est lui qui trie. */
-	private static function th( string $key, array $col, string $by, string $dir, string $lang ): string {
-		$next = ( $by === $key && 'desc' === $dir ) ? 'asc' : 'desc';
-		$args = [ 'by' => $key, 'dir' => $next ];
-		if ( '' !== $lang ) {
-			$args['lang'] = $lang;
-		}
-		$arrow = $by === $key
-			? ' <span class="dashicons dashicons-arrow-' . ( 'desc' === $dir ? 'down' : 'up' ) . '-alt2"></span>'
-			: '';
+	/** Un en-tete qui trie, du meme dessin que ceux des traductions. */
+	private static function th( string $key, string $label, string $title, array $f, string $class ): string {
+		$on   = $f['by'] === $key;
+		$next = ( $on && 'desc' === $f['dir'] ) ? 'asc' : ( $on ? 'desc' : ( 'name' === $key ? 'asc' : 'desc' ) );
 		return sprintf(
-			'<th class="dze-nl-fig%1$s" title="%2$s"><a href="%3$s">%4$s%5$s</a></th>',
-			$by === $key ? ' is-sorted' : '',
-			esc_attr( (string) $col['title'] ),
-			esc_url( add_query_arg( $args, self::page_url() ) ),
-			esc_html( (string) $col['label'] ),
-			$arrow // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
+			'<th class="%1$s" title="%2$s"><a class="dze-trd-sort%3$s" href="%4$s">%5$s<span class="dashicons dashicons-sort" aria-hidden="true"></span></a></th>',
+			esc_attr( $class ),
+			esc_attr( $title ),
+			$on ? ( 'asc' === $f['dir'] ? ' is-asc' : ' is-desc' ) : '',
+			esc_url( self::view_url( $f, [ 'by' => $key, 'dir' => $next, 'paged' => 1 ] ) ),
+			esc_html( $label )
 		);
+	}
+
+	/** Le nom d une langue, tel que WPML le montre. */
+	private static function lang_name( string $code ): string {
+		static $names = null;
+		if ( null === $names ) {
+			$names = [];
+			if ( class_exists( 'DZE_Wpml' ) ) {
+				foreach ( DZE_Wpml::get_active_languages() as $l ) {
+					$names[ (string) $l['code'] ] = (string) ( $l['native_name'] ?? $l['code'] );
+				}
+			}
+		}
+		return (string) ( $names[ $code ] ?? strtoupper( $code ) );
+	}
+
+	/** Le drapeau WPML d une langue, ou son code. */
+	private static function flag( string $code ): string {
+		if ( '' === $code ) {
+			return '';
+		}
+		return class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'flag_html' )
+			? (string) DZE_Wpml::flag_html( $code )
+			: esc_html( strtoupper( $code ) );
 	}
 
 	private static function render_targets(): void {
 		$d   = self::data();
 		$all = (array) ( $d['rows'] ?? [] );
+		// UNE LECTURE D AVANT CETTE VERSION MELANGEAIT FICHES PRODUIT ET
+		// ARTICLES : elle ne se montre pas, elle se relit.
+		if ( $all && 2 !== (int) ( $d['model'] ?? 0 ) ) {
+			$all = [];
+		}
+		$f = self::filters();
 
 		self::render_error();
 		self::render_chips( $d, $all );
 
-		// LA BARRE D ACTIONS : relire, sur quelle duree, et s en aller.
-		echo '<p class="dze-nl-bar">';
-		echo '<button type="button" class="button" id="dze-nl-refresh">' . esc_html__( 'Read it again now', 'dazont-ecom' ) . '</button>';
-		echo '<label style="display:inline-flex;align-items:center;gap:6px;"><span class="description">' . esc_html__( 'over', 'dazont-ecom' ) . '</span>';
-		echo '<select id="dze-nl-days">';
-		foreach ( [ 7, 28, 90 ] as $dze_days ) {
-			printf(
-				'<option value="%1$d"%2$s>%3$s</option>',
-				(int) $dze_days,
-				selected( $dze_days, self::window(), false ),
-				esc_html( sprintf(
-					/* translators: %s: a number of days */
-					_n( '%s day', '%s days', $dze_days, 'dazont-ecom' ),
-					number_format_i18n( $dze_days )
-				) )
-			);
+		// LES LANGUES PRESENTES, et ce que chaque statut compte dans la langue
+		// choisie : un filtre dit ce qu il va montrer avant qu on le choisisse.
+		$langs  = [];
+		$counts = array_fill_keys( array_keys( self::statuses() ), 0 );
+		foreach ( $all as $r ) {
+			$code = (string) ( $r['lang'] ?? '' );
+			if ( '' !== $code ) {
+				$langs[ $code ] = true;
+			}
+			if ( '' !== $f['lang'] && $code !== $f['lang'] ) {
+				continue;
+			}
+			$counts[ (string) $r['status'] ] = (int) ( $counts[ (string) $r['status'] ] ?? 0 ) + 1;
+			$counts['all']++;
 		}
-		echo '</select></label>';
-		echo '<span class="description dze-nl-state" id="dze-nl-state">';
-		if ( empty( $d['at'] ) ) {
-			esc_html_e( 'Not read yet — it reads itself once a day, or press the button.', 'dazont-ecom' );
-		}
-		echo '</span>';
-		echo '<a class="button" style="margin-left:auto;" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=dze_nl_disconnect' ), 'dze_nl_disconnect' ) ) . '">' . esc_html__( 'Disconnect', 'dazont-ecom' ) . '</a>';
-		echo '</p>';
+		$dirty = '' !== $f['lang'] || 'reach' !== $f['status'] || '' !== $f['s'];
+		?>
+		<form method="get" class="dze-trd-global dze-nl-filters" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>">
+			<input type="hidden" name="page" value="<?php echo esc_attr( self::MENU_SLUG ); ?>" />
+			<input type="hidden" name="tab" value="categories" />
+			<?php if ( count( $langs ) > 1 ) : ?>
+				<select name="lang" aria-label="<?php esc_attr_e( 'Language', 'dazont-ecom' ); ?>">
+					<option value=""><?php esc_html_e( 'All languages', 'dazont-ecom' ); ?></option>
+					<?php foreach ( array_keys( $langs ) as $dze_code ) : ?>
+						<option value="<?php echo esc_attr( (string) $dze_code ); ?>" <?php selected( $f['lang'], (string) $dze_code ); ?>><?php echo esc_html( self::lang_name( (string) $dze_code ) ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			<?php endif; ?>
+			<select name="status" aria-label="<?php esc_attr_e( 'Which categories', 'dazont-ecom' ); ?>">
+				<?php foreach ( self::statuses() as $dze_k => $dze_label ) : ?>
+					<option value="<?php echo esc_attr( $dze_k ); ?>" <?php selected( $f['status'], $dze_k ); ?>><?php echo esc_html( $dze_label . ' (' . number_format_i18n( (int) ( $counts[ $dze_k ] ?? 0 ) ) . ')' ); ?></option>
+				<?php endforeach; ?>
+			</select>
+			<input type="search" name="s" value="<?php echo esc_attr( $f['s'] ); ?>" placeholder="<?php esc_attr_e( 'Category name', 'dazont-ecom' ); ?>" aria-label="<?php esc_attr_e( 'Search a category', 'dazont-ecom' ); ?>" />
+			<button type="submit" class="button"><?php esc_html_e( 'Filter', 'dazont-ecom' ); ?></button>
+			<?php if ( $dirty ) : ?>
+				<a class="dze-trd-clear" href="<?php echo esc_url( self::view_url( [ 'lang' => '', 'status' => 'reach', 's' => '', 'by' => 'worth', 'dir' => 'desc', 'paged' => 1 ] ) ); ?>"><span class="dashicons dashicons-no-alt" aria-hidden="true"></span><?php esc_html_e( 'Clear filters', 'dazont-ecom' ); ?></a>
+			<?php endif; ?>
+			<span class="dze-trd-grow"></span>
+			<select id="dze-nl-days" aria-label="<?php esc_attr_e( 'Period read', 'dazont-ecom' ); ?>">
+				<?php foreach ( [ 7, 28, 90 ] as $dze_days ) : ?>
+					<option value="<?php echo (int) $dze_days; ?>" <?php selected( $dze_days, self::window() ); ?>><?php echo esc_html( sprintf( /* translators: %s: a number of days */ _n( 'Last %s day', 'Last %s days', $dze_days, 'dazont-ecom' ), number_format_i18n( $dze_days ) ) ); ?></option>
+				<?php endforeach; ?>
+			</select>
+			<button type="button" class="button" id="dze-nl-refresh"><?php esc_html_e( 'Read Search Console now', 'dazont-ecom' ); ?></button>
+			<span class="description dze-nl-state" id="dze-nl-state"><?php echo empty( $d['at'] ) ? esc_html__( 'Not read yet — it reads itself once a day.', 'dazont-ecom' ) : ''; ?></span>
+		</form>
+		<?php
 		// AVANT TOUT RETOUR ANTICIPE : le bouton vient d etre dessine.
 		self::render_script();
 
 		if ( ! $all ) {
-			echo '<p class="description">' . ( empty( $d['at'] )
-				? esc_html__( 'Nothing read yet.', 'dazont-ecom' )
-				: esc_html__( 'Nothing is within reach right now: no page sits between the fourth and the thirtieth place with enough impressions behind it. That is an answer, not a fault.', 'dazont-ecom' ) ) . '</p>';
-			self::render_props( $d );
+			echo '<p class="description">' . ( empty( $d['at'] ) || 2 !== (int) ( $d['model'] ?? 0 )
+				? esc_html__( 'Nothing read yet in this version: press « Read Search Console now », or wait for tonight\'s reading.', 'dazont-ecom' )
+				: esc_html__( 'No product category of this shop appears in Search Console over the period, and none sells. That is an answer, not a fault.', 'dazont-ecom' ) ) . '</p>';
 			self::render_notes();
 			return;
 		}
 
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
-		$want = isset( $_GET['lang'] ) ? sanitize_key( wp_unslash( (string) $_GET['lang'] ) ) : '';
-		self::render_rail( $all, $want );
-		$rows = '' === $want
-			? $all
-			: array_values( array_filter( $all, static fn( $r ) => (string) ( $r['lang'] ?? '' ) === $want ) );
-
-		[ $by, $dir ] = self::sort_now();
-		usort( $rows, static function ( $a, $b ) use ( $by, $dir ) {
-			$x = (float) ( $a[ $by ] ?? 0 );
-			$y = (float) ( $b[ $by ] ?? 0 );
-			return 'asc' === $dir ? $x <=> $y : $y <=> $x;
-		} );
-
-		$props = array_filter( array_map( 'trim', explode( ',', (string) ( $d['property'] ?? '' ) ) ) );
-		$multi = count( $props ) > 1;
+		$needle = '' !== $f['s'] ? self::squash( $f['s'] ) : '';
+		$rows   = array_values( array_filter( $all, static function ( $r ) use ( $f, $needle ) {
+			if ( '' !== $f['lang'] && (string) ( $r['lang'] ?? '' ) !== $f['lang'] ) {
+				return false;
+			}
+			if ( 'all' !== $f['status'] && (string) ( $r['status'] ?? '' ) !== $f['status'] ) {
+				return false;
+			}
+			return '' === $needle || false !== strpos( self::squash( html_entity_decode( (string) ( $r['name'] ?? '' ), ENT_QUOTES, 'UTF-8' ) ), $needle );
+		} ) );
+		// LE TRI DEMANDE ; l ordre de la lecture — a portee d abord, par priorite
+		// — reste celui des egalites, le tri de PHP etant stable.
+		if ( 'worth' !== $f['by'] || 'desc' !== $f['dir'] ) {
+			$by  = $f['by'];
+			$dir = $f['dir'];
+			usort( $rows, static function ( $a, $b ) use ( $by, $dir ) {
+				if ( 'name' === $by ) {
+					$c = strcasecmp( (string) ( $a['name'] ?? '' ), (string) ( $b['name'] ?? '' ) );
+				} else {
+					// UNE CASE SANS CHIFFRE VA EN BAS, dans les deux sens.
+					$x = $a[ $by ] ?? null;
+					$y = $b[ $by ] ?? null;
+					if ( null === $x || null === $y ) {
+						return ( null === $x ) <=> ( null === $y );
+					}
+					$c = (float) $x <=> (float) $y;
+				}
+				return 'asc' === $dir ? $c : -$c;
+			} );
+		}
+		$found = count( $rows );
+		$pages = max( 1, (int) ceil( $found / self::PER_PAGE ) );
+		$f['paged'] = min( $f['paged'], $pages );
+		$rows  = array_slice( $rows, ( $f['paged'] - 1 ) * self::PER_PAGE, self::PER_PAGE );
+		$multi = count( $langs ) > 1;
 		$cols  = self::columns();
+		$link_url = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'linking' ) : '';
 
-		echo '<table class="widefat striped dze-nl-table"><thead><tr>';
-		echo '<th>' . esc_html__( 'Page', 'dazont-ecom' ) . '</th>';
-		echo '<th class="dze-nl-kind">' . esc_html__( 'What', 'dazont-ecom' ) . '</th>';
-		if ( $multi ) {
-			echo '<th class="dze-nl-lang">' . esc_html__( 'Lang', 'dazont-ecom' ) . '</th>';
+		if ( ! $rows ) {
+			echo '<p class="description">' . esc_html__( 'No category matches these filters.', 'dazont-ecom' ) . '</p>';
+			self::render_notes();
+			return;
 		}
+		echo '<table class="widefat striped dze-trd-table dze-nl-table"><thead><tr>';
+		echo wp_kses_post( self::th( 'name', __( 'Category', 'dazont-ecom' ), __( 'The category page a link should point at.', 'dazont-ecom' ), $f, 'dze-nl-name' ) );
 		foreach ( $cols as $key => $col ) {
-			echo wp_kses_post( self::th( $key, $col, $by, $dir, $want ) );
+			echo wp_kses_post( self::th( (string) $key, (string) $col['label'], (string) $col['title'], $f, 'dze-nl-fig' ) );
 		}
-		echo '<th class="dze-nl-anchors">' . esc_html__( 'Words to link it with', 'dazont-ecom' ) . '</th>';
+		echo '<th class="dze-nl-anchors" title="' . esc_attr__( 'What people already type in Google to reach this category, most seen first, brand searches left out.', 'dazont-ecom' ) . '">' . esc_html__( 'Anchor ideas', 'dazont-ecom' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $rows as $r ) {
-			$url  = (string) ( $r['url'] ?? '' );
-			$lang = (string) ( $r['lang'] ?? '' );
-			$kind = (string) ( $r['kind'] ?? '' );
-			echo '<tr>';
-			echo '<td><a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html( self::short( $url ) ) . '</a>';
-			$gsc = self::gsc_url( $url, (string) ( $r['prop'] ?? '' ) );
+			$tid    = (int) ( $r['tid'] ?? 0 );
+			$url    = (string) ( $r['url'] ?? '' );
+			$status = (string) ( $r['status'] ?? '' );
+			$name   = html_entity_decode( (string) ( $r['name'] ?? '' ), ENT_QUOTES, 'UTF-8' );
+			if ( '' === $url && $tid > 0 && function_exists( 'get_term_link' ) ) {
+				$link = get_term_link( $tid, 'product_cat' );
+				$url  = is_string( $link ) ? $link : '';
+			}
+			$reach = 'reach' === $status;
+			echo '<tr class="is-' . esc_attr( $status ) . '"><td class="dze-nl-name">';
+			if ( $multi ) {
+				echo '<span class="dze-nl-flag">' . wp_kses_post( self::flag( (string) ( $r['lang'] ?? '' ) ) ) . '</span> ';
+			}
+			echo '<strong>' . ( '' !== $url
+				? '<a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html( '' !== $name ? $name : self::short( $url ) ) . '</a>'
+				: esc_html( $name ) ) . '</strong>';
+			if ( '' !== $url ) {
+				echo '<div class="dze-nl-path">/' . esc_html( self::short( $url ) ) . '</div>';
+			}
+			// CE QUI PASSE AVANT UN LIEN, dit sur la ligne meme.
+			$flags = [];
+			if ( ! empty( $r['ctr_low'] ) ) {
+				$flags[] = '<span class="dze-nl-note is-warn" title="' . esc_attr__( 'Google shows it well placed, and few people click. Rework its title and meta description first: a link does not fix a result nobody wants to click, a better one is free.', 'dazont-ecom' ) . '">' . esc_html__( 'Low click rate for its place: rework the title first', 'dazont-ecom' ) . '</span>';
+			}
+			if ( null !== ( $r['in'] ?? null ) && (int) $r['in'] < 3 && 'skip' !== $status ) {
+				$said = sprintf(
+					/* translators: %s: how many of the shop's own pages link to it */
+					_n( 'Only %s internal link: link it from your own pages first', 'Only %s internal links: link it from your own pages first', (int) $r['in'], 'dazont-ecom' ),
+					number_format_i18n( (int) $r['in'] )
+				);
+				$tip  = __( 'Fewer than three of your own pages point at it. An internal link is free, and a link from outside lands better on a page the site itself supports.', 'dazont-ecom' );
+				$flags[] = '' !== $link_url
+					? '<a class="dze-nl-note is-warn" href="' . esc_url( $link_url ) . '" title="' . esc_attr( $tip ) . '">' . esc_html( $said ) . '</a>'
+					: '<span class="dze-nl-note is-warn" title="' . esc_attr( $tip ) . '">' . esc_html( $said ) . '</span>';
+			}
+			$skip_said = [
+				'noindex' => __( 'noindex: Google is told not to index it, a link would be wasted', 'dazont-ecom' ),
+				'empty'   => __( 'Empty: no product in it or under it', 'dazont-ecom' ),
+				'default' => __( 'The default category', 'dazont-ecom' ),
+			];
+			if ( 'skip' === $status && isset( $skip_said[ (string) ( $r['skip'] ?? '' ) ] ) ) {
+				$flags[] = '<span class="dze-nl-note">' . esc_html( $skip_said[ (string) $r['skip'] ] ) . '</span>';
+			}
+			if ( 'unseen' === $status ) {
+				$flags[] = '<span class="dze-nl-note" title="' . esc_attr__( 'It sells, and Google showed its page to nobody over the period. Check that the page is indexed before anything else.', 'dazont-ecom' ) . '">' . esc_html__( 'Sells, and Google showed it to nobody', 'dazont-ecom' ) . '</span>';
+			}
+			if ( $flags ) {
+				echo '<div class="dze-nl-notes">' . wp_kses_post( implode( ' ', $flags ) ) . '</div>';
+			}
+			// LES ACTIONS DE LIGNE, comme dans toutes les listes de WordPress.
+			$acts = [];
+			if ( $tid > 0 && function_exists( 'get_edit_term_link' ) ) {
+				$edit = get_edit_term_link( $tid, 'product_cat' );
+				if ( is_string( $edit ) && '' !== $edit ) {
+					$acts[] = '<span class="edit"><a href="' . esc_url( $edit ) . '">' . esc_html__( 'Edit', 'dazont-ecom' ) . '</a></span>';
+				}
+			}
+			$gsc = self::gsc_url( (string) ( $r['url'] ?? '' ), (string) ( $r['prop'] ?? '' ) );
 			if ( '' !== $gsc ) {
-				echo ' <a href="' . esc_url( $gsc ) . '" target="_blank" rel="noopener" class="description" title="'
-					. esc_attr__( 'Open this page in Search Console', 'dazont-ecom' ) . '">↗</a>';
+				$acts[] = '<span><a href="' . esc_url( $gsc ) . '" target="_blank" rel="noopener">' . esc_html__( 'Search Console', 'dazont-ecom' ) . ' ↗</a></span>';
+			}
+			if ( $acts ) {
+				echo '<div class="row-actions">' . wp_kses_post( implode( ' | ', $acts ) ) . '</div>';
 			}
 			echo '</td>';
-			// CE QUE LA PAGE EST : une categorie, une fiche produit, ou autre
-			// chose — un article, une page. Les trois ne se travaillent pas
-			// pareil, et les chiffres de vente n existent que pour les deux
-			// premieres.
-			echo '<td class="dze-nl-kind"><span class="description">' . esc_html(
-				'category' === $kind ? __( 'Category', 'dazont-ecom' )
-					: ( 'product' === $kind ? __( 'Product', 'dazont-ecom' ) : __( 'Content', 'dazont-ecom' ) )
-			) . '</span></td>';
-			if ( $multi ) {
-				echo '<td class="dze-nl-lang">' . ( '' !== $lang
-					? ( class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'flag_html' )
-						? wp_kses_post( DZE_Wpml::flag_html( $lang ) )
-						: esc_html( strtoupper( $lang ) ) )
-					: '<span class="description">—</span>' ) . '</td>';
-			}
-			$sells = '' !== $kind;
-			echo '<td class="dze-nl-fig">' . esc_html( number_format_i18n( (float) ( $r['pos'] ?? 0 ), 1 ) ) . '</td>';
-			echo '<td class="dze-nl-fig">' . esc_html( number_format_i18n( (int) ( $r['impr'] ?? 0 ) ) ) . '</td>';
-			echo '<td class="dze-nl-fig">' . esc_html( number_format_i18n( (int) ( $r['clicks'] ?? 0 ) ) ) . '</td>';
-			// UN TIRET, ET NON UN ZERO, pour une page qui ne vend pas : un
-			// article n a pas vendu zero, il ne vend pas, et les deux ne se
-			// lisent pas pareil.
-			echo '<td class="dze-nl-fig">' . ( $sells ? esc_html( number_format_i18n( (int) ( $r['units'] ?? 0 ) ) ) : '<span class="description">—</span>' ) . '</td>';
-			echo '<td class="dze-nl-fig">' . ( $sells && (float) ( $r['revenue'] ?? 0 ) > 0 ? esc_html( self::money( (float) $r['revenue'] ) ) : '<span class="description">—</span>' ) . '</td>';
-			echo '<td class="dze-nl-fig">' . ( (float) ( $r['per_click'] ?? 0 ) > 0 ? esc_html( self::money( (float) $r['per_click'] ) ) : '<span class="description">—</span>' ) . '</td>';
-			echo '<td class="dze-nl-fig"><strong>+' . esc_html( number_format_i18n( (int) round( (float) ( $r['gain'] ?? 0 ) ) ) ) . '</strong></td>';
+			$seen = (float) ( $r['impr'] ?? 0 ) > 0;
+			$dash = '<span class="description">—</span>';
+			echo '<td class="dze-nl-fig">' . ( $seen ? esc_html( number_format_i18n( (float) ( $r['pos'] ?? 0 ), 1 ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
+			echo '<td class="dze-nl-fig">' . ( $seen ? esc_html( number_format_i18n( (int) ( $r['impr'] ?? 0 ) ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo '<td class="dze-nl-fig" title="' . esc_attr( $seen ? sprintf( /* translators: %s: a click-through rate */ __( 'Click rate: %s%%', 'dazont-ecom' ), number_format_i18n( 100 * (float) ( $r['ctr'] ?? 0 ), 1 ) ) : '' ) . '">' . ( $seen ? esc_html( number_format_i18n( (int) ( $r['clicks'] ?? 0 ) ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			$in = $r['in'] ?? null;
+			echo '<td class="dze-nl-fig' . ( null !== $in && (int) $in < 3 ? ' is-low' : '' ) . '">' . ( null === $in ? $dash : esc_html( number_format_i18n( (int) $in ) ) ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo '<td class="dze-nl-fig">' . esc_html( number_format_i18n( (int) ( $r['units'] ?? 0 ) ) ) . '</td>';
+			echo '<td class="dze-nl-fig">' . ( (float) ( $r['revenue'] ?? 0 ) > 0 ? esc_html( self::money( (float) $r['revenue'] ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo '<td class="dze-nl-fig">' . ( (float) ( $r['per_click'] ?? 0 ) > 0 ? esc_html( self::money( (float) $r['per_click'] ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo '<td class="dze-nl-fig">' . ( $reach ? '<strong>+' . esc_html( number_format_i18n( (int) round( (float) ( $r['gain'] ?? 0 ) ) ) ) . '</strong>' : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 			// UN RANG, PAS UNE PROMESSE : pas de signe +, pas d unite.
 			$worth = (float) ( $r['worth'] ?? 0 );
-			echo '<td class="dze-nl-fig">' . ( $worth > 0
-				? '<strong>' . esc_html( number_format_i18n( (int) round( $worth ) ) ) . '</strong>'
-				: '<span class="description">—</span>' ) . '</td>';
+			echo '<td class="dze-nl-fig">' . ( $worth > 0 ? '<strong>' . esc_html( number_format_i18n( (int) round( $worth ) ) ) . '</strong>' : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 			echo '<td class="dze-nl-anchors">';
-			foreach ( (array) ( $r['terms'] ?? [] ) as $t ) {
-				echo '<span class="dze-nl-anchor">' . esc_html( (string) ( $t['q'] ?? '' ) ) . '</span>';
+			foreach ( array_values( (array) ( $r['terms'] ?? [] ) ) as $dze_i => $t ) {
+				echo '<span class="dze-nl-anchor' . ( 0 === $dze_i ? ' is-main' : '' ) . '" title="' . esc_attr( sprintf(
+					/* translators: 1: impressions, 2: a position */
+					__( '%1$s impressions, position %2$s', 'dazont-ecom' ),
+					number_format_i18n( (int) ( $t['impr'] ?? 0 ) ),
+					number_format_i18n( (float) ( $t['pos'] ?? 0 ), 1 )
+				) ) . '">' . esc_html( (string) ( $t['q'] ?? '' ) ) . '</span>';
 			}
 			echo '</td></tr>';
 		}
 		echo '</tbody></table>';
-		self::render_props( $d );
+		self::render_pager( $found, $pages, $f );
 		self::render_notes();
+	}
+
+	/** La pagination de WordPress, avec ses classes et ses fleches. */
+	private static function render_pager( int $found, int $pages, array $f ): void {
+		$num = sprintf(
+			/* translators: %s: how many categories */
+			_n( '%s category', '%s categories', $found, 'dazont-ecom' ),
+			number_format_i18n( $found )
+		);
+		echo '<div class="tablenav bottom"><div class="tablenav-pages' . ( $pages < 2 ? ' one-page' : '' ) . '"><span class="displaying-num">' . esc_html( $num ) . '</span>';
+		if ( $pages > 1 ) {
+			$now  = (int) $f['paged'];
+			$link = static function ( int $to, string $cls, string $sym, string $said, bool $off ) use ( $f ): string {
+				if ( $off ) {
+					return '<span class="tablenav-pages-navspan button disabled" aria-hidden="true">' . $sym . '</span>';
+				}
+				return '<a class="' . esc_attr( $cls ) . ' button" href="' . esc_url( self::view_url( $f, [ 'paged' => $to ] ) ) . '"><span class="screen-reader-text">' . esc_html( $said ) . '</span><span aria-hidden="true">' . $sym . '</span></a>';
+			};
+			echo '<span class="pagination-links">';
+			echo $link( 1, 'first-page', '&laquo;', __( 'First page', 'dazont-ecom' ), $now <= 1 ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
+			echo ' ' . $link( $now - 1, 'prev-page', '&lsaquo;', __( 'Previous page', 'dazont-ecom' ), $now <= 1 ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo ' <span class="paging-input"><span class="tablenav-paging-text">' . esc_html( sprintf(
+				/* translators: 1: current page, 2: total pages */
+				__( '%1$s of %2$s', 'dazont-ecom' ),
+				number_format_i18n( $now ),
+				number_format_i18n( $pages )
+			) ) . '</span></span> ';
+			echo $link( $now + 1, 'next-page', '&rsaquo;', __( 'Next page', 'dazont-ecom' ), $now >= $pages ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo ' ' . $link( $pages, 'last-page', '&raquo;', __( 'Last page', 'dazont-ecom' ), $now >= $pages ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo '</span>';
+		}
+		echo '</div></div>';
 	}
 
 	/**
 	 * A QUELLE SEARCH CONSOLE CE SITE EST RELIE — dit, et pas suppose.
 	 *
-	 * « Pas de paramètres pour ce module netlinking. Ou je vois à quelle Search
-	 * console le site est lié ? » Nulle part : les proprietes etaient choisies
-	 * toutes seules et jamais montrees, donc voir apparaitre des
-	 * recommandations en polonais n avait aucune explication a l ecran.
-	 *
-	 * Elles viennent du compte Google connecte, une par domaine que WPML
-	 * declare — et chacune est nommee avec sa langue, comme l ecran des
+	 * Les proprietes viennent du compte Google connecte, une par domaine que
+	 * WPML declare, et chacune est nommee avec sa langue, comme l ecran des
 	 * traductions nomme les siennes.
 	 */
 	private static function render_props( array $d ): void {
 		$props = array_filter( array_map( 'trim', explode( ',', (string) ( $d['property'] ?? '' ) ) ) );
-		echo '<details class="dze-set dze-nl-props"><summary>' . esc_html( sprintf(
+		if ( ! $props ) {
+			$props = array_map( 'strval', (array) ( self::settings()['properties'] ?? [] ) );
+		}
+		echo '<div class="dze-trd-sec dze-nl-card"><div class="dze-nl-cardbody">';
+		echo '<h2>' . esc_html( sprintf(
 			/* translators: %s: how many Search Console properties */
 			_n( 'Linked to %s Search Console property', 'Linked to %s Search Console properties', count( $props ), 'dazont-ecom' ),
 			number_format_i18n( count( $props ) )
-		) ) . '</summary>';
-		echo '<p class="description">';
-		printf(
-			/* translators: %s: the connected Google account's sign-in address */
-			esc_html__( 'Read from the Google account connected here. WPML keeps this shop on one domain per language, so Search Console holds one property for each and every one your account can see is read — that is where recommendations in other languages come from.', 'dazont-ecom' ),
-			''
-		);
-		echo '</p>';
+		) ) . '</h2>';
+		echo '<p class="description">' . esc_html__( 'WPML keeps this shop on one domain per language, so Search Console holds one property for each, and every one the connected account can see is read.', 'dazont-ecom' ) . '</p>';
 		if ( ! $props ) {
 			echo '<p class="description">' . esc_html__( 'None yet — read once and they are chosen from what your account can see.', 'dazont-ecom' ) . '</p>';
-			echo '</details>';
+			echo '</div></div>';
 			return;
 		}
 		echo '<table class="widefat striped"><tbody>';
@@ -1865,21 +2079,21 @@ final class DZE_Netlinking {
 					break;
 				}
 			}
-			echo '<tr><td style="width:70px;">' . ( '' !== $code && class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'flag_html' )
-				? wp_kses_post( DZE_Wpml::flag_html( $code ) )
-				: esc_html( strtoupper( $code ) ) ) . '</td>';
+			echo '<tr><td style="width:70px;">' . ( '' !== $code ? wp_kses_post( self::flag( $code ) ) : '' ) . '</td>';
 			echo '<td><code>' . esc_html( $one ) . '</code></td>';
-			echo '<td style="width:150px;"><a href="' . esc_url( add_query_arg( 'resource_id', $one, 'https://search.google.com/search-console' ) ) . '" target="_blank" rel="noopener">'
+			echo '<td style="width:170px;"><a href="' . esc_url( add_query_arg( 'resource_id', $one, 'https://search.google.com/search-console' ) ) . '" target="_blank" rel="noopener">'
 				. esc_html__( 'Open in Search Console', 'dazont-ecom' ) . ' ↗</a></td></tr>';
 		}
 		echo '</tbody></table>';
 		// UN DOMAINE QUE WPML CONNAIT ET QUE GOOGLE N A PAS est un trou qu il
-		// vaut mieux nommer : ce catalogue ne sera jamais dans le classement.
+		// vaut mieux nommer : ce catalogue ne sera jamais dans la liste. Une
+		// propriete de domaine couvre ses sous-domaines (ru.exemple.com).
 		$missing = [];
 		foreach ( $domains as $lang => $host ) {
 			$found = false;
 			foreach ( $props as $one ) {
-				if ( 'sc-domain:' . $host === $one || false !== strpos( $one, '://' . $host ) ) {
+				if ( 'sc-domain:' . $host === $one || false !== strpos( $one, '://' . $host )
+					|| ( 0 === strpos( $one, 'sc-domain:' ) && '.' . substr( $one, 10 ) === substr( '.' . $host, - strlen( '.' . substr( $one, 10 ) ) ) ) ) {
 					$found = true;
 					break;
 				}
@@ -1891,35 +2105,45 @@ final class DZE_Netlinking {
 		if ( $missing ) {
 			echo '<p class="description"><strong>' . esc_html__( 'Not read:', 'dazont-ecom' ) . '</strong> '
 				. esc_html( implode( ', ', $missing ) ) . ' — '
-				. esc_html__( 'your Google account cannot see a Search Console property for these, so those catalogues never appear below.', 'dazont-ecom' ) . '</p>';
+				. esc_html__( 'your Google account cannot see a Search Console property for these, so those catalogues never appear in the list.', 'dazont-ecom' ) . '</p>';
 		}
-		echo '</details>';
+		echo '</div></div>';
 	}
+
 	/**
-	 * COMMENT CES CHIFFRES SONT FAITS — replie, pour qui veut verifier.
-	 *
-	 * Cinq phrases sous un tableau sont cinq phrases que personne ne lit et qui
-	 * poussent le travail hors de l ecran. Elles restent, sous un pli.
+	 * COMMENT S EN SERVIR, ET COMMENT CES CHIFFRES SONT FAITS — replie, pour
+	 * qui veut le lire. « Si un module est bien fait, il n'est pas nécessaire
+	 * d'ajouter du texte partout. »
 	 */
 	private static function render_notes(): void {
-		echo '<details class="dze-set" style="max-width:1100px;margin-top:14px;"><summary>'
-			. esc_html__( 'How these figures are made', 'dazont-ecom' ) . '</summary>';
-		echo '<p class="description">';
-		esc_html_e( 'Impressions, clicks and position are what Google measured. Units are what WooCommerce recorded for that category over the same window.', 'dazont-ecom' );
-		echo '</p><p class="description">';
-		esc_html_e( 'Each language counts its OWN sales, and the language is the one of the product sold — translated products are filed in the original\'s categories here, so counting by the category\'s language would return nought for four languages out of five.', 'dazont-ecom' );
-		echo '</p><p class="description">';
-		esc_html_e( '"Clicks to gain" is an estimate: what the page would do at about fifth place, against what it does now. "Priority" has no unit and predicts nothing — it is that traffic weighted by whether the category sells at all. It deliberately does NOT multiply clicks by units-per-click: sales come from every source while these clicks are Google\'s alone, and that sum promised 171 units for 17 clicks.', 'dazont-ecom' );
-		echo '</p><p class="description">';
-		esc_html_e( 'Revenue is converted to the shop currency at the rate recorded WITH EACH ORDER on the day it was paid, not at today\'s rate. Orders that recorded none — about one line in thirteen — are counted at face value, so a figure can be slightly low rather than invented.', 'dazont-ecom' );
-		echo '</p><p class="description">';
-		esc_html_e( 'A product page carries ITS OWN sales; a category page carries what every product filed under it sold. The two are read the same way and never added together.', 'dazont-ecom' );
-		echo '</p><p class="description"><strong>';
-		esc_html_e( 'What Search Console does not give:', 'dazont-ecom' );
-		echo '</strong> ';
-		esc_html_e( 'its API has no backlinks — the Links report exists on screen and nowhere else. So this screen never claims to list the links you already have; it says where a new one would pay.', 'dazont-ecom' );
-		echo '</p></details>';
+		echo '<details class="dze-set dze-nl-how"><summary>' . esc_html__( 'How to use this list', 'dazont-ecom' ) . '</summary><ul>';
+		foreach ( [
+			__( 'Point the link at the category page itself, never at a product: a category passes what it receives on to every product it lists, and it stays online when a product goes.', 'dazont-ecom' ),
+			__( 'Vary the anchor: the category name, your brand, the bare address, and now and then one of the anchor ideas — the same exact words on every link looks bought.', 'dazont-ecom' ),
+			__( 'One link from a site about the same subject is worth more than ten from anywhere. Leave out footers, sidebars, link swaps and bought packages.', 'dazont-ecom' ),
+			__( 'A category marked « Low click rate » has a title problem, not a link problem: rework its title and meta description first, it costs nothing.', 'dazont-ecom' ),
+			__( 'A category with fewer than three internal links: link it from your own articles and categories first. An outside link lands better on a page the site itself supports.', 'dazont-ecom' ),
+			__( 'Look again a few weeks after a link is placed: Google takes that long to move, and the period read can be set above the list.', 'dazont-ecom' ),
+		] as $dze_line ) {
+			echo '<li>' . esc_html( $dze_line ) . '</li>';
+		}
+		echo '</ul></details>';
+
+		echo '<details class="dze-set dze-nl-how"><summary>' . esc_html__( 'How these figures are made', 'dazont-ecom' ) . '</summary>';
+		foreach ( [
+			__( 'Only product categories are listed. Position, impressions and clicks are what Google measured for the category page itself; a category with several addresses has them added up.', 'dazont-ecom' ),
+			__( 'Units and revenue are what the products filed in the category sold over the same period, as WooCommerce recorded it. Each language counts its OWN sales: the language is the one of the product sold, so a sale on the French shop counts for the French category and for it alone.', 'dazont-ecom' ),
+			__( 'Revenue is converted to the shop currency at the rate recorded WITH EACH ORDER on the day it was paid, not at today\'s rate. Orders that recorded none are counted at face value, so a figure can be slightly low rather than invented.', 'dazont-ecom' ),
+			__( '"Clicks to gain" is an estimate: what the category would get at about fifth place, against what it gets now. "Priority" has no unit and predicts nothing — it is that traffic weighted by what the category sells. It deliberately does NOT multiply clicks by units per click: sales come from every source while these clicks are Google\'s alone.', 'dazont-ecom' ),
+			__( 'Worth a link: past the third place and before the thirtieth, seen at least twenty times, and clicked less than fifth place would be. Left out: a category marked noindex, an empty one, and the default category.', 'dazont-ecom' ),
+		] as $dze_line ) {
+			echo '<p class="description">' . esc_html( $dze_line ) . '</p>';
+		}
+		echo '<p class="description"><strong>' . esc_html__( 'What Search Console does not give:', 'dazont-ecom' ) . '</strong> '
+			. esc_html__( 'its API has no backlinks — the Links report exists on screen and nowhere else. So this screen never claims to list the links you already have; it says where a new one would pay.', 'dazont-ecom' ) . '</p>';
+		echo '</details>';
 	}
+
 	/** Une adresse lisible : le chemin, pas le domaine repete cinquante fois. */
 	private static function short( string $url ): string {
 		$p = (string) wp_parse_url( $url, PHP_URL_PATH );

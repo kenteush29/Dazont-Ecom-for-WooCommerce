@@ -91,54 +91,133 @@ function ok( string $what, $got, $want ): void {
 	printf( "  FAIL %s\n       got  %s\n       want %s\n", $what,
 		var_export( $got, true ), var_export( $want, true ) );
 }
-/** Une page telle que Search Console la rend. */
-function page( float $pos, float $impr, float $ctr, array $terms = [] ): array {
-	return [ 'url' => 'https://x/p' . $pos . '-' . $impr, 'clicks' => $impr * $ctr, 'impr' => $impr, 'ctr' => $ctr, 'pos' => $pos, 'terms' => $terms ];
+
+// LA BOUTIQUE ET SON NOM : domains() lit l adresse enregistree, et le nom
+// sert a reconnaitre les requetes de marque.
+$GLOBALS['opts']['home']     = 'https://kula-tactical.com';
+$GLOBALS['opts']['blogname'] = 'Kula Tactical';
+
+/** Une page de categorie telle que Search Console la rend. */
+function cat( string $slug, float $pos, float $impr, float $ctr, array $terms = [], string $host = 'kula-tactical.com' ): array {
+	return [ 'url' => 'https://' . $host . '/' . $slug, 'clicks' => $impr * $ctr, 'impr' => $impr, 'ctr' => $ctr, 'pos' => $pos, 'terms' => $terms ];
 }
-function urls( array $rows ): array { return array_column( $rows, 'url' ); }
+/** La carte des slugs, telle que slug_map() la fabrique : une clef par langue, plus la clef nue. */
+function smap( array $slugs ): array {
+	$out = [];
+	foreach ( $slugs as $slug => $tid ) {
+		$out[ 'en|' . $slug ] = $tid;
+		$out[ '|' . $slug ]   = $tid;
+	}
+	return $out;
+}
+/** Le statut d une seule categorie, lue seule. */
+function status_of( array $page, array $sales = [], array $meta = [] ): string {
+	$slug = trim( (string) parse_url( $page['url'], PHP_URL_PATH ), '/' );
+	$rows = DZE_Netlinking::rank( [ $page ], $sales, smap( [ $slug => 7 ] ), $meta );
+	return (string) ( $rows[0]['status'] ?? 'none' );
+}
 
-echo "A PORTEE, ET RIEN D AUTRE\n";
-// DEJA EN HAUT : un lien n y changerait presque rien, la page y est deja. Le
-// module se tairait plutot que de proposer un travail sans effet.
-ok( 'la premiere place est laissee tranquille', urls( DZE_Netlinking::rank( [ page( 1.4, 5000, 0.30 ) ] ) ), [] );
-ok( 'la troisieme aussi',                       urls( DZE_Netlinking::rank( [ page( 3.2, 5000, 0.11 ) ] ) ), [] );
-// TROP LOIN : un lien seul ne remontera pas une page de la soixantieme place,
-// et le promettre fait perdre un mois.
-ok( 'au-dela de la trentieme, on ne promet rien', urls( DZE_Netlinking::rank( [ page( 42.0, 5000, 0.001 ) ] ) ), [] );
-// A PORTEE : entre les deux, c est exactement la page qu un lien fait basculer.
-ok( 'entre les deux, la page est retenue', count( DZE_Netlinking::rank( [ page( 14.0, 4000, 0.004 ) ] ) ), 1 );
+echo "LES CATEGORIES, ET RIEN D AUTRE\n";
+// « Tu as intégré des recommandations de liens au niveau produit, ce qui est
+// faux. […] Data Google mise en relation seulement niveau catégories. »
+$m1   = smap( [ 'bottes' => 11 ] );
+$fiche = cat( 'botte-cuir-noire', 14.0, 4000, 0.004 ); // une fiche produit : aucun slug de categorie
+$blog  = cat( 'blog/comment-choisir', 14.0, 4000, 0.004 );
+$vrai  = cat( 'bottes', 14.0, 4000, 0.004 );
+$r0    = DZE_Netlinking::rank( [ $fiche, $blog, $vrai ], [], $m1 );
+ok( 'une fiche produit n est plus jamais une cible', count( $r0 ), 1 );
+ok( 'seule la categorie reste',                     (int) $r0[0]['tid'], 11 );
+ok( 'et le code des produits est parti',
+	[ method_exists( 'DZE_Netlinking', 'sales_by_product' ), method_exists( 'DZE_Netlinking', 'product_of_url' ), method_exists( 'DZE_Netlinking', 'warm_products' ) ],
+	[ false, false, false ] );
+ok( 'comme le quota par langue, inutile avec un filtre',
+	method_exists( 'DZE_Netlinking', 'share_out' ), false );
 
-echo "\nUN GAIN CALCULE SUR TROIS IMPRESSIONS EST UN CHIFFRE, PAS UNE INFORMATION\n";
-ok( 'une page que personne ne voit est ecartee', urls( DZE_Netlinking::rank( [ page( 12.0, 8, 0.0 ) ] ) ), [] );
-ok( 'et le plancher est bien a vingt',           count( DZE_Netlinking::rank( [ page( 12.0, 20, 0.0 ) ] ) ), 1 );
-// DEJA AU PLAFOND DE SA PLACE : une page qui clique mieux que ce qu on lui
-// promettrait n a rien a gagner, et on ne lui invente pas un gain negatif.
-ok( 'un taux de clic deja meilleur ne gagne rien',
-	urls( DZE_Netlinking::rank( [ page( 12.0, 4000, 0.40 ) ] ) ), [] );
+echo "\nUNE LIGNE PAR CATEGORIE\n";
+// Deux adresses de la meme categorie — avec et sans barre finale — font une
+// seule ligne : les impressions s additionnent, la position se pondere.
+$a = cat( 'bottes', 10.0, 3000, 0.01 );
+$b = cat( 'bottes/', 20.0, 1000, 0.002 );
+$b['url'] = 'https://kula-tactical.com/bottes/';
+$one = DZE_Netlinking::rank( [ $a, $b ], [], $m1 );
+ok( 'une seule ligne',                       count( $one ), 1 );
+ok( 'les impressions s additionnent',        (int) $one[0]['impr'], 4000 );
+ok( 'la position est ponderee',              round( $one[0]['pos'], 2 ), 12.5 );
+ok( 'l adresse gardee est la plus vue',      $one[0]['url'], 'https://kula-tactical.com/bottes' );
+
+echo "\nA PORTEE, ET RIEN D AUTRE\n";
+// DEJA EN HAUT : un lien n y changerait presque rien.
+ok( 'la premiere place est deja forte',      status_of( cat( 'x', 1.4, 5000, 0.30 ) ), 'strong' );
+ok( 'la troisieme aussi',                    status_of( cat( 'x', 3.2, 5000, 0.11 ) ), 'strong' );
+// TROP LOIN : un lien seul ne remontera pas une page de la soixantieme place.
+ok( 'au-dela de la trentieme, trop loin',    status_of( cat( 'x', 42.0, 5000, 0.001 ) ), 'far' );
+ok( 'entre les deux, elle merite un lien',   status_of( cat( 'x', 14.0, 4000, 0.004 ) ), 'reach' );
+// UN GAIN CALCULE SUR TROIS IMPRESSIONS EST UN CHIFFRE, PAS UNE INFORMATION.
+ok( 'trop peu vue pour en juger',            status_of( cat( 'x', 12.0, 8, 0.0 ) ), 'far' );
+ok( 'et le plancher est bien a vingt',       status_of( cat( 'x', 12.0, 20, 0.0 ) ), 'reach' );
+// DEJA AU TAUX DE LA CINQUIEME PLACE : rien a gagner, pas de gain negatif.
+ok( 'un taux de clic deja meilleur est fort', status_of( cat( 'x', 12.0, 4000, 0.40 ) ), 'strong' );
+ok( 'et ne porte aucun gain',
+	(float) DZE_Netlinking::rank( [ cat( 'x', 12.0, 4000, 0.40 ) ], [], smap( [ 'x' => 7 ] ) )[0]['gain'], 0.0 );
+
+echo "\nCE QUI VEND SANS ETRE VU A SA LIGNE\n";
+// Une categorie que Google n a montree a personne mais qui vend : c est une
+// information, et souvent la plus utile — elle a sa ligne, sans chiffre Google.
+$meta = [ 11 => [ 'name' => 'Bottes', 'lang' => 'en' ], 22 => [ 'name' => 'Casques', 'lang' => 'en' ] ];
+$r1   = DZE_Netlinking::rank( [ $vrai ], [ 22 => [ 'units' => 9, 'revenue' => 400.0 ] ], $m1, $meta );
+$uns  = array_values( array_filter( $r1, static fn( $r ) => 22 === (int) $r['tid'] ) );
+ok( 'elle est la',                           count( $uns ), 1 );
+ok( 'marquee comme jamais vue',              $uns[0]['status'] ?? '', 'unseen' );
+ok( 'avec ses ventes',                       (int) ( $uns[0]['units'] ?? 0 ), 9 );
+ok( 'et sa langue, lue sur la categorie',    $uns[0]['lang'] ?? '', 'en' );
+ok( 'une categorie qui ne vend rien et qu on ne voit pas n encombre pas',
+	count( DZE_Netlinking::rank( [], [ 22 => [ 'units' => 0 ] ], $m1, $meta ) ), 0 );
+
+echo "\nJAMAIS UNE CIBLE : NOINDEX, VIDE, PAR DEFAUT\n";
+foreach ( [ 'noindex', 'empty', 'default' ] as $why ) {
+	$rr = DZE_Netlinking::rank( [ $vrai ], [ 11 => [ 'units' => 50 ] ], $m1, [ 11 => [ 'name' => 'Bottes', $why => true ] ] )[0];
+	ok( "$why : laissee de cote",              [ $rr['status'], $rr['skip'] ], [ 'skip', $why ] );
+	ok( "$why : sans priorite ni gain",         [ (float) $rr['worth'], (float) $rr['gain'] ], [ 0.0, 0.0 ] );
+}
+
+echo "\nUN TITRE AVANT UN LIEN\n";
+// Bien placee et peu cliquee : un probleme d extrait, qu aucun lien ne regle.
+$titre = DZE_Netlinking::rank( [ cat( 'x', 5.0, 3000, 0.01 ) ], [], smap( [ 'x' => 7 ] ) )[0];
+ok( 'le taux de clic trop bas pour sa place est signale', $titre['ctr_low'], true );
+$bien  = DZE_Netlinking::rank( [ cat( 'x', 5.0, 3000, 0.05 ) ], [], smap( [ 'x' => 7 ] ) )[0];
+ok( 'pas quand il est normal',               $bien['ctr_low'], false );
+$loin  = DZE_Netlinking::rank( [ cat( 'x', 18.0, 3000, 0.001 ) ], [], smap( [ 'x' => 7 ] ) )[0];
+ok( 'ni en deuxieme page, ou c est la place qui manque', $loin['ctr_low'], false );
+
+echo "\nLES LIENS INTERNES D ABORD\n";
+$in = DZE_Netlinking::rank( [ $vrai ], [], $m1, [ 11 => [ 'name' => 'Bottes', 'in' => 1 ] ] )[0];
+ok( 'le maillage interne est repris',        $in['in'], 1 );
+$nil = DZE_Netlinking::rank( [ $vrai ], [], $m1, [ 11 => [ 'name' => 'Bottes' ] ] )[0];
+ok( 'et rien n est invente quand il ne sait pas', $nil['in'], null );
 
 echo "\nL ORDRE EST CELUI DU GAIN, PAS CELUI DE LA POSITION\n";
-// La page la mieux placee n est pas celle qui rapporte le plus : c est le
-// VOLUME qui decide. Une page en 8e avec 200 impressions pese moins qu une
-// page en 25e avec 9 000.
-$gros  = page( 25.0, 9000, 0.001 );
-$petit = page( 8.0, 200, 0.004 );
-$rank  = DZE_Netlinking::rank( [ $petit, $gros ] );
-ok( 'le volume passe devant la place',   $rank[0]['url'], $gros['url'] );
-ok( 'et les deux sont la',               count( $rank ), 2 );
+// La mieux placee n est pas celle qui rapporte le plus : c est le VOLUME.
+$gros  = cat( 'gros', 25.0, 9000, 0.001 );
+$petit = cat( 'petit', 8.0, 200, 0.004 );
+$rank  = DZE_Netlinking::rank( [ $petit, $gros ], [], smap( [ 'gros' => 1, 'petit' => 2 ] ) );
+ok( 'le volume passe devant la place',       $rank[0]['url'], $gros['url'] );
+ok( 'et les deux sont la',                   count( $rank ), 2 );
 
-echo "\nLES ANCRES SONT LES REQUETES, DANS L ORDRE DE CE QU ELLES PESENT\n";
-$p = page( 14.0, 4000, 0.004, [
+echo "\nLES ANCRES SONT LES REQUETES, SANS LA MARQUE\n";
+$p = cat( 'bottes', 14.0, 4000, 0.004, [
 	[ 'q' => 'petite', 'impr' => 10.0, 'pos' => 14.0 ],
 	[ 'q' => 'grosse', 'impr' => 900.0, 'pos' => 12.0 ],
+	[ 'q' => 'kula tactical bottes', 'impr' => 2000.0, 'pos' => 2.0 ],
 	[ 'q' => 'moyenne', 'impr' => 300.0, 'pos' => 13.0 ],
 ] );
-$one = DZE_Netlinking::rank( [ $p ] )[0];
-ok( 'la requete la plus vue vient en tete', array_column( $one['terms'], 'q' ), [ 'grosse', 'moyenne', 'petite' ] );
-// SIX SUFFISENT : au-dela, ce n est plus une liste d ancres, c est un export.
+$one = DZE_Netlinking::rank( [ $p ], [], $m1 )[0];
+ok( 'la plus vue en tete, la marque dehors', array_column( $one['terms'], 'q' ), [ 'grosse', 'moyenne', 'petite' ] );
+ok( 'la marque se reconnait meme ecrite autrement', DZE_Netlinking::is_brand( 'KULA-TACTICAL gorka', DZE_Netlinking::brand_marks() ), true );
+ok( 'et un mot commun n est pas la marque',  DZE_Netlinking::is_brand( 'tactical boots', DZE_Netlinking::brand_marks() ), false );
 $many = [];
 for ( $i = 1; $i <= 20; $i++ ) { $many[] = [ 'q' => 'q' . $i, 'impr' => (float) ( 100 - $i ), 'pos' => 14.0 ]; }
-$cut = DZE_Netlinking::rank( [ page( 14.0, 4000, 0.004, $many ) ] )[0];
-ok( 'et on en garde six',                   count( $cut['terms'] ), 6 );
+$cut = DZE_Netlinking::rank( [ cat( 'bottes', 14.0, 4000, 0.004, $many ) ], [], $m1 )[0];
+ok( 'et on en garde cinq',                   count( $cut['terms'] ), 5 );
 
 echo "\nCE MODULE EST PASSIF : IL LIT, IL N ECRIT RIEN\n";
 // « Ce module netlinking doit être passif. » La portee demandee a Google est
@@ -166,28 +245,17 @@ ok( 'l ecran annonce ce que Google ne donne pas',
 echo "\nLES VENTES DECIDENT, PAS LE TRAFIC\n";
 // « La data GSC doit être recroisée avec les ventes au niveau des catégories
 // produits. » Sans cela, une categorie a 4 000 impressions qui ne vend rien
-// passait devant une a 800 qui vend : du trafic pour du trafic.
-// La carte que slug_map() fabrique vraiment : une clef par langue, PLUS une
-// clef nue qui sert de filet quand le domaine ne dit rien.
+// passait devant une a 900 qui vend : du trafic pour du trafic.
 $map = [ 'en|bottes' => 11, 'en|casques' => 22, 'fr|bottes' => 33, '|bottes' => 11, '|casques' => 22 ];
-// La page qui vend peu de clics mais beaucoup d argent doit passer devant.
-$vend = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
+$vend  = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
 $creux = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 10.0, 'impr' => 4000.0, 'ctr' => 0.0025, 'pos' => 12.0, 'terms' => [] ];
 $sales = [ 11 => [ 'units' => 400 ], 22 => [ 'units' => 0 ] ];
 $r = DZE_Netlinking::rank( [ $creux, $vend ], $sales, $map );
 ok( 'la categorie qui vend passe devant', $r[0]['url'], $vend['url'] );
 ok( 'et celle qui ne vend rien suit',     $r[1]['url'], $creux['url'] );
-// SANS VENTES DU TOUT, on retombe sur les clics : un article n est pas jete.
+// SANS VENTES DU TOUT, on retombe sur les clics a gagner.
 $r2 = DZE_Netlinking::rank( [ $vend, $creux ], [], $map );
 ok( 'sans ventes, le trafic decide',      $r2[0]['url'], $creux['url'] );
-
-echo "\nUNE PAGE QUI N EST PAS UNE CATEGORIE LE DIT\n";
-// Un article n a pas vendu zero : il ne vend pas. Le tableau met un tiret, et
-// ca commence ici — le term_id vaut 0, et rien ne le confond avec une vente nulle.
-$blog = [ 'url' => 'https://kula-tactical.com/blog/comment-choisir', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
-$one  = DZE_Netlinking::rank( [ $blog ], $sales, $map )[0];
-ok( 'un article ne porte aucune categorie', (int) $one['tid'], 0 );
-ok( 'et aucune vente inventee',             (float) $one['worth'], 0.0 );
 
 echo "\nC EST WPML QUI DICTE, PAS NOUS\n";
 // « C'est WPML et ses réglages qui doivent dicter la façon de fonctionner. »
@@ -236,10 +304,8 @@ ok( 'sans parametre, la langue par defaut',  DZE_Netlinking::lang_of_url( 'https
 $GLOBALS['opts']['icl_sitepress_settings'] = [ 'language_negotiation_type' => 2, 'default_language' => 'en', 'language_domains' => [ 'fr' => 'kula-tactical.fr' ] ];
 
 echo "\nCHAQUE LANGUE COMPTE SES PROPRES VENTES\n";
-// « Les ventes sont comptabilisées seulement sur la langue concernée. » Une
-// version precedente reportait les ventes sur tout le groupe de traduction :
-// c etait decider a la place de la boutique. Un zero sur la page allemande EST
-// l information — ce catalogue ne vend pas encore.
+// « Les ventes sont comptabilisées seulement sur la langue concernée. » Un
+// zero sur la page allemande EST l information — ce catalogue ne vend pas encore.
 ok( 'le report entre langues a disparu',
 	method_exists( 'DZE_Netlinking', 'spread_across_languages' ), false );
 $vendu = [ 11 => [ 'units' => 400 ] ];
@@ -247,6 +313,14 @@ $fr    = [ 'url' => 'https://kula-tactical.fr/bottes', 'clicks' => 10.0, 'impr' 
 $one2  = DZE_Netlinking::rank( [ $fr ], $vendu, $map )[0];
 ok( 'la page francaise est bien reconnue',  (int) $one2['tid'], 33 );
 ok( 'et ne recupere pas les ventes anglaises', (int) $one2['units'], 0 );
+
+echo "\nLE DOMAINE PRINCIPAL NE DEPEND PAS DE LA VISITE\n";
+// La lecture tourne en cron, declenche par une visite sur n importe quel
+// domaine. WPML y reecrit home_url() dans la langue de la visite : sur le
+// domaine francais, le domaine principal sortait de la liste.
+$src_d = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
+ok( 'domains() lit l adresse enregistree',  false !== strpos( $src_d, "wp_parse_url( (string) get_option( 'home' ), PHP_URL_HOST )" ), true );
+ok( 'et le principal reste le sien',         ( DZE_Netlinking::domains()['en'] ?? '' ), 'kula-tactical.com' );
 
 // ET JAMAIS EN ARGENT : la table de WooCommerce garde chaque commande dans sa
 // devise, et cette boutique en encaisse huit. La premiere mesure a rendu
@@ -310,83 +384,49 @@ ok( 'et plus aucun script ne vit apres lui', false !== strpos( $apres, '<script>
 
 echo "\nUN RANG NE SE FAIT PAS PASSER POUR UNE PREVISION\n";
 // Le premier calcul multipliait les clics a gagner par « unites vendues /
-// clics Google ». Mesure : /military-balaclava sortait a +171 unites pour
-// +17 clics — elle a vendu 50 unites sur cinq clics organiques. Le rapport
-// est structurellement faux : les ventes viennent de partout, le
-// denominateur ne compte que Google.
+// clics Google » : /military-balaclava sortait a +171 unites pour +17 clics.
 $maigre = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 5.0, 'impr' => 443.0, 'ctr' => 0.011, 'pos' => 29.5, 'terms' => [] ];
 $r5 = DZE_Netlinking::rank( [ $maigre ], [ 11 => [ 'units' => 50 ] ], $map )[0];
-ok( 'la priorite reste du meme ordre que les clics',
-	$r5['worth'] < $r5['gain'] * 3, true );
-// ET ELLE CLASSE TOUJOURS DANS LE BON SENS : vendre passe devant ne pas vendre.
+ok( 'la priorite reste du meme ordre que les clics', $r5['worth'] < $r5['gain'] * 3, true );
 $a1 = [ 'url' => 'https://kula-tactical.com/bottes',  'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
 $a2 = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
 $r6 = DZE_Netlinking::rank( [ $a2, $a1 ], [ 11 => [ 'units' => 50 ] ], $map );
 ok( 'celle qui vend passe devant a trafic egal', $r6[0]['url'], $a1['url'] );
-// BEAUCOUP PLUS DE VENTES NE VAUT PAS BEAUCOUP PLUS DE RANG : le logarithme
-// ecrase l ecart entre 50 et 500 sans effacer celui entre 0 et 50.
 $p50  = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 50 ] ], $map )[0]['worth'];
 $p500 = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 500 ] ], $map )[0]['worth'];
 ok( 'dix fois plus de ventes ne fait pas dix fois le rang', $p500 < $p50 * 2, true );
 ok( 'mais il monte quand meme',                          $p500 > $p50, true );
-
-echo "\nCHAQUE LANGUE GARDE UNE PLACE DANS LA LISTE\n";
-// Mesure sur la boutique : 58 cibles anglaises, une francaise, une polonaise.
-// Le plafond etant global, l anglais l absorbait et les quatre catalogues
-// traduits disparaissaient — or on repare le maillage externe d une langue.
-$beaucoup = [];
-for ( $i = 0; $i < 200; $i++ ) { $beaucoup[] = [ 'url' => 'https://x/en' . $i, 'lang' => 'en', 'worth' => 1000 - $i ]; }
-for ( $i = 0; $i < 40;  $i++ ) { $beaucoup[] = [ 'url' => 'https://x/fr' . $i, 'lang' => 'fr', 'worth' => 5 - ($i/100) ]; }
-usort( $beaucoup, fn($a,$b) => $b['worth'] <=> $a['worth'] );
-$part = DZE_Netlinking::share_out( $beaucoup );
-$cpt = []; foreach ( $part as $r ) { $cpt[$r['lang']] = ($cpt[$r['lang']] ?? 0) + 1; }
-ok( 'le francais nest plus efface',       ($cpt['fr'] ?? 0) >= 10, true );
-ok( 'langlais garde la plus grosse part', ($cpt['en'] ?? 0) > ($cpt['fr'] ?? 0), true );
-ok( 'et le plafond tient',                count( $part ) <= 60, true );
-// L ORDRE GENERAL EST RENDU TEL QUEL : la tete de liste reste la tete de liste.
-ok( 'la meilleure reste en tete',          $part[0]['url'], $beaucoup[0]['url'] );
-// UNE SEULE LANGUE NE DECLENCHE AUCUN PARTAGE, et une liste courte non plus.
-$courte = array_slice( $beaucoup, 0, 12 );
-ok( 'une liste sous le plafond passe entiere', count( DZE_Netlinking::share_out( $courte ) ), 12 );
+// LA VALEUR DU CLIC. « Manque comptage de la valeur de chaque clic. »
+$pc = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 5, 'revenue' => 500.0 ] ], $map )[0];
+ok( 'la valeur du clic est le chiffre de la categorie sur ses clics', round( $pc['per_click'], 2 ), 50.0 );
 
 echo "\nLE MODULE EST BRANCHE COMME LES AUTRES\n";
-// Un module qui ne dit pas son etat au journal de sante, ne se montre pas
-// sur l accueil et laisse ses options derriere lui a la desinstallation est
-// un module a part — et ce qui est a part est ce qu on oublie.
 $h = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-health.php' );
 ok( 'il a son controle de sante',        false !== strpos( $h, 'function check_searchconsole' ), true );
 ok( 'et le journal sait ou le reparer',  false !== strpos( $h, "case 'searchconsole'" ), true );
 $dash = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-dashboard.php' );
-ok( 'il a sa ligne sur laccueil',        false !== strpos( $dash, 'DZE_Netlinking::data()' ), true );
+ok( 'l accueil compte les categories a pousser, pas les lignes', false !== strpos( $dash, 'DZE_Netlinking::targets_count()' ), true );
 $cl = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-cleanup.php' );
 foreach ( [ 'dze_nl_connection', 'dze_nl_settings', 'dze_nl_targets', 'dze_nl_last_error', 'dze_nl_token' ] as $opt ) {
 	ok( "la desinstallation emporte $opt", false !== strpos( $cl, $opt ), true );
 }
-// ET UN ECHEC DE LA LECTURE AUTOMATIQUE LAISSE UNE TRACE : sans cela l ecran
-// dit « pas encore lu », la meme phrase que le premier jour.
 $src5 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
 ok( 'le cron passe par une enveloppe',   false !== strpos( $src5, 'function cron_refresh' ), true );
 ok( 'qui retient ce qui a rate',         false !== strpos( $src5, 'OPT_LAST_ERROR' ), true );
 ok( 'et le dit au journal de sante',     false !== strpos( $src5, 'DZE_Health::log' ), true );
 
-echo "\nLES PRODUITS COMPTENT AUSSI, ET L ARGENT SE CONVERTIT\n";
-// « Le module recroise-t-il la data des urls produits aussi ? » Il ne le
-// faisait pas : une fiche produit en douzieme position n avait aucun chiffre
-// en face d elle, alors que c est la cible de lien la plus sure — ce sont SES
-// ventes, pas celles d un rayon entier.
-$src6 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
-ok( 'les ventes par produit sont lues',   false !== strpos( $src6, 'function sales_by_product' ), true );
-ok( 'et resolues en une seule requete',   false !== strpos( $src6, 'function warm_products' ), true );
-ok( 'chaque ligne dit ce qu elle est',    false !== strpos( $src6, "\$p['kind']" ), true );
-// LA VALEUR DU CLIC. « Manque comptage de la valeur de chaque clic. »
-ok( 'la valeur du clic est calculee',     false !== strpos( $src6, "\$p['per_click']" ), true );
-// LE TRI PAR EN-TETE. « Manque fonction de tri par header. »
-ok( 'les en-tetes trient',                false !== strpos( $src6, 'function sort_now' ), true );
-ok( 'et le tri voyage dans l adresse',    false !== strpos( $src6, "\$_GET['by']" ), true );
-// OU LE SITE EST RELIE. « Ou je vois a quelle Search console le site est lie ? »
-ok( 'les proprietes sont montrees',       false !== strpos( $src6, 'function render_props' ), true );
-ok( 'et un domaine non couvert est nomme', false !== strpos( $src6, 'Not read:' ), true );
-// LE CSS EST SORTI DES STYLES EN LIGNE, comme celui du maillage.
+echo "\nL ECRAN SUIT CELUI DES TRADUCTIONS\n";
+// « Les menus du module traduction WPML devraient servir de modèle. »
+$sc = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-screens.php' );
+ok( 'deux onglets, nommes au catalogue',  false !== strpos( $sc, "'categories' => [ 'label' => __( 'Categories'" ) && false !== strpos( $sc, "'console'    => [ 'label' => __( 'Search Console'" ), true );
+ok( 'la barre de filtres est celle des traductions', false !== strpos( $src5, 'class="dze-trd-global dze-nl-filters"' ), true );
+ok( 'la liste s ouvre sur le travail',    false !== strpos( $src5, "\$_GET['status'] ) ) : 'reach';" ), true );
+ok( 'les en-tetes trient',                false !== strpos( $src5, 'function sort_now' ), true );
+ok( 'et le tri voyage dans l adresse',    false !== strpos( $src5, "\$_GET['by']" ), true );
+ok( 'la pagination est celle de WordPress', false !== strpos( $src5, 'tablenav-pages' ), true );
+ok( 'les proprietes sont montrees',       false !== strpos( $src5, 'function render_props' ), true );
+ok( 'et un domaine non couvert est nomme', false !== strpos( $src5, 'Not read:' ), true );
+ok( 'une lecture d avant, qui melangeait les produits, ne se montre pas', false !== strpos( $src5, "2 !== (int) ( \$d['model'] ?? 0 )" ), true );
 $css = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/css/content.css' );
 ok( 'le module a sa feuille de style',    false !== strpos( $css, '.dze-nl-table' ), true );
 

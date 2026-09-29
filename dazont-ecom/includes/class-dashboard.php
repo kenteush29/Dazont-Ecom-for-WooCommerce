@@ -251,14 +251,15 @@ final class DZE_Dashboard {
 		// pense a faire que si quelque chose le rappelle, et l accueil est
 		// l endroit ou une boutique regarde ce qui vaut la peine aujourd hui.
 		if ( class_exists( 'DZE_Netlinking' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'netlinking' ) ) ) {
-			$nl = count( (array) ( DZE_Netlinking::data()['rows'] ?? [] ) );
-			// RIEN A DIRE QUAND RIEN N A ETE LU : une ligne « 0 page » sur un
+			// LES CATEGORIES A POUSSER, pas toutes celles que la lecture a vues.
+			$nl = DZE_Netlinking::targets_count();
+			// RIEN A DIRE QUAND RIEN N A ETE LU : une ligne « 0 categorie » sur un
 			// module jamais connecte se lit comme un echec, pas comme une absence.
 			if ( $nl > 0 ) {
 				$said[] = [
 					sprintf(
-						/* translators: %s: how many pages */
-						_n( '%s page would gain from a link pointing at it from another site', '%s pages would gain from a link pointing at them from another site', $nl, 'dazont-ecom' ),
+						/* translators: %s: how many product categories */
+						_n( '%s category would gain from a link pointing at it from another site', '%s categories would gain from a link pointing at them from another site', $nl, 'dazont-ecom' ),
 						number_format_i18n( $nl )
 					),
 					DZE_Screens::url( 'netlinking' ),
