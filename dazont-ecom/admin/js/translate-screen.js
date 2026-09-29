@@ -636,8 +636,34 @@
 					return;
 				}
 				$('tr[data-ref="' + ref + '"]').remove();
+				// One row fewer on the list: one fewer on its counts.
+				reviewCount(Math.max(0, reviewCountNow() - 1));
 			});
 	});
+
+	// THE COUNTS FOLLOW THE LIST — the tab's badge and the bubble beside
+	// « WPML Translations » in the menu. « Accepté. Le compteur devrait se
+	// mettre à jour » : the row was gone and both still said 1.
+	function reviewCountNow() {
+		var $n = $('.nav-tab-wrapper .nav-tab').filter(function () {
+			return String($(this).attr('href') || '').indexOf('tab=review') !== -1;
+		}).find('.dze-tab-n').first();
+		return parseInt(String($n.text() || '0').replace(/[^0-9]/g, ''), 10) || 0;
+	}
+	function reviewCount(n) {
+		n = Math.max(0, parseInt(n, 10) || 0);
+		// The tab keeps its badge, as it is printed: « 0 » is an answer.
+		$('.nav-tab-wrapper .nav-tab').filter(function () {
+			return String($(this).attr('href') || '').indexOf('tab=review') !== -1;
+		}).find('.dze-tab-n').text(num(n));
+		// The menu shows its bubble only while something waits, as WordPress
+		// prints it.
+		$('#adminmenu a[href*="page=dazont-ecom-translations"]').each(function () {
+			var $b = $(this).find('.update-plugins');
+			if (!n) { $b.remove(); return; }
+			$b.attr('class', 'update-plugins count-' + n).find('.plugin-count').text(String(n));
+		});
+	}
 
 	// WHAT IS STILL WAITING ON THIS OBJECT, AND THE WAY TO IT.
 	//
@@ -808,8 +834,7 @@
 				$row.next('.dze-tr-peekrow').remove();
 				$row.remove();
 				$st.toggleClass('is-ko', !!warn).text(sprintf(i18n.rowDone || '%s', num(d.left || 0)) + (warn ? ' ' + warn : ''));
-				// The tab's count follows the list.
-				$('.nav-tab-active .plugin-count, .nav-tab-active .dze-tabn').text(String(d.left || 0));
+				reviewCount(d.left || 0);
 				syncBulk();
 			})
 			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
