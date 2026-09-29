@@ -123,7 +123,7 @@ final class DZE_Image_Lab {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		echo '<div class="wrap dze-admin">';
+		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'lab' ) ) . '</h1>';
 		$this->render();
 		echo '</div>';
@@ -140,7 +140,16 @@ final class DZE_Image_Lab {
 		</p>
 		<?php if ( '' === $key ) : ?>
 			<div class="notice notice-error inline"><p>
-				<?php esc_html_e( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ); ?>
+				<?php
+				// A SCREEN NAMED IS A SCREEN LINKED: typed as text, the shop had to go
+				// and find it.
+				$dze_gen = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'settings', 'general' ) : '';
+				printf(
+					/* translators: %s: link to Settings → General */
+					esc_html__( 'Add your fal.ai key under %s first.', 'dazont-ecom' ),
+					'' !== $dze_gen ? '<a href="' . esc_url( $dze_gen ) . '">' . esc_html( DZE_Screens::name( 'settings', 'general' ) ) . '</a>' : esc_html__( 'Settings → General', 'dazont-ecom' )
+				);
+				?>
 			</p></div>
 			<?php return; ?>
 		<?php endif; ?>

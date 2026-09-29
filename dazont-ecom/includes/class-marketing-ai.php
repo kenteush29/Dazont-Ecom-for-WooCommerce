@@ -737,10 +737,12 @@ final class DZE_Marketing_Ai {
 			// about — nine entries where a shop looks for one of three things.
 			'shop'    => [
 				'label' => __( 'Shop content', 'dazont-ecom' ),
-				'tabs'  => [ 'categories', 'content', 'reviews', 'lab', 'diagnostic' ],
+				'tabs'  => [ 'categories', 'content', 'reviews', 'diagnostic' ],
 			],
+			// NAMED LIKE THE MENU ENTRY IT IS THE SETTINGS OF: « Marketing », with
+			// its events, its discount rules and its e-mails.
 			'promo'   => [
-				'label' => __( 'Discounts', 'dazont-ecom' ),
+				'label' => class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'marketing' ) : __( 'Marketing', 'dazont-ecom' ),
 				'tabs'  => [ 'discounts', 'events', 'email' ],
 			],
 			// The plugin's own housekeeping, which is not shop work at all.
@@ -753,7 +755,9 @@ final class DZE_Marketing_Ai {
 		// already says it: "Marketing events → Marketing events" says it twice.
 		$section_labels = [
 			'events'    => __( 'Events', 'dazont-ecom' ),
-			'discounts' => __( 'General', 'dazont-ecom' ),
+			// The tab of the Marketing screen these settings belong to is called
+			// « Discount rules »; « General » named nothing.
+			'discounts' => class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'marketing', 'discounts' ) : __( 'Discount rules', 'dazont-ecom' ),
 		];
 
 		echo '<div class="wrap dze-wrap">';

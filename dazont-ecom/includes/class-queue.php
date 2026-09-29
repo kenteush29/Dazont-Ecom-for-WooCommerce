@@ -1743,7 +1743,11 @@ final class DZE_Queue {
 			// seule se voyait ici. Une ligne, avec le chemin, comme pour le banc
 			// d'écriture juste dessous : une seule liste par sujet, et aucune
 			// qui se cache.
-			$dze_tr = ( class_exists( 'DZE_Translate' ) && is_callable( [ 'DZE_Translate', 'review_count' ] ) )
+			// SUR L ECRAN D UN MODULE, SES DECISIONS ET RIEN D AUTRE : le maillage
+			// et les descriptions de categorie appellent cette liste avec leurs
+			// genres de travail, et un avis sur les traductions ou le banc des
+			// produits y parlait d un autre module.
+			$dze_tr = ( ! $kinds && class_exists( 'DZE_Translate' ) && is_callable( [ 'DZE_Translate', 'review_count' ] ) )
 				? (int) DZE_Translate::review_count()
 				: 0;
 			if ( $dze_tr > 0 && class_exists( 'DZE_Screens' ) ) {
@@ -1763,7 +1767,7 @@ final class DZE_Queue {
 					esc_html__( 'Read them →', 'dazont-ecom' )
 				);
 			}
-			$dze_bulk = self::bulk_waiting();
+			$dze_bulk = $kinds ? 0 : self::bulk_waiting();
 			if ( $dze_bulk > 0 && class_exists( 'DZE_Content' ) ) {
 				printf(
 					'<div class="notice notice-info inline" style="margin:0 0 14px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
@@ -1823,7 +1827,11 @@ final class DZE_Queue {
 					_n( '%s decision has already been taken.', '%s decisions have already been taken.', $done, 'dazont-ecom' ),
 					number_format_i18n( $done )
 				) ),
-				esc_url( DZE_Screens::url( 'logs', 'past' ) ),
+				// LE MAILLAGE A SON ONGLET « DONE » : c est la que ce qui a ete
+				// publie se relit et s annule, sans quitter le module.
+				esc_url( $kinds && class_exists( 'DZE_Mesh' ) && ! array_diff( $kinds, DZE_Mesh::KINDS ) && '' !== DZE_Screens::url( 'linking', 'done' )
+					? DZE_Screens::url( 'linking', 'done' )
+					: DZE_Screens::url( 'logs', 'past' ) ),
 				esc_html__( 'See what was published, and undo it →', 'dazont-ecom' )
 			);
 		}

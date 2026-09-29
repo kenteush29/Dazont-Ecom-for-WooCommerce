@@ -7,7 +7,7 @@ defined( 'ABSPATH' ) || exit;
  */
 ?>
 <?php if ( ! $table_exists ) : ?>
-		<div class="notice notice-warning">
+		<div class="notice notice-warning inline">
 			<p>
 				<?php esc_html_e( 'The WooCommerce Analytics order-lookup table was not found. The shortcode will return nothing until WooCommerce Analytics data has synced (Analytics runs automatically on modern WooCommerce; force it via WooCommerce → Status → Tools → "Regenerate product/order lookup tables" if needed).', 'dazont-ecom' ); ?>
 			</p>

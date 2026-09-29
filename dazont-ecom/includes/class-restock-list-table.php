@@ -261,6 +261,12 @@ final class DZE_Restock_List_Table extends WP_List_Table {
 		echo '</select>';
 
 		submit_button( __( 'Filter', 'dazont-ecom' ), '', 'filter_action', false );
+		// « CLEAR FILTERS », comme la barre des traductions — seulement quand
+		// une categorie est choisie.
+		if ( '' !== $current ) {
+			$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+			echo ' <a class="dze-trd-clear" style="margin-left:6px;line-height:30px;" href="' . esc_url( add_query_arg( [ 'page' => $page ], admin_url( 'admin.php' ) ) ) . '"><span class="dashicons dashicons-no-alt" aria-hidden="true"></span>' . esc_html__( 'Clear filters', 'dazont-ecom' ) . '</a>';
+		}
 		echo '</div>';
 	}
 }

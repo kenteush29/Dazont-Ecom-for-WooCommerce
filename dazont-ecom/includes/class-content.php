@@ -4468,7 +4468,7 @@ Answer with STRICT JSON and nothing else: "
 
 			<?php $dze_blockers = self::image_blockers(); ?>
 			<?php if ( $dze_blockers ) : ?>
-				<div class="notice notice-error"><p><strong><?php esc_html_e( 'Images cannot be generated right now:', 'dazont-ecom' ); ?></strong></p>
+				<div class="notice notice-error inline"><p><strong><?php esc_html_e( 'Images cannot be generated right now:', 'dazont-ecom' ); ?></strong></p>
 				<ul style="margin:0 0 10px 20px;list-style:disc;">
 					<?php foreach ( $dze_blockers as $dze_b ) : ?>
 						<li><?php echo esc_html( $dze_b['text'] ); ?>
@@ -4479,7 +4479,7 @@ Answer with STRICT JSON and nothing else: "
 			<?php endif; ?>
 
 			<?php if ( $ok_n < $tot_n ) : ?>
-				<div class="notice notice-warning"><p>
+				<div class="notice notice-warning inline"><p>
 					<?php printf( /* translators: 1: validated, 2: total */ esc_html__( '%1$d/%2$d prompts validated — bulk applies directly, so only validated fields can be selected below.', 'dazont-ecom' ), (int) $ok_n, (int) $tot_n ); ?>
 				</p></div>
 			<?php endif; ?>
@@ -4494,7 +4494,7 @@ Answer with STRICT JSON and nothing else: "
 			$dze_over = isset( $_GET['dze_over'] ) ? absint( $_GET['dze_over'] ) : 0;
 			if ( $dze_over > 0 ) :
 				?>
-				<div class="notice notice-warning"><p><?php
+				<div class="notice notice-warning inline"><p><?php
 					printf(
 						esc_html(
 							/* translators: 1: how many were left out, 2: the ceiling */
