@@ -3596,24 +3596,29 @@ ok( 'and nothing was booked',                      $GLOBALS['recorded'], [] );
 echo "\nA WAVE CUT IN THE MIDDLE GIVES ITS LANGUAGES BACK\n";
 $dze_direct_fresh();
 $GLOBALS['model_answer_fn'] = $dze_good;
-$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr' ], 'sent' => [ 'fr' => 'pending-1-dead' ] ] ];
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr' ], 'lane' => 'direct', 'sent' => [ 'fr' => 'pending-1-dead' ] ] ];
 $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] = [ 'pending-1-dead' => [ 'token' => 'pending-1-dead', 'id' => 'pending-1-dead', 'status' => 'direct', 'at' => time() - 90, 'n' => 1, 'map' => [], 'tasks' => [] ] ];
 DZE_Translate::drain();
 ok( 'its record is gone',                          isset( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ]['pending-1-dead'] ), false );
 ok( 'and its language went again, right away',     $GLOBALS['direct_waves'], [ 1 ] );
 ok( 'and came back',                               DZE_Translate::asked(), [] );
 
-echo "\nSWITCHED TO RIGHT AWAY, A BATCH STILL WAITING IS TAKEN BACK\n";
-// What Anthropic has not done yet is cancelled, which bills nothing, and goes
-// right away; nothing is counted against it.
+echo "\nCHEAP, THEN « TRANSLATE THE REST RIGHT AWAY »\n";
+// « On pourrait ici garder de la flexibilité et donner le choix : traduction
+// rapide ou traduction cheap. » Sent cheap, it waits in a batch; one press
+// and what Anthropic has not done yet is cancelled — which bills nothing —
+// and goes right away, with nothing counted against it.
 $dze_direct_fresh();
 $GLOBALS['model_answer_fn'] = $dze_good;
-$GLOBALS['opts']['dze_translate_settings']['lane'] = 'batch';
-DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+$dze_nx = null;
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ], false, $dze_nx, 'batch' );
 $GLOBALS['batch_status'] = 'in_progress';
 DZE_Translate::drain();
-ok( 'it went in a batch',                          count( $GLOBALS['batch_store'] ), 1 );
-$GLOBALS['opts']['dze_translate_settings']['lane'] = 'direct';
+ok( 'sent cheap, it went in a batch, the shop default notwithstanding', count( $GLOBALS['batch_store'] ), 1 );
+ok( 'and nothing went right away',                  $GLOBALS['direct_waves'], [] );
+ok( 'the screen offers to hurry it',                (int) ( DZE_Translate::queue_said()['cheap'] ?? 0 ), 1 );
+ok( 'one press moves it over',                      DZE_Translate::hurry(), 1 );
+ok( 'and nothing is left at half price',            (int) ( DZE_Translate::queue_said()['cheap'] ?? -1 ), 0 );
 foreach ( (array) $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] as $k => $b ) { $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $k ]['polled'] = 0; }
 DZE_Translate::drain();
 ok( 'the waiting batch is cancelled',              $GLOBALS['batch_cancels'], [ 'msgbatch_test0' ] );
@@ -3626,10 +3631,31 @@ ok( 'what it held went right away',                $GLOBALS['direct_waves'], [ 1
 ok( 'and came back without a try counted',         DZE_Translate::asked(), [] );
 ok( 'waiting for review',                          array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr' ] );
 
+echo "\nEACH SEND CHOOSES ITS SPEED\n";
+$dze_direct_fresh();
+$GLOBALS['model_answer_fn'] = $dze_good;
+$GLOBALS['opts']['dze_translate_settings']['lane'] = 'batch';
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ], false, $dze_nx, 'direct' );
+ok( 'asked right away, it is right away whatever the shop default', DZE_Translate::asked()[0]['lane'] ?? '', 'direct' );
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+ok( 'said nothing, it takes the shop default',    DZE_Translate::asked()[0]['lane'] ?? '', 'batch' );
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ], false, $dze_nx, 'direct' );
+ok( 'asked again right away, it hurries',          DZE_Translate::asked()[0]['lane'] ?? '', 'direct' );
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ], false, $dze_nx, 'batch' );
+ok( 'and never slows back down',                   DZE_Translate::asked()[0]['lane'] ?? '', 'direct' );
+$GLOBALS['opts']['dze_translate_settings']['lane'] = 'direct';
+// A REQUEST FROM BEFORE THE CHOICE WENT IN A BATCH, AND STAYS THERE.
+ok( 'an old request without a speed is cheap',     DZE_Translate::entry( [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr' ] ] )['lane'], 'batch' );
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
+
 echo "\nA WAVE IS SHORT\n";
 $dze_trsrc = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
-ok( 'a wave carries at most its own size',
-	false !== strpos( $dze_trsrc, '$direct ? self::DIRECT_WAVE : self::BATCH_MAX' ), true );
+ok( 'a wave carries at most its own size, and a cheap batch its chunk',
+	false !== strpos( $dze_trsrc, '$direct ? self::DIRECT_WAVE : self::BATCH_CHUNK' ), true );
+ok( 'a cheap batch is small',                      DZE_Translate::BATCH_CHUNK <= 100, true );
+ok( 'and several leave in one step',
+	false !== strpos( $dze_trsrc, '$lots < self::BATCHES_PER_TICK' ), true );
 ok( 'and a page never sends one',
 	false !== strpos( $dze_trsrc, 'if ( $direct && self::$from_page ) {' ), true );
 $GLOBALS['opts']['dze_translate_settings']['lane'] = 'batch';
