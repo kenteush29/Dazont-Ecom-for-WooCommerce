@@ -208,6 +208,9 @@ final class DZE_Translate {
 			$w = sanitize_text_field( (string) $in['when'] );
 			$out['when'] = in_array( $w, [ 'new', 'update', 'both' ], true ) ? $w : 'both';
 		}
+		if ( isset( $in['lane'] ) ) {
+			$out['lane'] = 'batch' === sanitize_key( (string) $in['lane'] ) ? 'batch' : 'direct';
+		}
 		if ( ! empty( $in['scope_sent'] ) ) {
 			$out['scope'] = array_values( array_intersect(
 				array_map( 'sanitize_text_field', (array) ( $in['scope'] ?? [] ) ),
@@ -728,6 +731,7 @@ final class DZE_Translate {
 		// restait affiché au-dessus d'une file vidée.
 		if ( ! $keep ) {
 			self::clear_stop();
+			delete_option( self::OPT_RUN );
 		}
 	}
 
@@ -1039,6 +1043,38 @@ final class DZE_Translate {
 	/** Le prix d'un appel en lot, contre le prix d'un appel seul. */
 	public const BATCH_RATE = 0.5;
 
+	/**
+	 * COMBIEN D'APPELS PARTENT ENSEMBLE, EN MODE IMMÉDIAT — une vague, envoyée
+	 * en parallèle, qui revient dans le temps du plus long.
+	 */
+	public const DIRECT_WAVE = 16;
+
+	/** Ce que les vagues immédiates ont fait depuis que la file s'est remplie. */
+	public const OPT_RUN = 'dze_translate_run';
+
+	/**
+	 * LE PASSAGE EST DEMANDÉ PAR LA PAGE. Une vague immédiate n'y part jamais :
+	 * une requête de page passe par le CDN d'Hostinger, qui la coupe sans un
+	 * mot au-delà d'une demi-minute, et les réponses payées se perdraient avec
+	 * elle. La page relève, publie et réveille le planificateur ; lui envoie.
+	 */
+	private static bool $from_page = false;
+
+	/**
+	 * IMMÉDIAT, OU EN LOTS À MOITIÉ PRIX.
+	 *
+	 * « Je n'attendrais en aucun cas 24h pour des traductions. WPML lui-même
+	 * n'aurait même pas l'audace de demander autant. » Un lot coûte moitié prix
+	 * parce qu'Anthropic le traite quand il a de la place : deux petits sont
+	 * revenus en deux minutes, deux gros sont restés vingt minutes à zéro
+	 * réponse. Immédiat est donc le défaut ; les lots restent un choix, pour un
+	 * très gros envoi qui peut attendre.
+	 */
+	public static function lane(): string {
+		$l = (string) ( self::get_settings()['lane'] ?? '' );
+		return 'batch' === $l ? 'batch' : 'direct';
+	}
+
 	/** Combien de retours vides avant qu'une langue sorte de la file. */
 	public const TRIES = 3;
 
@@ -1079,7 +1115,16 @@ final class DZE_Translate {
 			self::repair_marks();
 			self::collect( $t0, $budget );
 			self::publish( $t0, $budget );
-			self::dispatch();
+			// IMMÉDIAT : des vagues tant que le temps le permet — une vague
+			// revient dans le temps de son appel le plus long, et la suivante ne
+			// part que s'il reste de quoi l'attendre. Ce qu'elles rapportent sans
+			// relecture est publié dans le même passage.
+			if ( self::dispatch() ) {
+				while ( microtime( true ) - $t0 < min( 10, $budget / 2 ) && self::dispatch() ) {
+					continue;
+				}
+				self::publish( $t0, $budget );
+			}
 		} finally {
 			self::give( 'tick' );
 		}
@@ -1171,7 +1216,10 @@ final class DZE_Translate {
 		}
 		// UN LOT RELEVÉ DEPUIS UNE SEMAINE N'EST PLUS QU'UNE LIGNE D'HISTOIRE.
 		foreach ( $all as $k => $one ) {
-			if ( in_array( (string) ( $one['status'] ?? '' ), [ 'landed', 'lost' ], true ) && (int) ( $one['landed'] ?? 0 ) < time() - WEEK_IN_SECONDS ) {
+			// UNE VAGUE IMMÉDIATE N'EST PLUS RIEN une heure après : elle n'a rien à
+			// relire chez personne, et elles se comptent par dizaines.
+			$vieux = (int) ( $one['landed'] ?? 0 ) < time() - ( empty( $one['direct'] ) ? WEEK_IN_SECONDS : HOUR_IN_SECONDS );
+			if ( in_array( (string) ( $one['status'] ?? '' ), [ 'landed', 'lost' ], true ) && $vieux ) {
 				unset( $all[ $k ] );
 			}
 		}
@@ -1286,13 +1334,13 @@ final class DZE_Translate {
 	}
 
 	/** Ce qu'un appel du lot coûtera, estimé large — à ne jamais sous-estimer. */
-	private static function ask_cost( string $model, array $ask ): float {
+	private static function ask_cost( string $model, array $ask, float $rate = self::BATCH_RATE ): float {
 		if ( ! class_exists( 'DZE_Ai_Usage' ) || ! method_exists( 'DZE_Ai_Usage', 'estimate' ) ) {
 			return 0.0;
 		}
 		$in  = (int) ceil( ( strlen( (string) $ask['system'] ) + strlen( (string) $ask['user'] ) ) / 3.0 );
 		$out = (int) ( $ask['max'] ?? 1000 );
-		return (float) DZE_Ai_Usage::estimate( $model, $in, $out ) * self::BATCH_RATE;
+		return (float) DZE_Ai_Usage::estimate( $model, $in, $out ) * $rate;
 	}
 
 	/**
@@ -1302,9 +1350,14 @@ final class DZE_Translate {
 	 * les mots ont bougé, ou tout quand « Écraser » l'a demandé ; rien de ce qui
 	 * attend déjà une décision ; rien qui ne soit pas l'original.
 	 */
-	private static function dispatch(): void {
+	private static function dispatch(): bool {
+		$direct = 'direct' === self::lane();
+		// LA PAGE N'ENVOIE JAMAIS DE VAGUE : voir $from_page.
+		if ( $direct && self::$from_page ) {
+			return false;
+		}
 		if ( (int) self::fresh_option( self::OPT_BACKOFF, 0 ) > time() ) {
-			return;
+			return false;
 		}
 		// UN LOT DONT ON NE SAIT PAS S'IL EXISTE bloque tout nouvel envoi de ce
 		// qu'il porte tant qu'on ne l'a pas retrouvé : renvoyer, ce serait
@@ -1325,14 +1378,14 @@ final class DZE_Translate {
 			}
 		}
 		if ( $rien ) {
-			return;
+			return false;
 		}
 		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
 			// LE BUDGET DU MOIS EST ATTEINT : rien ne part, rien n'est compté,
 			// et on ne redemande pas toutes les cinq secondes.
 			self::note_stop( DZE_Ai_Usage::budget_message() );
 			update_option( self::OPT_BACKOFF, time() + HOUR_IN_SECONDS, false );
-			return;
+			return false;
 		}
 		// CE QUI PART EST MARQUÉ AVANT DE PARTIR, sous le verrou de la file.
 		//
@@ -1363,7 +1416,7 @@ final class DZE_Translate {
 			return $file;
 		} );
 		if ( ! $todo ) {
-			return;
+			return false;
 		}
 		$modele = self::batch_model();
 		// LE BUDGET, BATCHES ENCORE DEHORS COMPTÉS : ce lot part avec ce qui
@@ -1385,7 +1438,8 @@ final class DZE_Translate {
 		$est    = 0.0;
 		$coupe  = false;
 		foreach ( $todo as [ $e, $code ] ) {
-			if ( count( $asks ) >= self::BATCH_MAX || $poids >= self::BATCH_BYTES ) {
+			// UNE VAGUE IMMÉDIATE EST COURTE : le reste part à la suivante.
+			if ( count( $asks ) >= ( $direct ? self::DIRECT_WAVE : self::BATCH_MAX ) || $poids >= self::BATCH_BYTES ) {
 				break; // le reste part au lot suivant.
 			}
 			$ref = self::ref( $e );
@@ -1433,7 +1487,7 @@ final class DZE_Translate {
 			foreach ( $plan['jobs'] as $i => $job ) {
 				$ask            = self::batch_ask( $job, $code, $plan['names'] );
 				$ici[ (int) $i ] = $ask;
-				$ici_est       += self::ask_cost( $modele, $ask );
+				$ici_est       += self::ask_cost( $modele, $ask, $direct ? 1.0 : self::BATCH_RATE );
 				$ici_pds       += strlen( $ask['system'] ) + strlen( $ask['user'] ) + 300;
 			}
 			if ( null !== $reste_budget && $est + $ici_est > $reste_budget ) {
@@ -1471,7 +1525,7 @@ final class DZE_Translate {
 				self::note_stop( DZE_Ai_Usage::budget_message() );
 				update_option( self::OPT_BACKOFF, time() + HOUR_IN_SECONDS, false );
 			}
-			return;
+			return false;
 		}
 		// LES MOTS ENVOYÉS RESTENT SUR L'OBJET jusqu'au retour : accepter dans
 		// une semaine doit inscrire au registre les mots traduits, pas ceux
@@ -1494,6 +1548,9 @@ final class DZE_Translate {
 			'map'    => $map,
 			'tasks'  => $tasks,
 		];
+		if ( $direct ) {
+			return self::direct_wave( $jeton, $fiche, $asks, $modele );
+		}
 		self::batch_save( $jeton, $fiche );
 		try {
 			$lot = DZE_Marketing_Ai::batch_create( $asks, $modele );
@@ -1509,7 +1566,7 @@ final class DZE_Translate {
 				self::unmark( $jeton );
 				self::note_stop( $ex->getMessage() );
 				update_option( self::OPT_BACKOFF, time() + 10 * MINUTE_IN_SECONDS, false );
-				return;
+				return false;
 			}
 			// SANS RÉPONSE CLAIRE, personne ne sait si Anthropic l'a fait — et
 			// facturé. Le lot reste « en suspens » : un passage suivant le
@@ -1517,10 +1574,48 @@ final class DZE_Translate {
 			$fiche['unsure'] = $ex->getMessage();
 			self::batch_save( $jeton, $fiche );
 			self::note_stop( __( 'Anthropic did not say whether it received the last batch. Nothing is sent again until it has been found or ruled out.', 'dazont-ecom' ) );
-			return;
+			return false;
 		}
 		self::batch_adopt( $jeton, $fiche, $lot );
 		self::clear_stop();
+		// UN LOT PAR PASSAGE : il part entier, et le suivant attend son tour.
+		return false;
+	}
+
+	/**
+	 * UNE VAGUE IMMÉDIATE : envoyée, revenue, déposée — dans le même passage.
+	 *
+	 * Les mêmes demandes qu'un lot, parties tout de suite et en parallèle ; leurs
+	 * réponses arrivent dans la forme d'un résultat de lot et sont lues par
+	 * `land()`, exactement comme un lot revenu : mêmes contrôles, même relecture
+	 * ou même publication, même compte — au plein tarif.
+	 *
+	 * @return bool true quand la vague est partie.
+	 */
+	private static function direct_wave( string $jeton, array $fiche, array $asks, string $modele ): bool {
+		// ÉCRITE AVANT DE PARTIR, sous son jeton et à son propre statut : un
+		// passage tué pendant la vague la laisse « direct », et le suivant rend ses
+		// langues à la file — jamais cherchée parmi les lots d'Anthropic, où elle
+		// n'est pas.
+		$fiche['id']     = $jeton;
+		$fiche['status'] = 'direct';
+		$fiche['rate']   = 1.0;
+		self::batch_save( $jeton, $fiche );
+		try {
+			$rows = DZE_Marketing_Ai::messages_now( $asks, $modele, 45 );
+		} catch ( \Throwable $ex ) {
+			// REFUSÉ AVANT TOUT APPEL — pas de clé, budget atteint : rien n'est
+			// parti, rien n'est compté, et les textes n'y sont pour rien.
+			self::batch_save( $jeton, null );
+			self::sent_forget( $fiche );
+			self::unmark( $jeton );
+			self::note_stop( $ex->getMessage() );
+			update_option( self::OPT_BACKOFF, time() + 10 * MINUTE_IN_SECONDS, false );
+			return false;
+		}
+		self::clear_stop();
+		self::land( $jeton, $fiche, $rows );
+		return true;
 	}
 
 	/**
@@ -1579,7 +1674,11 @@ final class DZE_Translate {
 						}
 					}
 					$st = $par_id[ $m ] ?? null;
-					if ( null === $st || 'lost' === $st ) {
+					// UNE VAGUE IMMÉDIATE ENCORE « EN COURS » au début d'un passage est une
+					// vague morte : une seule tourne à la fois, sous le verrou, et elle est
+					// relevée dans le passage qui l'a envoyée. Ses langues reprennent leur
+					// place.
+					if ( null === $st || 'lost' === $st || 'direct' === $st ) {
 						unset( $file[ $i ]['sent'][ $code ] );
 						if ( empty( $e['keep'][ $code ] ) ) {
 							$reste[] = $code;
@@ -1612,6 +1711,14 @@ final class DZE_Translate {
 			}
 			return $file;
 		} );
+		// ET LA FICHE D'UNE VAGUE MORTE S'EFFACE, avec les mots qu'elle gardait :
+		// ses langues viennent de reprendre leur place.
+		foreach ( self::batches() as $k => $fiche ) {
+			if ( 'direct' === (string) ( $fiche['status'] ?? '' ) ) {
+				self::sent_forget( $fiche );
+				self::batch_save( (string) $k, null );
+			}
+		}
 	}
 
 	/**
@@ -1805,6 +1912,22 @@ final class DZE_Translate {
 				self::resolve_creating( (string) ( $b['token'] ?? $bid ), $b );
 				continue;
 			}
+			// « IMMÉDIAT » : ce qui attend encore dans un lot est repris et part tout
+			// de suite. Ce qu'Anthropic a déjà traduit revient avec le lot et n'est
+			// pas redemandé ; le reste n'est pas facturé, et reprend sa place sans
+			// qu'aucun essai soit compté (voir land()).
+			if ( 'in_progress' === $statut && empty( $b['hurried'] ) && 'direct' === self::lane() ) {
+				try {
+					DZE_Marketing_Ai::batch_cancel( $bid );
+					$b['hurried'] = 1;
+					$b['status']  = 'canceling';
+					$b['polled']  = 0;
+					self::batch_save( $bid, $b );
+					$statut = 'canceling';
+				} catch ( \Throwable $ex ) {
+					unset( $ex ); // redemandé au passage suivant.
+				}
+			}
 			if ( in_array( $statut, [ 'in_progress', 'canceling' ], true ) ) {
 				if ( time() - (int) ( $b['polled'] ?? 0 ) < self::POLL_EVERY ) {
 					continue;
@@ -1900,8 +2023,10 @@ final class DZE_Translate {
 	 * le lot noté « relevé ». Relu après une coupure, il n'est ni compté deux
 	 * fois ni inscrit contre les mauvais mots.
 	 */
-	private static function land( string $bid, array $b ): void {
+	private static function land( string $bid, array $b, ?iterable $rows = null ): void {
 		$reponses = [];
+		$encore   = [];
+		$ralentir = false;
 		$echecs   = [];
 		$usage    = [];
 		$types    = [];
@@ -1909,7 +2034,7 @@ final class DZE_Translate {
 		$lignes   = 0;
 		$siennes  = 0;
 		try {
-			foreach ( DZE_Marketing_Ai::batch_results( $bid ) as $row ) {
+			foreach ( ( null !== $rows ? $rows : DZE_Marketing_Ai::batch_results( $bid ) ) as $row ) {
 				$lignes++;
 				$cid = (string) ( $row['custom_id'] ?? '' );
 				if ( ! isset( $b['map'][ $cid ] ) ) {
@@ -1924,6 +2049,14 @@ final class DZE_Translate {
 				$res  = (array) ( $row['result'] ?? [] );
 				$type = (string) ( $res['type'] ?? '' );
 				$types[ $type ] = ( $types[ $type ] ?? 0 ) + 1;
+				// PAS LA FAUTE DU TEXTE : trop de demandes, un service surchargé, un
+				// transport tombé — ou un lot repris pour partir tout de suite. La
+				// langue reprend sa place, et aucun essai n'est compté contre elle.
+				if ( 'retry' === $type || ( 'canceled' === $type && ! empty( $b['hurried'] ) ) ) {
+					$encore[ $tk ] = true;
+					$ralentir       = $ralentir || 'retry' === $type;
+					continue;
+				}
 				if ( 'succeeded' !== $type ) {
 					$echecs[ $tk ][ $i ] = self::batch_why( $type, $res );
 					$pourquoi            = $echecs[ $tk ][ $i ];
@@ -2019,7 +2152,8 @@ final class DZE_Translate {
 		// L'ARGENT, COMPTÉ UNE FOIS, AU PRIX DU LOT — et la fiche le dit aussitôt.
 		if ( empty( $b['booked'] ) ) {
 			if ( $usage && class_exists( 'DZE_Ai_Usage' ) && method_exists( 'DZE_Ai_Usage', 'record_many' ) ) {
-				DZE_Ai_Usage::record_many( 'anthropic', (string) ( $b['model'] ?? '' ), $usage, self::BATCH_RATE );
+				// AU PRIX DE LA VOIE : moitié pour un lot, plein pour une vague immédiate.
+				DZE_Ai_Usage::record_many( 'anthropic', (string) ( $b['model'] ?? '' ), $usage, (float) ( $b['rate'] ?? self::BATCH_RATE ) );
 			}
 			$b['booked'] = 1;
 			self::batch_save( $bid, $b );
@@ -2050,6 +2184,11 @@ final class DZE_Translate {
 				continue;
 			}
 			$rates[ $tk ] = $raisons ? (string) $raisons[0] : __( 'Nothing came back.', 'dazont-ecom' );
+		}
+		// À REDEMANDER EN ENTIER : une tâche dont un morceau est à renvoyer
+		// repart tout entière, plutôt que d'arriver à moitié en relecture.
+		foreach ( array_keys( $encore ) as $tk ) {
+			unset( $faits[ $tk ], $partiel[ $tk ], $rates[ $tk ] );
 		}
 		// CE QUI EST REVENU ATTEND UNE DÉCISION, contre les mots qui ont été
 		// envoyés — et au nom de celui qui l'a demandé, pas de la passe.
@@ -2082,12 +2221,20 @@ final class DZE_Translate {
 				DZE_Ai_Usage::finished( (string) $unit, (int) $n );
 			}
 		}
+		// CE QUI EST FAIT DEPUIS QUE LA FILE S'EST REMPLIE, pour la barre de l'écran —
+		// compté AVANT que la file ne se vide : vidée, elle efface ce compte.
+		if ( $faits ) {
+			$run         = (array) self::fresh_option( self::OPT_RUN, [] );
+			$run['done'] = (int) ( $run['done'] ?? 0 ) + count( $faits );
+			$run['last'] = time();
+			update_option( self::OPT_RUN, $run, false );
+		}
 		// LA FILE : ce qui est fait sort (relecture) ou attend d'être écrit
 		// (sans relecture) ; ce qui a échoué retourne dans la file, et sort au
 		// bout de trois fois en disant pourquoi.
 		$notes = [];
 		$tok   = (string) ( $b['token'] ?? '' );
-		self::with_queue( static function ( array $file ) use ( $bid, $tok, $faits, $partiel, $rates, $global, &$notes ): array {
+		self::with_queue( static function ( array $file ) use ( $bid, $tok, $faits, $partiel, $rates, $global, $encore, &$notes ): array {
 			foreach ( $file as $i => $e ) {
 				$ref   = self::ref( $e );
 				$reste = [];
@@ -2099,6 +2246,10 @@ final class DZE_Translate {
 					}
 					unset( $file[ $i ]['sent'][ $code ] );
 					$tk = $ref . '|' . $code;
+					if ( isset( $encore[ $tk ] ) && empty( $e['keep'][ $code ] ) ) {
+						$reste[] = $code; // renvoyée, sans rien compter.
+						continue;
+					}
 					if ( isset( $faits[ $tk ] ) ) {
 						unset( $file[ $i ]['fails'][ $code ] );
 						if ( ! empty( $e['accept'] ) && empty( $e['keep'][ $code ] ) && ! isset( $partiel[ $tk ] ) ) {
@@ -2158,6 +2309,9 @@ final class DZE_Translate {
 		if ( $global ) {
 			self::note_stop( '' !== $pourquoi ? $pourquoi : __( 'Anthropic translated nothing in the last batch.', 'dazont-ecom' ) );
 			update_option( self::OPT_BACKOFF, time() + 30 * MINUTE_IN_SECONDS, false );
+		} elseif ( $ralentir ) {
+			// TROP DE DEMANDES D'UN COUP : la vague suivante attend un peu.
+			update_option( self::OPT_BACKOFF, max( (int) self::fresh_option( self::OPT_BACKOFF, 0 ), time() + 20 ), false );
 		}
 		self::batch_save( $bid, [
 			'id'     => $bid,
@@ -2169,6 +2323,7 @@ final class DZE_Translate {
 			'done'   => count( $faits ),
 			'failed' => count( $rates ),
 			'booked' => 1,
+			'direct' => null !== $rows ? 1 : 0,
 		] );
 		// LES MOTS ENVOYÉS SONT LÂCHÉS EN DERNIER, une fois le lot noté relevé.
 		self::sent_forget( $b );
@@ -4661,6 +4816,27 @@ final class DZE_Translate {
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><?php esc_html_e( 'How it is sent', 'dazont-ecom' ); ?></th>
+					<td>
+						<?php
+						// « Je n'attendrais en aucun cas 24h pour des traductions. »
+						// The price and the wait, side by side: the choice is
+						// between the two, and the screen says both.
+						$dze_lane = self::lane();
+						foreach ( [
+							'direct' => __( 'Right away — sent in the background a few at a time; each language is back within a minute or two. Normal price.', 'dazont-ecom' ),
+							'batch'  => __( 'In batches, at half price — Anthropic answers when it has room: often minutes, sometimes hours, 24 hours at most.', 'dazont-ecom' ),
+						] as $dze_k => $dze_lbl ) :
+						?>
+							<label style="display:block;margin-bottom:3px;">
+								<input type="radio" name="<?php echo esc_attr( self::OPT ); ?>[lane]" value="<?php echo esc_attr( $dze_k ); ?>" <?php checked( $dze_k, $dze_lane ); ?> />
+								<?php echo esc_html( $dze_lbl ); ?>
+							</label>
+						<?php endforeach; ?>
+						<p class="description"><?php esc_html_e( 'Switching to « Right away » also takes back what is still waiting in a batch at Anthropic and sends it right away; what Anthropic has already answered is kept.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><label for="dze-tr-model"><?php esc_html_e( 'Model', 'dazont-ecom' ); ?></label></th>
 					<td>
 						<?php
@@ -6644,7 +6820,13 @@ final class DZE_Translate {
 		ignore_user_abort( true );
 		$occupe = self::held( 'tick' );
 		if ( ! $occupe ) {
+			// La page relève et publie ; les vagues partent du planificateur.
+			self::$from_page = true;
 			self::drain( 12 );
+			self::$from_page = false;
+			if ( 'direct' === self::lane() ) {
+				self::kick_drain();
+			}
 		}
 		$reste = count( self::asked() );
 		wp_send_json_success( [
@@ -7165,6 +7347,14 @@ final class DZE_Translate {
 				/* translators: %s: how long ago */
 				'progChecked'   => __( 'last checked %s ago', 'dazont-ecom' ),
 				'progSending'   => __( 'Being put into a batch…', 'dazont-ecom' ),
+				'progDirect'    => __( 'Translated right away, a few at a time, in the background: each language appears on its row as soon as it is back. You can leave this page.', 'dazont-ecom' ),
+				/* translators: 1: translations done, 2: all of them */
+				'progDone'      => __( '%1$s of %2$s translations done', 'dazont-ecom' ),
+				/* translators: %s: how long ago */
+				'progStarted'   => __( 'started %s ago', 'dazont-ecom' ),
+				/* translators: %s: how long ago */
+				'progLast'      => __( 'last answer %s ago', 'dazont-ecom' ),
+				'progFirst'     => __( 'the first answers come back within a minute or two', 'dazont-ecom' ),
 				/* translators: %s: how many translations are back */
 				'progLanded'    => __( '%s translations back, being saved', 'dazont-ecom' ),
 				/* translators: %s: seconds */

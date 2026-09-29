@@ -620,8 +620,10 @@ trait DZE_Translate_Screen {
 		$sent   = 0;
 		$langs  = 0;
 		$landed = 0;
+		$first  = 0;
 		foreach ( self::asked() as $e ) {
 			$refs[ self::ref( $e ) ] = true;
+			$first = $first && (int) $e['at'] ? min( $first, (int) $e['at'] ) : max( $first, (int) $e['at'] );
 			$sent   += count( array_intersect( $e['langs'], array_keys( (array) $e['sent'] ) ) );
 			$langs  += count( $e['langs'] );
 			$landed += count( array_intersect( $e['langs'], array_keys( (array) $e['land'] ) ) );
@@ -669,6 +671,12 @@ trait DZE_Translate_Screen {
 			'since'    => $since,
 			'polled'   => $polled,
 			'now'      => time(),
+			// IMMÉDIAT : ce qui est fait depuis que la file s'est remplie, depuis
+			// quand, et la dernière réponse — la barre en est faite.
+			'lane'     => self::lane(),
+			'done'     => (int) ( ( (array) self::fresh_option( self::OPT_RUN, [] ) )['done'] ?? 0 ),
+			'last'     => (int) ( ( (array) self::fresh_option( self::OPT_RUN, [] ) )['last'] ?? 0 ),
+			'first'    => $first,
 			'n'      => count( $refs ),
 			// A STEP IS RUNNING RIGHT NOW — read from the lock MySQL holds, so a
 			// step that died no longer reads as busy for a quarter of an hour.
@@ -707,7 +715,9 @@ trait DZE_Translate_Screen {
 				<span id="dze-trd-progwhy"><?php
 					echo esc_html( '' !== (string) ( $q['stop'] ?? '' )
 						? __( 'Nothing is sent while the queue is paused.', 'dazont-ecom' )
-						: __( 'Anthropic translates it in batches, at half price. A large send can take up to an hour — 24 hours at most — and each language appears on its row as soon as its batch is back. You can leave this page.', 'dazont-ecom' ) );
+						: ( 'direct' === ( $q['lane'] ?? '' )
+							? __( 'Translated right away, a few at a time, in the background: each language appears on its row as soon as it is back. You can leave this page.', 'dazont-ecom' )
+							: __( 'Anthropic translates it in batches, at half price. A large send can take up to an hour — 24 hours at most — and each language appears on its row as soon as its batch is back. You can leave this page.', 'dazont-ecom' ) ) );
 				?></span>
 				<a href="<?php echo esc_url( self::url( [ 'tstatus' => 'progress' ] ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
 				&middot;

@@ -485,6 +485,10 @@ class DZE_Marketing_Ai {
 		}
 		$out = [];
 		foreach ( (array) ( $GLOBALS['batch_store'][ $id ] ?? [] ) as $cid => $a ) {
+			if ( isset( $GLOBALS['batch_line_type'] ) ) {
+				$out[] = [ 'custom_id' => $cid, 'result' => [ 'type' => (string) $GLOBALS['batch_line_type'] ] ];
+				continue;
+			}
 			try {
 				$text  = self::complete( $a['system'], $a['user'] );
 				$out[] = [ 'custom_id' => $cid, 'result' => [ 'type' => 'succeeded', 'message' => [
@@ -495,6 +499,31 @@ class DZE_Marketing_Ai {
 				] ] ];
 			} catch ( \Throwable $e ) {
 				$out[] = [ 'custom_id' => $cid, 'result' => [ 'type' => 'errored', 'error' => [ 'type' => 'error', 'error' => [ 'type' => 'overloaded_error', 'message' => $e->getMessage() ] ] ] ];
+			}
+		}
+		return $out;
+	}
+	/**
+	 * A WAVE SENT RIGHT AWAY, answered in the shape of a batch line — or, when
+	 * the service says too many, a `retry` line the module must not count.
+	 */
+	public static function messages_now( $asks, $model = '', $t = 0 ) {
+		$GLOBALS['direct_waves'][] = count( $asks );
+		$GLOBALS['sent_to'][]      = $model;
+		$out = [];
+		foreach ( $asks as $cid => $a ) {
+			if ( ! empty( $GLOBALS['direct_retry'] ) ) {
+				$out[] = [ 'custom_id' => (string) $cid, 'result' => [ 'type' => 'retry', 'why' => 'HTTP 429' ] ];
+				continue;
+			}
+			try {
+				$text  = self::complete( $a['system'], $a['user'] );
+				$out[] = [ 'custom_id' => (string) $cid, 'result' => [ 'type' => 'succeeded', 'message' => [
+					'model' => 'claude-sonnet-4-6', 'content' => [ [ 'type' => 'text', 'text' => $text ] ],
+					'stop_reason' => 'end_turn', 'usage' => [ 'input_tokens' => 10, 'output_tokens' => 10 ],
+				] ] ];
+			} catch ( \Throwable $e ) {
+				$out[] = [ 'custom_id' => (string) $cid, 'result' => [ 'type' => 'errored', 'error' => [ 'type' => 'error', 'error' => [ 'type' => 'api_error', 'message' => $e->getMessage() ] ] ] ];
 			}
 		}
 		return $out;
@@ -2963,6 +2992,9 @@ $GLOBALS['opts'][ DZE_Translate::OPT_DRAIN_ERRORS ] = [];
 $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
 
 echo "\nTHE QUEUE GOES TO ANTHROPIC IN ONE BATCH, AND NOTHING IS TRANSLATED INSIDE A PAGE\n";
+// THE BATCH LANE, chosen: « right away » is the default since 4.494, and
+// every check of this section is about the batch engine.
+$GLOBALS['opts']['dze_translate_settings']['lane'] = 'batch';
 // « Fais comme WPML, ça ne coupe pas même avec des gros batch. » A step sends
 // what is waiting in ONE batch and returns; a later step reads the batch
 // when it is done. Nothing is translated inside a request of the shop.
@@ -3486,6 +3518,121 @@ ok( 'and a bar to fill',                             false !== strpos( $dze_html
 ok( 'it no longer promises one batch',               false !== strpos( $dze_html, 'in one batch' ), false );
 $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ]   = $dze_keepq;
 $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] = $dze_keepb;
+
+echo "\nRIGHT AWAY: A WAVE GOES NOW AND COMES BACK IN THE SAME STEP\n";
+// « Je n'attendrais en aucun cas 24h pour des traductions. WPML lui-même
+// n'aurait même pas l'audace de demander autant. » Two large batches sat at
+// nought answers for twenty minutes: a batch is half price because Anthropic
+// answers it when it has room. The same requests now go right away, a wave
+// at a time, and are read by the same code a batch is.
+$dze_direct_fresh = static function () {
+	$GLOBALS['opts']['dze_translate_settings']['lane'] = 'direct';
+	unset( $GLOBALS['translated'][940], $GLOBALS['translated'][942] );
+	unset( $GLOBALS['meta'][940]['_dze_tr_wait'], $GLOBALS['meta'][942]['_dze_tr_wait'] );
+	unset( $GLOBALS['meta'][940][ DZE_Translate::META_SENT ], $GLOBALS['meta'][942][ DZE_Translate::META_SENT ] );
+	$GLOBALS['wpdb']->marks   = [];
+	$GLOBALS['waves']         = [];
+	$GLOBALS['direct_waves']  = [];
+	$GLOBALS['calls']         = [];
+	$GLOBALS['locks']         = [];
+	$GLOBALS['batch_store']   = [];
+	$GLOBALS['batch_cancels'] = [];
+	$GLOBALS['recorded']      = [];
+	unset( $GLOBALS['direct_retry'], $GLOBALS['batch_line_type'], $GLOBALS['batch_status'] );
+	$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] = [];
+	$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ]   = [];
+	unset( $GLOBALS['opts'][ DZE_Translate::OPT_BACKOFF ], $GLOBALS['opts'][ DZE_Translate::OPT_STOP ], $GLOBALS['opts'][ DZE_Translate::OPT_RUN ] );
+};
+$dze_direct_fresh();
+$GLOBALS['model_answer_fn'] = $dze_good;
+ok( 'right away is the default',                   DZE_Translate::lane(), 'direct' );
+DZE_Translate::ask( [ $o940, $o942 ], false, [ 'fr', 'de' ] );
+DZE_Translate::drain();
+ok( 'one wave went, with every request in it',     $GLOBALS['direct_waves'], [ 4 ] );
+ok( 'and no batch was made',                       $GLOBALS['batch_store'], [] );
+ok( 'at the model that translates',                end( $GLOBALS['sent_to'] ), 'claude-opus-5' );
+ok( 'everything came back in the same step',       DZE_Translate::asked(), [] );
+ok( 'and waits for review in both languages',
+	[ array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ) ],
+	[ [ 'fr', 'de' ], [ 'fr', 'de' ] ] );
+ok( 'each language against the words sent for it', array_keys( DZE_Translate::waiting( $o940 )['srcl'] ?? [] ), [ 'fr', 'de' ] );
+ok( 'counted once, at the full price',             end( $GLOBALS['recorded'] ), [ 4, 1.0 ] );
+ok( 'the words kept for the wave are let go',      isset( $GLOBALS['meta'][940][ DZE_Translate::META_SENT ] ), false );
+$dze_rec = array_values( (array) $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] );
+ok( 'the wave is filed as read, and as a wave',    [ $dze_rec[0]['status'] ?? '', $dze_rec[0]['direct'] ?? 0 ], [ 'landed', 1 ] );
+ok( 'the step gives its lock back',                $GLOBALS['locks'], [] );
+ok( 'and the screen counts what is done',          (int) ( DZE_Translate::queue_said()['done'] ?? -1 ), 0 );
+
+echo "\nA PAGE NEVER SENDS A WAVE\n";
+// A request of the page goes through Hostinger's CDN, which cuts it without a
+// word past half a minute: answers paid for would die with it.
+$dze_direct_fresh();
+$GLOBALS['model_answer_fn'] = $dze_good;
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+$dze_page = new ReflectionProperty( 'DZE_Translate', 'from_page' );
+$dze_page->setAccessible( true );
+$dze_page->setValue( null, true );
+DZE_Translate::drain( 12 );
+$dze_page->setValue( null, false );
+ok( 'nothing is sent from the page',               $GLOBALS['direct_waves'], [] );
+ok( 'and nothing is lost either',                  count( DZE_Translate::asked() ), 1 );
+DZE_Translate::drain();
+ok( 'the scheduler sends it',                      $GLOBALS['direct_waves'], [ 1 ] );
+
+echo "\nTOO MANY REQUESTS IS NOT THE TEXT'S FAULT\n";
+$dze_direct_fresh();
+$GLOBALS['model_answer_fn'] = $dze_good;
+DZE_Translate::ask( [ $o940 ], false, [ 'fr', 'de' ] );
+$GLOBALS['direct_retry'] = true;
+DZE_Translate::drain();
+unset( $GLOBALS['direct_retry'] );
+$dze_q = DZE_Translate::asked();
+ok( 'the languages are back in the queue',         $dze_q[0]['langs'] ?? [], [ 'fr', 'de' ] );
+ok( 'and nothing is counted against them',         $dze_q[0]['fails'] ?? [], [] );
+ok( 'nor marked as on their way',                  $dze_q[0]['sent'] ?? [], [] );
+ok( 'the next wave waits a little',                (int) ( $GLOBALS['opts'][ DZE_Translate::OPT_BACKOFF ] ?? 0 ) > time(), true );
+ok( 'and nothing was booked',                      $GLOBALS['recorded'], [] );
+
+echo "\nA WAVE CUT IN THE MIDDLE GIVES ITS LANGUAGES BACK\n";
+$dze_direct_fresh();
+$GLOBALS['model_answer_fn'] = $dze_good;
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr' ], 'sent' => [ 'fr' => 'pending-1-dead' ] ] ];
+$GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] = [ 'pending-1-dead' => [ 'token' => 'pending-1-dead', 'id' => 'pending-1-dead', 'status' => 'direct', 'at' => time() - 90, 'n' => 1, 'map' => [], 'tasks' => [] ] ];
+DZE_Translate::drain();
+ok( 'its record is gone',                          isset( $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ]['pending-1-dead'] ), false );
+ok( 'and its language went again, right away',     $GLOBALS['direct_waves'], [ 1 ] );
+ok( 'and came back',                               DZE_Translate::asked(), [] );
+
+echo "\nSWITCHED TO RIGHT AWAY, A BATCH STILL WAITING IS TAKEN BACK\n";
+// What Anthropic has not done yet is cancelled, which bills nothing, and goes
+// right away; nothing is counted against it.
+$dze_direct_fresh();
+$GLOBALS['model_answer_fn'] = $dze_good;
+$GLOBALS['opts']['dze_translate_settings']['lane'] = 'batch';
+DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
+$GLOBALS['batch_status'] = 'in_progress';
+DZE_Translate::drain();
+ok( 'it went in a batch',                          count( $GLOBALS['batch_store'] ), 1 );
+$GLOBALS['opts']['dze_translate_settings']['lane'] = 'direct';
+foreach ( (array) $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] as $k => $b ) { $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $k ]['polled'] = 0; }
+DZE_Translate::drain();
+ok( 'the waiting batch is cancelled',              $GLOBALS['batch_cancels'], [ 'msgbatch_test0' ] );
+$GLOBALS['batch_status']    = 'ended';
+$GLOBALS['batch_line_type'] = 'canceled';
+foreach ( (array) $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] as $k => $b ) { $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $k ]['polled'] = 0; }
+DZE_Translate::drain();
+unset( $GLOBALS['batch_line_type'], $GLOBALS['batch_status'] );
+ok( 'what it held went right away',                $GLOBALS['direct_waves'], [ 1 ] );
+ok( 'and came back without a try counted',         DZE_Translate::asked(), [] );
+ok( 'waiting for review',                          array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr' ] );
+
+echo "\nA WAVE IS SHORT\n";
+$dze_trsrc = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
+ok( 'a wave carries at most its own size',
+	false !== strpos( $dze_trsrc, '$direct ? self::DIRECT_WAVE : self::BATCH_MAX' ), true );
+ok( 'and a page never sends one',
+	false !== strpos( $dze_trsrc, 'if ( $direct && self::$from_page ) {' ), true );
+$GLOBALS['opts']['dze_translate_settings']['lane'] = 'batch';
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
