@@ -708,7 +708,10 @@
 		// own answer, and photographs picked on this product's own panel win
 		// over it: they are the photographs this product is made from.
 		var mine = picksOf(id);
-		if (mine.length) { data.src_ids = mine; }
+		// ONLY WHAT WAS HANDED IN, when that is the tile picked: the product's
+		// own photographs stay home.
+		if (onlyPastedOf(id)) { data.only_pasted = 1; }
+		else if (mine.length) { data.src_ids = mine; }
 		else if ('main' === job.photos) { data.only_main = 1; }
 		// Where it goes travels WITH the order, so the image is remembered as
 		// headed there even if the tab is closed before the review.
@@ -963,6 +966,9 @@
 				// way to say "this one is the subject" is not on the screen.
 				onChange: function (l) {
 					pasted[String(id)] = (l || []).slice();
+					// The « only these » tile appears with the first photograph
+					// and goes with the last.
+					srcState(id);
 				}
 			});
 		}
@@ -984,16 +990,25 @@
 	// the bucket before it builds the orders that must carry them.
 	var picks = {};
 	function picksOf(id) { return (picks[String(id)] || []).slice(); }
+	// « ONLY THE PHOTOGRAPHS FROM ELSEWHERE », per product, kept outside its
+	// bucket for the same reason: a run deletes the bucket. It means nothing
+	// without a photograph pasted, and says so by not being offered.
+	var onlyOut = {};
+	function onlyPastedOf(id) { return !!onlyOut[String(id)] && pastedOf(id).length > 0; }
 	function srcState(id) {
-		var ids = picksOf(id), $cell = previewCell(id);
-		$cell.find('.dze-cb-srcstate').text(ids.length ? sprintf(i18n.srcPicked, ids.length) : i18n.srcRow);
-		$cell.find('.dze-cb-srcsaid').text(!ids.length ? i18n.srcRowSaid
-			: (1 === ids.length ? i18n.srcOneSaid : sprintf(i18n.srcManySaid, ids.length)));
-		$cell.find('.dze-cb-srcpick').each(function () {
-			var n = ids.indexOf(parseInt($(this).data('id'), 10) || -1);
-			$(this).toggleClass('is-sel', n >= 0).find('.dze-one-srcn').text(n >= 0 && ids.length > 1 ? String(n + 1) : '');
+		var ids = picksOf(id), $cell = previewCell(id), n = pastedOf(id).length, only = onlyPastedOf(id);
+		if (!n) { onlyOut[String(id)] = false; }
+		$cell.find('.dze-cb-srcstate').text(only ? i18n.srcPastedState : (ids.length ? sprintf(i18n.srcPicked, ids.length) : i18n.srcRow));
+		$cell.find('.dze-cb-srcsaid').text(only ? sprintf(i18n.srcPastedSaid, n)
+			: (!ids.length ? i18n.srcRowSaid
+			: (1 === ids.length ? i18n.srcOneSaid : sprintf(i18n.srcManySaid, ids.length))));
+		$cell.find('.dze-cb-srcpick').not('.dze-cb-srcpasted').each(function () {
+			var k = ids.indexOf(parseInt($(this).data('id'), 10) || -1);
+			$(this).toggleClass('is-sel', k >= 0).find('.dze-one-srcn').text(k >= 0 && ids.length > 1 ? String(k + 1) : '');
 		});
-		$cell.find('.dze-cb-srcpick[data-id="0"]').toggleClass('is-sel', !ids.length);
+		$cell.find('.dze-cb-srcpick[data-id="0"]').toggleClass('is-sel', !ids.length && !only);
+		$cell.find('.dze-cb-srcpasted').toggle(n > 0).toggleClass('is-sel', only)
+			.find('.dze-cb-srcpastedn').text(String(n));
 	}
 	function renderSrcs(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-srcs');
@@ -1014,11 +1029,23 @@
 				(im.variation ? '<span class="dze-one-srcvar">' + esc(im.variation) + '</span>' : '') +
 				'</button>';
 		});
+		// THE PHOTOGRAPHS FROM ELSEWHERE, AND NOTHING ELSE — a choice on the same
+		// strip, never a default: a supplier shot pasted for the setting once
+		// became the product, in its own colours, when pasting was enough.
+		html += '<button type="button" class="dze-one-srcpick dze-cb-srcpick dze-cb-srcpasted" data-id="pasted">' +
+			esc(i18n.srcPastedTile) + ' (<span class="dze-cb-srcpastedn">' + pastedOf(id).length + '</span>)</button>';
 		$slot.html(html);
 		srcState(id);
 	}
 	$(document).on('click', '.dze-cb-srcpick', function () {
 		var id = $(this).closest('.dze-cb-preview').data('id');
+		if ('pasted' === String($(this).data('id'))) {
+			onlyOut[String(id)] = !onlyOut[String(id)];
+			if (onlyOut[String(id)]) { picks[String(id)] = []; }
+			srcState(id);
+			return;
+		}
+		onlyOut[String(id)] = false;
 		var pid = parseInt($(this).data('id'), 10) || 0;
 		var ids = picksOf(id);
 		if (!pid) { ids = []; }

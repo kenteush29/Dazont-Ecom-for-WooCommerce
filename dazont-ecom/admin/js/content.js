@@ -1740,7 +1740,10 @@
 					// An image from elsewhere is the subject, not the whole
 					// brief: the product\'s own photographs say what its back,
 					// its lining and its material look like, and they travel
-					// with it unless you say otherwise.
+					// with it unless you say otherwise — HERE. « Il est toujours
+					// impossible d'utiliser les images externes comme unique
+					// image à retravailler » : there was no way to say it at all.
+					'<label class="dze-one-onlywrap" style="display:block;margin:6px 0 0;"><input type="checkbox" id="dze-one-onlypasted" /> ' + esc(i18n.onlyPasted) + '</label>' +
 
 					// Which of the two is the SUBJECT. Pasting used to decide it
 					// on its own — what you added became the thing to
@@ -1970,7 +1973,7 @@
 		// two more, whatever the shop's figure for a gallery shot.
 		var cap = cfg.sourceCap || 10;
 		if ('main' === $('#dze-one-target').val()) { cap = Math.min(cap, cfg.mainCap || 3); }
-		$said.text(outside ? i18n.srcNewSaid
+		$said.text(outside ? ($('#dze-one-onlypasted').is(':checked') ? i18n.srcNewOnlySaid : i18n.srcNewSaid)
 			: (!ids.length ? sprintf(i18n.srcAllSaid, cap)
 			: (1 === ids.length ? i18n.srcOneSaid : sprintf(i18n.srcManySaid, ids.length))));
 		one.srcId = ids.length ? ids[0] : 0;
@@ -2028,6 +2031,12 @@
 		return onePaste;
 	}
 	function onePastes() { return onePaste ? onePaste.list() : []; }
+	// Ticking « only these » changes what goes out: the sentence under the
+	// strip says it, and a preview made before no longer does.
+	$(document).on('change', '#dze-one-onlypasted', function () {
+		oneSrcSaid();
+		oneClearPreview();
+	});
 	function onePasteChanged(list) {
 		// The tile that opened this box mirrors the set it holds.
 		$('#dze-one-newthumb').attr('src', list[0] || '').toggle(list.length > 0);
@@ -2161,7 +2170,9 @@
 		return {
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 			pastes: onePastes(),
-
+			// ONLY WHAT WAS HANDED IN, when the box says so — and only while the
+			// tile that holds that box is the one picked.
+			only_pasted: ($('.dze-one-srcnew').hasClass('is-sel') && $('#dze-one-onlypasted').is(':checked')) ? 1 : 0,
 			src_ids: (one.srcIds || []).slice(), recipe: $('#dze-one-recipe').val() || '',
 			bg: $('#dze-one-bg').val() || 0,
 			// THE NOTE TRAVELS. The box was on screen, said « sent with the
