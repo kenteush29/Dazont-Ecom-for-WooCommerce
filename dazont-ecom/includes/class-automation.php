@@ -1269,6 +1269,10 @@ final class DZE_Automation {
 				if ( ! $one || DZE_Translate::waiting( $one ) ) {
 					continue; // deja en attente d une decision : ne pas l ecrire deux fois.
 				}
+				// ENVOYÉ À LA MAIN DEPUIS LE TABLEAU DE BORD : pas deux fois payé.
+				if ( method_exists( 'DZE_Translate', 'queued_map' ) && isset( DZE_Translate::queued_map()[ DZE_Translate::ref( $one ) ] ) ) {
+					continue;
+				}
 				$owed = self::translate_owed( $one, $langs );
 				if ( ! $owed ) {
 					continue;
@@ -2230,6 +2234,15 @@ final class DZE_Automation {
 		}
 		if ( ! $langs ) {
 			return $no( 'none' );
+		}
+		// ASKED AGAIN AT THE MOMENT OF PAYING: the shortlist was drawn earlier,
+		// and a language sent by hand from the dashboard since — waiting its
+		// batch, or with Anthropic right now — is not paid for a second time.
+		if ( method_exists( 'DZE_Translate', 'queued_map' ) ) {
+			$langs = array_values( array_diff( $langs, array_keys( (array) ( DZE_Translate::queued_map()[ DZE_Translate::ref( $o ) ] ?? [] ) ) ) );
+			if ( ! $langs ) {
+				return $no( 'none' );
+			}
 		}
 		// Nobody is waiting on cron, and a product with fifteen fields in five
 		// languages is five model calls.

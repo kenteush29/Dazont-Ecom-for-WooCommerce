@@ -365,7 +365,9 @@
 			sending = false;
 			if (!r || !r.success) { $st.addClass('is-ko').text(said(r)); render(); return; }
 			// SENT, SO FORGOTTEN: keeping the selection would send the same
-			// rows again on the next press.
+			// rows again on the next press. And what an earlier press on the
+			// queue said is not about this one.
+			$('#dze-trd-said').prop('hidden', true);
 			picked = {};
 			words = {};
 			changed();
@@ -429,9 +431,13 @@
 		$('#dze-trd-progn').text(q.n === 1 ? i18n.oneProgress : sprintf(i18n.nProgress, num(q.n)));
 		$('#dze-trd-failed').prop('hidden', !q.errors);
 		if (q.errors) { $('#dze-trd-failedsaid').text(sprintf(i18n.failed, num(q.errors), q.last || '')); }
-		// PAUSED, AND WHY, when no text is to blame.
-		$('#dze-trd-stop').prop('hidden', !q.stop);
-		$('#dze-trd-stopsaid').text(q.stop || '');
+		// PAUSED, AND WHY, when no text is to blame — and only over a queue
+		// that holds something. The progress line follows: it never promises
+		// « within minutes » while nothing is being sent.
+		var paused = !!(q.stop && q.n);
+		$('#dze-trd-stop').prop('hidden', !paused);
+		$('#dze-trd-stopsaid').text(paused ? q.stop : '');
+		$('#dze-trd-progwhy').text(paused ? (i18n.progPaused || '') : (i18n.progBatch || ''));
 		// A STEP THAT WAITS FOR NOBODY. Work is waiting and nothing runs: the
 		// page asks for one — a few seconds that send, check and write, never a
 		// translation made inside the page. One at a time, and not more than
@@ -477,7 +483,7 @@
 		if (!text) { return; }
 		var $p = $('#dze-trd-said');
 		if (!$p.length) {
-			$p = $('<div class="notice notice-info inline" id="dze-trd-said"><p></p></div>');
+			$p = $('<div class="notice notice-info inline" id="dze-trd-said" role="status"><p></p></div>');
 			var $at = $('#dze-trd-progress');
 			if ($at.length) { $at.after($p); } else { $dash.prepend($p); }
 		}
@@ -644,7 +650,12 @@
 		if (!$box.length) { return; }
 		var $p = $box.find('p').empty();
 		if (!next.length) {
-			$p.append($('<strong/>').text(i18n.allWritten || ''), ' ',
+			// « NOTHING ELSE WAITS » ONLY WHEN SOMETHING DID. Said after every
+			// save, it read « done » on a page opened to translate one language
+			// while others were still untranslated.
+			var was = parseInt(editor().data('waiting'), 10) || 0;
+			if (!was) { $box.prop('hidden', true); return; }
+			$p.append($('<strong/>').text(i18n.nothingElse || i18n.allWritten || ''), ' ',
 				$('<a/>').attr('href', cfg.reviewUrl || '#').text(i18n.backToList || ''));
 			$box.prop('hidden', false);
 			return;
@@ -654,7 +665,8 @@
 		if (next[0].url) {
 			$p.append($('<a class="button button-primary"/>').attr('href', next[0].url).text(sprintf(i18n.reviewNext || '%s', next[0].name)), ' ');
 		}
-		$p.append($('<button type="button" class="button dze-tr-acceptrest"/>').attr('data-ref', ref).text(sprintf(i18n.acceptRest || '%s', next.length)));
+		$p.append($('<button type="button" class="button dze-tr-acceptrest"/>').attr('data-ref', ref).text(
+			1 === next.length ? (i18n.acceptRestOne || '') : sprintf(i18n.acceptRest || '%s', next.length)));
 		$box.prop('hidden', false);
 	}
 	// THE REST, AS IT CAME — exactly what « Accept » on the list writes.
@@ -666,7 +678,10 @@
 				if (!r || !r.success) { $b.prop('disabled', false); window.alert(said(r)); return; }
 				var d = r.data || {};
 				if ((d.errors || []).length) { $b.prop('disabled', false); window.alert(d.errors.join('\n')); return; }
-				nextSaid([], ref);
+				// WRITTEN, BUT WRONG ON THE SHOP — said before anything else.
+				if ((d.warnings || []).length) { window.alert(d.warnings.join('\n')); }
+				// The chips at the top read the old states: the page is read again.
+				window.location.reload();
 			})
 			.fail(function () { $b.prop('disabled', false); window.alert(i18n.error); });
 	});
@@ -755,6 +770,13 @@
 				var d = r.data || {};
 				if (!d.objects) { $b.prop('disabled', false); $st.text(i18n.allNone); return; }
 				$st.text(sprintf(i18n.allDone, d.objects, d.fields));
+				// WRITTEN, BUT WRONG ON THE SHOP: said, and the page stays so it
+				// can be read — a reload would take the sentence away.
+				if ((d.warnings || []).length) {
+					$st.addClass('is-ko').text($st.text() + ' ' + d.warnings.join(' · '));
+					$b.prop('disabled', false);
+					return;
+				}
 				// CE QUI A ETE ECRIT QUITTE LA LISTE. Recharger est le seul moyen
 				// honnete de la redessiner : les compteurs, les pastilles et les
 				// onglets se lisent tous a l ouverture de la page.
@@ -772,15 +794,22 @@
 			.done(function (r) {
 				if (!r || !r.success) { $b.prop('disabled', false); $st.addClass('is-ko').text(said(r)); return; }
 				var d = r.data || {};
-				if ((d.errors || []).length) {
+				var warn = (d.warnings || []).join(' · ');
+				// A LANGUAGE STILL WAITING KEEPS ITS ROW: « accepté mais toujours
+				// là » is exactly a row that left the page and came back.
+				var still = parseInt((d.still || {})[ref], 10) || 0;
+				if ((d.errors || []).length || still > 0) {
 					$b.prop('disabled', false);
-					$st.addClass('is-ko').text(d.errors.join(' · '));
+					$st.addClass('is-ko').text((d.errors || []).concat(warn ? [ warn ] : []).join(' · '));
 					return;
 				}
-				// WRITTEN: THE ROW LEAVES THE LIST, and the page says how many are left.
+				// WRITTEN: THE ROW LEAVES THE LIST, and the page says how many are
+				// left — and what is wrong on the shop with what was written.
 				$row.next('.dze-tr-peekrow').remove();
 				$row.remove();
-				$st.text(sprintf(i18n.rowDone || '%s', num(d.left || 0)));
+				$st.toggleClass('is-ko', !!warn).text(sprintf(i18n.rowDone || '%s', num(d.left || 0)) + (warn ? ' ' + warn : ''));
+				// The tab's count follows the list.
+				$('.nav-tab-active .plugin-count, .nav-tab-active .dze-tabn').text(String(d.left || 0));
 				syncBulk();
 			})
 			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });

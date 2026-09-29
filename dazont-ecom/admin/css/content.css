@@ -2011,7 +2011,7 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 /* HIDDEN MEANS HIDDEN. A rule that sets `display` beats the browser's own
    [hidden] rule, and the selection bar stood on screen saying « 0 items
    selected » over a list with nothing ticked. */
-.dze-trd [hidden], .dze-trd-progress[hidden], .dze-trd-failed[hidden] { display: none !important; }
+.dze-trd [hidden], .dze-trd-progress[hidden], .dze-trd-failed[hidden], .dze-trd-stop[hidden], .dze-tr-nextbox[hidden], #dze-trd-said[hidden] { display: none !important; }
 .dze-trd-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 18px 0 12px; }
 .dze-trd-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
 .dze-trd-step {

@@ -2060,6 +2060,15 @@ A safety filter also removes suggestions matching an existing product title.</pr
 
 	private const BATCH_URL = 'https://api.anthropic.com/v1/messages/batches';
 
+	/**
+	 * The HTTP status of the last batch call — 0 when nothing came back at all.
+	 *
+	 * A refusal (4xx) means the batch was NOT made. A timeout or a 5xx means
+	 * nobody knows: Anthropic may have made it and billed it, and sending it
+	 * again would buy it twice. The caller needs the difference.
+	 */
+	public static int $batch_code = 0;
+
 	/** A batch id as Anthropic writes it, and nothing else in a URL. */
 	private static function batch_url( string $id, string $tail = '' ): string {
 		$id = (string) preg_replace( '/[^A-Za-z0-9_-]/', '', $id );
@@ -2083,12 +2092,14 @@ A safety filter also removes suggestions matching an existing product title.</pr
 
 	/** What the endpoint answered, or why it did not — said the way every other call says it. */
 	private static function batch_answer( $response, string $what ): array {
+		self::$batch_code = 0;
 		if ( is_wp_error( $response ) ) {
 			DZE_Health::log( 'anthropic', $what, $response->get_error_message() );
 			throw new RuntimeException( $response->get_error_message() );
 		}
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		self::$batch_code = $code;
 		if ( $code < 200 || $code >= 300 ) {
 			$msg = is_array( $data ) ? (string) ( $data['error']['message'] ?? '' ) : '';
 			$msg = '' !== $msg ? $msg : 'HTTP ' . $code;
@@ -2144,6 +2155,21 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			wp_remote_get( self::batch_url( $id ), [ 'timeout' => 30, 'headers' => self::batch_headers() ] ),
 			'GET /v1/messages/batches/{id}'
 		);
+	}
+
+	/**
+	 * The batches made lately, newest first — to find one this site made and
+	 * lost track of: a request that timed out after Anthropic had already
+	 * accepted it, or a step killed before it could write the batch down.
+	 *
+	 * @return array<int,array> each batch as the API writes it.
+	 */
+	public static function batch_list( int $limit = 20 ): array {
+		$data = self::batch_answer(
+			wp_remote_get( self::BATCH_URL . '?limit=' . max( 1, min( 100, $limit ) ), [ 'timeout' => 30, 'headers' => self::batch_headers() ] ),
+			'GET /v1/messages/batches'
+		);
+		return array_values( array_filter( (array) ( $data['data'] ?? [] ), 'is_array' ) );
 	}
 
 	/** Stops what has not been translated yet. What was, is kept and billed; what was not, is not. */

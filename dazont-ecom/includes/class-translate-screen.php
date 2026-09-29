@@ -631,8 +631,9 @@ trait DZE_Translate_Screen {
 			'busy'   => self::held( 'tick' ),
 			// How many languages are with Anthropic, being translated there.
 			'sent'   => $sent,
-			// Why the queue is paused, when no text is to blame.
-			'stop'   => (string) ( $stop['why'] ?? '' ),
+			// Why the queue is paused, when no text is to blame — and only
+			// while something is waiting: an empty queue is not a paused one.
+			'stop'   => $refs ? (string) ( $stop['why'] ?? '' ) : '',
 			'errors' => count( $errs ),
 			'last'   => (string) ( $errs[0]['why'] ?? '' ),
 			'review' => self::review_count(),
@@ -655,9 +656,15 @@ trait DZE_Translate_Screen {
 				<?php
 				// WHERE THE WORK IS, AND HOW LONG IT TAKES. It is with Anthropic,
 				// in one batch at half price — the page only sends it and comes
-				// back for it, which is why nothing can cut it any more.
-				esc_html_e( 'It is translated by Anthropic in one batch, at half price: usually within minutes, at most 24 hours. You can leave this page — each language appears on its row as soon as it is done.', 'dazont-ecom' );
+				// back for it, which is why nothing can cut it any more. While the
+				// queue is paused the line says that instead: it must never promise
+				// « within minutes » over a queue that sends nothing.
 				?>
+				<span id="dze-trd-progwhy"><?php
+					echo esc_html( '' !== (string) ( $q['stop'] ?? '' )
+						? __( 'Nothing is sent while the queue is paused.', 'dazont-ecom' )
+						: __( 'It is translated by Anthropic in one batch, at half price: usually within minutes, at most 24 hours. You can leave this page — each language appears on its row as soon as it is done.', 'dazont-ecom' ) );
+				?></span>
 				<a href="<?php echo esc_url( self::url( [ 'tstatus' => 'progress' ] ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
 				&middot;
 				<button type="button" class="button-link dze-trd-cancelall" id="dze-trd-cancelall"><?php esc_html_e( 'Cancel all', 'dazont-ecom' ); ?></button>
@@ -1263,7 +1270,7 @@ trait DZE_Translate_Screen {
 		<?php if ( $target && ! $mine && $current ) : ?>
 			<p class="description dze-tr-notmine" style="color:#8a6d00;"><?php esc_html_e( 'This translation was not written here. Saving replaces its text — read the right-hand column first.', 'dazont-ecom' ); ?></p>
 		<?php endif; ?>
-		<div class="dze-tr-editor" data-ref="<?php echo esc_attr( self::ref( $o ) ); ?>" data-lang="<?php echo esc_attr( $lang ); ?>">
+		<div class="dze-tr-editor" data-ref="<?php echo esc_attr( self::ref( $o ) ); ?>" data-lang="<?php echo esc_attr( $lang ); ?>" data-waiting="<?php echo (int) count( (array) ( self::waiting( $o )['langs'] ?? [] ) ); ?>">
 			<!-- 2. TRANSLATE IT, or write it by hand. One button, and it says
 			     what it will do rather than what it costs us to do it. -->
 			<p class="dze-cb-actions">
@@ -1656,7 +1663,7 @@ trait DZE_Translate_Screen {
 			// after a decision: « accepté mais toujours là » was the other
 			// languages, still waiting, with nothing on the page to say so.
 			?>
-			<div class="notice notice-info inline dze-tr-nextbox" id="dze-tr-nextbox" hidden><p></p></div>
+			<div class="notice notice-info inline dze-tr-nextbox" id="dze-tr-nextbox" role="status" hidden><p></p></div>
 		</div>
 		<?php
 	}
@@ -2185,7 +2192,7 @@ trait DZE_Translate_Screen {
 				/* translators: %s: how many rows are ticked */
 				echo esc_html( sprintf( __( 'Discard (%s)', 'dazont-ecom' ), number_format_i18n( 0 ) ) );
 			?></button>
-			<span class="description" id="dze-tr-allstate"></span>
+			<span class="description" id="dze-tr-allstate" role="status"></span>
 		</p>
 		<table class="widefat striped" style="max-width:980px;">
 			<thead><tr>

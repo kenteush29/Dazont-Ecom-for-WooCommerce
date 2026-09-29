@@ -778,9 +778,10 @@ final class DZE_Ai_Usage {
 	 * batch is billed at, and the register is written once rather than six
 	 * hundred times in a row.
 	 *
-	 * @param array<int,array{u:string,in:int,out:int,ci?:int,co?:int}> $rows One per answer:
-	 *        its unit of work, its tokens, and the characters sent and received
-	 *        for the ledger.
+	 * @param array<int,array{u:string,in:int,out:int,ci?:int,co?:int,m?:string}> $rows One per answer:
+	 *        its unit of work, its tokens, the characters sent and received for
+	 *        the ledger, and the model that ANSWERED it when the answer says so
+	 *        — the price is that model's, never a default's.
 	 */
 	public static function record_many( string $provider, string $model, array $rows, float $rate = 1.0 ): void {
 		if ( ! $rows ) {
@@ -793,12 +794,13 @@ final class DZE_Ai_Usage {
 		foreach ( $rows as $r ) {
 			$unit = sanitize_key( (string) ( $r['u'] ?? '' ) );
 			$unit = '' !== $unit ? (string) $r['u'] : 'other';
-			$data = self::tally( $data, $provider, (int) ( $r['in'] ?? 0 ), (int) ( $r['out'] ?? 0 ), $model, 0.0, false, '', $rate, $unit );
+			$qui  = '' !== (string) ( $r['m'] ?? '' ) ? (string) $r['m'] : $model;
+			$data = self::tally( $data, $provider, (int) ( $r['in'] ?? 0 ), (int) ( $r['out'] ?? 0 ), $qui, 0.0, false, '', $rate, $unit );
 			$led[] = [
 				't' => time(),
 				'u' => $unit,
 				'p' => sanitize_key( $provider ),
-				'm' => sanitize_text_field( $model ),
+				'm' => sanitize_text_field( $qui ),
 				's' => 0,
 				'i' => (int) ( $r['ci'] ?? 0 ),
 				'o' => (int) ( $r['co'] ?? 0 ),
@@ -1079,6 +1081,20 @@ final class DZE_Ai_Usage {
 	 * True when the monthly AI budget (Settings → General) is set and the
 	 * estimated month spend reached it. Every AI call site checks this first.
 	 */
+	/**
+	 * What is left of the month's budget, in dollars — null when there is no
+	 * budget. A batch is booked only when it comes back, up to a day later, so
+	 * the one about to leave is weighed against what is left once the batches
+	 * still out are counted too: that is the caller's to add.
+	 */
+	public static function budget_left(): ?float {
+		$cap = 0.0;
+		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
+			$cap = (float) ( DZE_Marketing_Ai::get_settings()['budget_month'] ?? 0 );
+		}
+		return $cap > 0 ? $cap - self::month_cost() : null;
+	}
+
 	public static function over_budget(): bool {
 		$cap = 0.0;
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
