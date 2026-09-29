@@ -77,6 +77,24 @@ DZE_Site::learn();
 ok( 'a second look does not rewrite it', DZE_Site::known(), 'kula-tactical.com' );
 $GLOBALS['home'] = 'https://kula-tactical.com';
 
+echo "A shop with one domain per language is one shop on all of them\n";
+// « Nothing done for 6 minutes: this is a copy of the shop, so nothing runs on
+// its own. » home_url() answers the language's domain on a request served
+// there: a pass started by a visit to the German domain read the shop as a
+// copy of itself. The installation's own address is what says it.
+$GLOBALS['opts']['home'] = 'https://kula-tactical.com';
+foreach ( [ 'https://kula-tactical.de', 'https://ru.kula-tactical.com', 'https://kula-tactical.pl' ] as $dze_lang ) {
+	$GLOBALS['home'] = $dze_lang;
+	ok( "read on $dze_lang, it is still the shop", DZE_Site::is_copy(), false );
+	ok( "and still writes outward from there",      DZE_Site::blocks( 'POST' ), false );
+}
+// A REAL COPY HAS AN INSTALLATION OF ITS OWN, and is still recognised.
+$GLOBALS['opts']['home'] = 'https://test.kula-tactical.com';
+$GLOBALS['home'] = 'https://test.kula-tactical.com';
+ok( 'a copy installed elsewhere is still a copy', DZE_Site::is_copy(), true );
+unset( $GLOBALS['opts']['home'] );
+$GLOBALS['home'] = 'https://kula-tactical.com';
+
 echo "www is not another shop\n";
 $GLOBALS['home'] = 'https://www.kula-tactical.com';
 ok( 'the same shop with www',           DZE_Site::is_copy(), false );

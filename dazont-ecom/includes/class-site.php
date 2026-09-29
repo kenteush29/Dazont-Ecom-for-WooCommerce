@@ -148,7 +148,15 @@ final class DZE_Site {
 
 	/** This site's address, as one comparable word. */
 	public static function host(): string {
-		$host = (string) wp_parse_url( (string) home_url(), PHP_URL_HOST );
+		// THE ADDRESS THE SITE IS INSTALLED ON, never the one this request came
+		// in on. With one domain per language, home_url() answers the
+		// language's own domain on a request served there, so a pass started by
+		// a visit to kula-tactical.de read the shop as a copy of itself:
+		// « Nothing done for 6 minutes: this is a copy of the shop, so nothing
+		// runs on its own » — and Klaviyo and Google refused from that request
+		// too. The stored home is the installation's; a real copy has its own.
+		$raw  = (string) get_option( 'home' );
+		$host = (string) wp_parse_url( '' !== $raw ? $raw : (string) home_url(), PHP_URL_HOST );
 		$host = strtolower( trim( $host ) );
 		return 0 === strpos( $host, 'www.' ) ? substr( $host, 4 ) : $host;
 	}
