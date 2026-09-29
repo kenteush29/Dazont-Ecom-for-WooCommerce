@@ -1001,6 +1001,15 @@ final class DZE_Automation {
 			self::$held['unread'] = 1;
 			return [];
 		}
+		// NOR DOES A READING MADE BY OLDER CODE. The one on screen had been
+		// made by a version that missed links: 302 "orphans" where 44 were,
+		// and the pass spent a day linking pages that were never broken. It
+		// is read again first; the work resumes on the true figures.
+		if ( method_exists( 'DZE_Mesh', 'outdated' ) && DZE_Mesh::outdated() ) {
+			DZE_Mesh::book_reading();
+			self::$held['reread'] = 1;
+			return [];
+		}
 		$take = static function ( array $row ) use ( &$out, &$seen, $id, $cool ): bool {
 			$type = 'product_cat' === $row['kind'] ? 'term' : 'post';
 			$key  = $row['kind'] . ':' . (int) $row['tid'];
@@ -1022,10 +1031,22 @@ final class DZE_Automation {
 				return false;
 			}
 			if ( self::cooling( (int) $row['tid'], $id, $type, 0, 0, $cool ) && ! self::promise_broken( (int) $row['tid'], $id, $type, $row['kind'] ) ) {
-				self::$held['recent']++;
-				self::note_back( (int) $row['tid'], $id, $type );
-				$seen[ $key ] = true;
-				return false;
+				// A PAGE STILL SHORT OF ITS OWN LINKS RESTS THREE DAYS, NOT A
+				// MONTH. « Il y a beaucoup de pages en manque de liens. » Every
+				// page the pass had written into was locked out for thirty days
+				// — 237 of 317 — and those were exactly the pages closest to the
+				// ones still unlinked, so nothing could be started until the
+				// thirteenth of the next month. A page that can carry more links
+				// by its own rule takes another pass after RETRY days; one that
+				// is full keeps its month.
+				$room = method_exists( 'DZE_Mesh', 'room' ) && DZE_Mesh::room( (string) $row['kind'], (int) $row['tid'] ) > 0;
+				$last = (int) ( self::seen( (int) $row['tid'], $id, $type )['t'] ?? 0 );
+				if ( ! $room || $last > time() - self::RETRY * DAY_IN_SECONDS ) {
+					self::$held['recent']++;
+					self::note_back( (int) $row['tid'], $id, $type, $room );
+					$seen[ $key ] = true;
+					return false;
+				}
 			}
 			$seen[ $key ] = true;
 			$out[]        = $row;
@@ -1653,10 +1674,10 @@ final class DZE_Automation {
 	 *
 	 * @var array{queued:int,recent:int}
 	 */
-	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0, 'flying' => 0, 'clear' => 0 ];
+	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0, 'flying' => 0, 'clear' => 0, 'reread' => 0 ];
 
 	public static function held_reset(): void {
-		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0, 'flying' => 0, 'clear' => 0 ];
+		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0, 'back' => 0, 'flying' => 0, 'clear' => 0, 'reread' => 0 ];
 	}
 
 	/**
@@ -1668,14 +1689,14 @@ final class DZE_Automation {
 	 * breakdown. The same rule as cooling(): a pass that changed something rests
 	 * COOLDOWN days, one that changed nothing rests RETRY days.
 	 */
-	private static function note_back( int $oid, string $id, string $type ): void {
+	private static function note_back( int $oid, string $id, string $type, bool $soon = false ): void {
 		$seen = self::seen( $oid, $id, $type );
 		if ( ! $seen ) {
 			return;
 		}
 		$t     = (int) $seen['t'];
 		$moved = (int) ( $seen['w'] ?? 0 ) || (int) ( $seen['l'] ?? 0 );
-		$back  = $t + ( $moved ? self::COOLDOWN : self::RETRY ) * DAY_IN_SECONDS;
+		$back  = $t + ( ( $moved && ! $soon ) ? self::COOLDOWN : self::RETRY ) * DAY_IN_SECONDS;
 		if ( $back > time() && ( ! self::$held['back'] || $back < self::$held['back'] ) ) {
 			self::$held['back'] = $back;
 		}
@@ -1714,6 +1735,9 @@ final class DZE_Automation {
 		}
 		if ( ! empty( self::$held['unread'] ) ) {
 			return self::unread_said();
+		}
+		if ( ! empty( self::$held['reread'] ) ) {
+			return __( 'The site is being read again: the last reading was made by an older version of Dazont Ecom, which missed links between pages. The work starts again on the new figures in a minute or two.', 'dazont-ecom' );
 		}
 		// A FIGURE THE READING CANNOT SUPPORT IS WORSE THAN NO FIGURE. The
 		// tally is a REASON and never a total: the shortlist walks a handful of
@@ -2328,13 +2352,14 @@ final class DZE_Automation {
 			'waiting' => __( '%s waiting for your yes or no', 'dazont-ecom' ),
 			'flying'  => __( '%s already in the translation queue', 'dazont-ecom' ),
 			'unread'  => __( 'the site has not been read yet', 'dazont-ecom' ),
+			'reread'  => __( 'the site is being read again', 'dazont-ecom' ),
 		];
 		foreach ( $noms as $k => $forme ) {
 			$n = (int) ( $held[ $k ] ?? 0 );
 			if ( $n < 1 ) {
 				continue;
 			}
-			$bouts[] = 'unread' === $k ? $forme : sprintf( $forme, number_format_i18n( $n ) );
+			$bouts[] = in_array( $k, [ 'unread', 'reread' ], true ) ? $forme : sprintf( $forme, number_format_i18n( $n ) );
 		}
 		return $bouts
 			? sprintf(
@@ -3602,7 +3627,13 @@ final class DZE_Automation {
 					) ),
 					esc_html( ( $dze_said = self::idle_said( $id ) ) ? ' ' . $dze_said : '' )
 				);
-			} elseif ( '' !== ( $dze_said = self::idle_said( $id ) ) ) {
+			} elseif ( 'none' !== (string) ( self::idle_of( $id )['why'] ?? '' ) && '' !== ( $dze_said = self::idle_said( $id ) ) ) {
+				// UNE SEULE PHRASE PAR QUESTION. « Rien de neuf a la derniere
+				// passe » s imprimait ici, et la meme reponse, lue maintenant,
+				// juste en dessous : deux phrases presque identiques qu on ne
+				// comprenait pas. « Rien trouve » est dit par la lecture du jour,
+				// plus bas ; ici ne restent que les empechements — budget, copie,
+				// module, file pleine, relecture.
 				// AU REPOS, ET ELLE DIT POURQUOI. « Rien trouve » et « tout attend
 				// votre relecture » demandent deux gestes opposes.
 				echo '<p class="description">' . esc_html( $dze_said ) . '</p>';
