@@ -131,24 +131,28 @@ final class DZE_Cleanup {
 			],
 			'translate' => [
 				// The background queue and what resisted it sit beside the
-				// settings and the register of what was written.
-				'options'   => [ 'dze_translate_settings', 'dze_translate_log', 'dze_translate_asked', 'dze_translate_drain_errors' ],
+				// settings and the register of what was written — with the
+				// batches sent to Anthropic, why the queue is paused, and until
+				// when it waits before sending again.
+				'options'   => [ 'dze_translate_settings', 'dze_translate_log', 'dze_translate_asked', 'dze_translate_drain_errors', 'dze_translate_batches', 'dze_translate_stop', 'dze_translate_backoff' ],
 				// _dze_tr_wait is what a batch produced and nobody has decided
 				// on yet; the register, the ownership mark, who said yes, the
 				// undo copy and the slug still to follow sit beside it.
 				// _dze_drain_tries is what an older queue counted on the post.
-				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by', '_dze_tr_src', '_dze_tr_wait', '_dze_tr_who', '_dze_tr_prev', '_dze_tr_slug_todo', '_dze_drain_tries' ],
+				// _dze_tr_sent is the words sent in a batch, kept until it is back.
+				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by', '_dze_tr_src', '_dze_tr_wait', '_dze_tr_who', '_dze_tr_prev', '_dze_tr_slug_todo', '_dze_drain_tries', '_dze_tr_sent' ],
 				// A TERM CARRIES THE SAME KEYS. The module translates every
 				// taxonomy WPML translates — product categories, tags and each
 				// attribute — so its footprint is in term meta as well, and a
 				// module that could not be wiped of half its own data would be
 				// a module missing from this map in all but name.
-				'term_meta' => [ '_dze_tr_by', '_dze_tr_src', '_dze_tr_wait', '_dze_tr_who', '_dze_tr_prev', '_dze_tr_slug_todo' ],
+				'term_meta' => [ '_dze_tr_by', '_dze_tr_src', '_dze_tr_wait', '_dze_tr_who', '_dze_tr_prev', '_dze_tr_slug_todo', '_dze_tr_sent' ],
 				// The per-kind reading of which WPML "Translate" custom fields
 				// hold text, kept an hour; the lock of a pass of the queue; and
 				// what was picked on a WordPress list for the dashboard to open
 				// on. An option name ending in `_` is a prefix here.
-				'transients' => [ 'dze_tr_keys_', 'dze_translate_draining', 'dze_tr_pick_' ],
+				// The fallback lock, on a database that refuses named locks.
+				'transients' => [ 'dze_tr_keys_', 'dze_translate_draining', 'dze_tr_pick_', 'dze_tr_lock_' ],
 			],
 			// A module that no longer ships. Its descriptors stay so an install
 			// that once used it can still be erased of what it left behind.

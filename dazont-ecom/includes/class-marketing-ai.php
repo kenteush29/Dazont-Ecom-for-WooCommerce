@@ -2043,6 +2043,207 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		return $sorted;
 	}
 
+	// =========================================================================
+	// LES LOTS — the Message Batches API
+	//
+	// « Fais comme WPML, ça ne coupe pas même avec des gros batch. » WPML never
+	// waits for a translation inside a request of the shop: it hands the job to
+	// its own service, which does the work there, and the shop fetches it when
+	// it is ready. Anthropic's equivalent is the batch endpoint: one short
+	// request to deposit the work, one to ask where it stands, one to read the
+	// answers — nothing that can be cut on the way, whatever the size, and at
+	// half the price of the same calls made one by one.
+	//
+	// These four only speak to the API. What is sent, and what is done with
+	// what comes back, belongs to the module that sends it.
+	// =========================================================================
+
+	private const BATCH_URL = 'https://api.anthropic.com/v1/messages/batches';
+
+	/**
+	 * The HTTP status of the last batch call — 0 when nothing came back at all.
+	 *
+	 * A refusal (4xx) means the batch was NOT made. A timeout or a 5xx means
+	 * nobody knows: Anthropic may have made it and billed it, and sending it
+	 * again would buy it twice. The caller needs the difference.
+	 */
+	public static int $batch_code = 0;
+
+	/** A batch id as Anthropic writes it, and nothing else in a URL. */
+	private static function batch_url( string $id, string $tail = '' ): string {
+		$id = (string) preg_replace( '/[^A-Za-z0-9_-]/', '', $id );
+		if ( '' === $id ) {
+			throw new RuntimeException( __( 'Unknown batch.', 'dazont-ecom' ) );
+		}
+		return self::BATCH_URL . '/' . $id . $tail;
+	}
+
+	private static function batch_headers(): array {
+		$key = self::api_key();
+		if ( '' === $key ) {
+			throw new RuntimeException( __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) );
+		}
+		return [
+			'x-api-key'         => $key,
+			'anthropic-version' => self::API_VERSION,
+			'content-type'      => 'application/json',
+		];
+	}
+
+	/** What the endpoint answered, or why it did not — said the way every other call says it. */
+	private static function batch_answer( $response, string $what ): array {
+		self::$batch_code = 0;
+		if ( is_wp_error( $response ) ) {
+			DZE_Health::log( 'anthropic', $what, $response->get_error_message() );
+			throw new RuntimeException( $response->get_error_message() );
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		self::$batch_code = $code;
+		if ( $code < 200 || $code >= 300 ) {
+			$msg = is_array( $data ) ? (string) ( $data['error']['message'] ?? '' ) : '';
+			$msg = '' !== $msg ? $msg : 'HTTP ' . $code;
+			DZE_Health::log( 'anthropic', $what, 'HTTP ' . $code . ' — ' . $msg );
+			/* translators: %s: the provider's own message */
+			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
+		}
+		return is_array( $data ) ? $data : [];
+	}
+
+	/**
+	 * DEPOSITS the calls, and hands back the batch as Anthropic answered it.
+	 *
+	 * @param array<string,array{system:string,user:string,max:int}> $asks custom_id => the call.
+	 *        An id is 1 to 64 letters, digits, hyphens or underscores.
+	 * @return array{id:string,processing_status:string}
+	 */
+	public static function batch_create( array $asks, string $model = '' ): array {
+		// -1 until a call is made: a refusal before any call (no key, the
+		// budget) is a refusal, never « nobody knows ».
+		self::$batch_code = -1;
+		if ( ! $asks ) {
+			throw new RuntimeException( __( 'Nothing to send.', 'dazont-ecom' ) );
+		}
+		if ( DZE_Ai_Usage::over_budget() ) {
+			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
+		}
+		$model = '' !== $model ? $model : self::chosen_model();
+		$reqs  = [];
+		foreach ( $asks as $cid => $a ) {
+			$reqs[] = [
+				'custom_id' => (string) $cid,
+				'params'    => [
+					'model'      => $model,
+					'max_tokens' => max( 64, (int) $a['max'] ),
+					'system'     => (string) $a['system'],
+					'messages'   => [ [ 'role' => 'user', 'content' => (string) $a['user'] ] ],
+				],
+			];
+		}
+		$headers  = self::batch_headers();
+		$response = wp_remote_post( self::BATCH_URL, [
+			'timeout' => 90,
+			'headers' => $headers,
+			'body'    => (string) wp_json_encode( [ 'requests' => $reqs ] ),
+		] );
+		$data = self::batch_answer( $response, 'POST /v1/messages/batches' );
+		if ( '' === (string) ( $data['id'] ?? '' ) ) {
+			throw new RuntimeException( __( 'Anthropic did not say which batch it made.', 'dazont-ecom' ) );
+		}
+		return $data;
+	}
+
+	/** Where one batch stands: `processing_status`, `request_counts`, `ended_at`… */
+	public static function batch_get( string $id ): array {
+		return self::batch_answer(
+			wp_remote_get( self::batch_url( $id ), [ 'timeout' => 30, 'headers' => self::batch_headers() ] ),
+			'GET /v1/messages/batches/{id}'
+		);
+	}
+
+	/**
+	 * The batches made lately, newest first — to find one this site made and
+	 * lost track of: a request that timed out after Anthropic had already
+	 * accepted it, or a step killed before it could write the batch down.
+	 *
+	 * @return array<int,array> each batch as the API writes it.
+	 */
+	public static function batch_list( int $limit = 20 ): array {
+		$data = self::batch_answer(
+			wp_remote_get( self::BATCH_URL . '?limit=' . max( 1, min( 100, $limit ) ), [ 'timeout' => 30, 'headers' => self::batch_headers() ] ),
+			'GET /v1/messages/batches'
+		);
+		return array_values( array_filter( (array) ( $data['data'] ?? [] ), 'is_array' ) );
+	}
+
+	/** Stops what has not been translated yet. What was, is kept and billed; what was not, is not. */
+	public static function batch_cancel( string $id ): array {
+		return self::batch_answer(
+			wp_remote_post( self::batch_url( $id, '/cancel' ), [ 'timeout' => 30, 'headers' => self::batch_headers() ] ),
+			'POST /v1/messages/batches/{id}/cancel'
+		);
+	}
+
+	/**
+	 * EVERY ANSWER OF AN ENDED BATCH, one line at a time.
+	 *
+	 * The file is written to disk as it arrives and read back line by line: six
+	 * hundred translations are megabytes of text, and holding them in memory
+	 * twice is how a shared host kills the request that was about to write
+	 * them. The URL is built from the batch id, never taken from an answer, so
+	 * the key is never sent anywhere but to Anthropic.
+	 *
+	 * @return iterable<int,array> each line decoded: `custom_id`, `result`.
+	 */
+	public static function batch_results( string $id ): iterable {
+		$url = self::batch_url( $id, '/results' );
+		$tmp = trailingslashit( get_temp_dir() ) . 'dze-batch-' . wp_generate_password( 12, false ) . '.jsonl';
+		$response = wp_remote_get( $url, [
+			'timeout'  => 120,
+			'headers'  => self::batch_headers(),
+			'stream'   => true,
+			'filename' => $tmp,
+		] );
+		try {
+			if ( is_wp_error( $response ) ) {
+				DZE_Health::log( 'anthropic', 'GET /v1/messages/batches/{id}/results', $response->get_error_message() );
+				throw new RuntimeException( $response->get_error_message() );
+			}
+			$code = (int) wp_remote_retrieve_response_code( $response );
+			if ( $code < 200 || $code >= 300 ) {
+				$body = is_readable( $tmp ) ? (string) file_get_contents( $tmp, false, null, 0, 4000 ) : '';
+				$data = json_decode( $body, true );
+				$msg  = is_array( $data ) ? (string) ( $data['error']['message'] ?? '' ) : '';
+				$msg  = '' !== $msg ? $msg : 'HTTP ' . $code;
+				DZE_Health::log( 'anthropic', 'GET /v1/messages/batches/{id}/results', 'HTTP ' . $code . ' — ' . $msg );
+				/* translators: %s: the provider's own message */
+				throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
+			}
+			$fh = fopen( $tmp, 'rb' );
+			if ( false === $fh ) {
+				throw new RuntimeException( __( 'The answers could not be read from the server\'s temporary folder.', 'dazont-ecom' ) );
+			}
+			try {
+				while ( false !== ( $line = fgets( $fh ) ) ) {
+					$line = trim( $line );
+					if ( '' === $line ) {
+						continue;
+					}
+					$row = json_decode( $line, true );
+					if ( is_array( $row ) ) {
+						yield $row;
+					}
+				}
+			} finally {
+				fclose( $fh );
+			}
+		} finally {
+			if ( file_exists( $tmp ) ) {
+				wp_delete_file( $tmp );
+			}
+		}
+	}
+
 	private function call_claude( string $system, string $user ): string {
 		if ( DZE_Ai_Usage::over_budget() ) {
 			throw new RuntimeException( DZE_Ai_Usage::budget_message() );

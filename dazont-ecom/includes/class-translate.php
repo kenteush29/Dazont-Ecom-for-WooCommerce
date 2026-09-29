@@ -505,7 +505,13 @@ final class DZE_Translate {
 	 * l'écran a changé depuis. Une demande d'avant, sans langues, valait pour
 	 * toutes : c'est ce qu'elle voulait dire à l'époque.
 	 *
-	 * @return array{kind:string,id:int,type:string,langs:string[],accept:int,all:int,at:int,by:int,tries:int}
+	 * ET ELLE DIT OÙ EN EST CHAQUE LANGUE : partie dans un lot chez Anthropic
+	 * (`sent`, l'identifiant du lot), revenue et en attente d'être écrite
+	 * (`land`), à garder pour la relecture même si l'envoi disait « publier »
+	 * (`keep` — annulée alors qu'elle était déjà partie), et combien de fois
+	 * elle est revenue vide (`fails`).
+	 *
+	 * @return array{kind:string,id:int,type:string,langs:string[],accept:int,all:int,at:int,by:int,tries:int,sent:array<string,string>,land:array<string,int>,keep:array<string,int>,fails:array<string,int>}
 	 */
 	public static function entry( array $raw ): array {
 		$langs = [];
@@ -515,16 +521,37 @@ final class DZE_Translate {
 				$langs[] = $one;
 			}
 		}
+		$langs = $langs ? $langs : self::target_codes();
+		// Une marque ne vaut que pour une langue encore demandée.
+		$per = static function ( $map, bool $text ) use ( $langs ): array {
+			$out = [];
+			foreach ( (array) $map as $code => $v ) {
+				$code = sanitize_key( (string) $code );
+				if ( ! in_array( $code, $langs, true ) ) {
+					continue;
+				}
+				if ( $text && '' !== (string) $v ) {
+					$out[ $code ] = (string) $v;
+				} elseif ( ! $text && (int) $v > 0 ) {
+					$out[ $code ] = (int) $v;
+				}
+			}
+			return $out;
+		};
 		return [
 			'kind'   => 'term' === (string) ( $raw['kind'] ?? '' ) ? 'term' : 'post',
 			'id'     => (int) ( $raw['id'] ?? 0 ),
 			'type'   => (string) ( $raw['type'] ?? '' ),
-			'langs'  => $langs ? $langs : self::target_codes(),
+			'langs'  => $langs,
 			'accept' => empty( $raw['accept'] ) ? 0 : 1,
 			'all'    => empty( $raw['all'] ) ? 0 : 1,
 			'at'     => (int) ( $raw['at'] ?? 0 ),
 			'by'     => (int) ( $raw['by'] ?? 0 ),
 			'tries'  => (int) ( $raw['tries'] ?? 0 ),
+			'sent'   => $per( $raw['sent'] ?? [], true ),
+			'land'   => $per( $raw['land'] ?? [], false ),
+			'keep'   => $per( $raw['keep'] ?? [], false ),
+			'fails'  => $per( $raw['fails'] ?? [], false ),
 		];
 	}
 
@@ -554,6 +581,16 @@ final class DZE_Translate {
 	}
 
 	/**
+	 * LA FILE NE JETTE JAMAIS RIEN EN SILENCE.
+	 *
+	 * Elle était coupée à ses deux mille dernières demandes : un envoi de plus
+	 * faisait disparaître les plus anciens, sans un mot. Elle en tient
+	 * maintenant dix mille, et ce qui ne tient pas est REFUSÉ à l'envoi — et
+	 * l'écran le dit — au lieu d'effacer ce qui attendait déjà.
+	 */
+	public const QUEUE_MAX = 10000;
+
+	/**
 	 * CE QU'ON ENVOIE EN TRADUCTION ATTEND ICI, ET LA PASSE LE PREND.
 	 *
 	 * L'écran ne traduit pas sur place — trente pages dans une requête, c'est
@@ -566,17 +603,16 @@ final class DZE_Translate {
 	 * perdue en silence.
 	 *
 	 * @param array<int,array{kind:string,id:int,type:string}> $objets
-	 * @param string[] $langs Les langues choisies. Aucune veut dire toutes.
-	 * @param bool     $all   Remplacer aussi les traductions déjà à jour.
+	 * @param string[] $langs   Les langues choisies. Aucune veut dire toutes.
+	 * @param bool     $all     Remplacer aussi les traductions déjà à jour.
+	 * @param int|null $refused Combien d'objets n'ont pas trouvé de place.
 	 * @return int combien d'objets ont été mis en file, ou ont reçu une langue de plus.
 	 */
-	public static function ask( array $objets, bool $accept = false, array $langs = [], bool $all = false ): int {
-		$file = self::asked();
-		$idx  = [];
-		foreach ( $file as $i => $e ) {
-			$idx[ self::entry_key( $e ) ] = $i;
-		}
-		$n = 0;
+	public static function ask( array $objets, bool $accept = false, array $langs = [], bool $all = false, ?int &$refused = null ): int {
+		$refused = 0;
+		// CE QUI PART EST LU AVANT DE PRENDRE LA FILE : WPML répond une question
+		// par objet, et la file n'est pas tenue pendant qu'il répond.
+		$neufs = [];
 		foreach ( $objets as $o ) {
 			$e = self::entry( [
 				'kind'   => $o['kind'] ?? 'post',
@@ -603,34 +639,68 @@ final class DZE_Translate {
 					continue;
 				}
 			}
-			$k = self::entry_key( $e );
-			if ( isset( $idx[ $k ] ) ) {
-				$was  = (array) $file[ $idx[ $k ] ]['langs'];
-				$plus = array_values( array_diff( $e['langs'], $was ) );
-				if ( ! $plus ) {
-					continue; // demandé deux fois reste demandé une fois.
-				}
-				$file[ $idx[ $k ] ]['langs'] = array_values( array_merge( $was, $plus ) );
-				$file[ $idx[ $k ] ]['tries'] = 0;
-				$n++;
-				continue;
-			}
-			$idx[ $k ] = count( $file );
-			$file[]    = $e;
-			$n++;
+			$neufs[] = $e;
 		}
-		self::save_asked( $file );
+		if ( ! $neufs ) {
+			return 0;
+		}
+		$n    = 0;
+		$refu = 0;
+		self::with_queue( static function ( array $file ) use ( $neufs, &$n, &$refu ): array {
+			$idx = [];
+			foreach ( $file as $i => $e ) {
+				$idx[ self::entry_key( $e ) ] = $i;
+			}
+			foreach ( $neufs as $e ) {
+				$k = self::entry_key( $e );
+				if ( isset( $idx[ $k ] ) ) {
+					$was  = (array) $file[ $idx[ $k ] ]['langs'];
+					$plus = array_values( array_diff( $e['langs'], $was ) );
+					if ( ! $plus ) {
+						continue; // demandé deux fois reste demandé une fois.
+					}
+					$file[ $idx[ $k ] ]['langs'] = array_values( array_merge( $was, $plus ) );
+					$n++;
+					continue;
+				}
+				if ( count( $file ) >= self::QUEUE_MAX ) {
+					$refu++;
+					continue;
+				}
+				$idx[ $k ] = count( $file );
+				$file[]    = $e;
+				$n++;
+			}
+			return $file;
+		} );
+		$refused = $refu;
 		return $n;
 	}
 
 	/**
 	 * Ce qui attend, débarrassé de ce qui n'a plus lieu d'être.
 	 *
-	 * @return array<int,array{kind:string,id:int,type:string,langs:string[],accept:int,all:int,at:int,by:int,tries:int}>
+	 * @return array<int,array{kind:string,id:int,type:string,langs:string[],accept:int,all:int,at:int,by:int,tries:int,sent:array<string,string>,land:array<string,int>,keep:array<string,int>,fails:array<string,int>}>
 	 */
 	public static function asked(): array {
+		return self::queue_rows( (array) get_option( self::OPT_ASKED, [] ) );
+	}
+
+	/** La file telle qu'écrite, mise au propre. */
+	private static function queue_rows( array $raw ): array {
+		// UNE REQUÊTE POUR TOUS LES ARTICLES DE LA FILE, pas une par demande :
+		// l'écran relit la file toutes les huit secondes.
+		$ids = [];
+		foreach ( $raw as $un ) {
+			if ( is_array( $un ) && 'term' !== (string) ( $un['kind'] ?? '' ) && (int) ( $un['id'] ?? 0 ) > 0 ) {
+				$ids[] = (int) $un['id'];
+			}
+		}
+		if ( $ids && function_exists( '_prime_post_caches' ) ) {
+			_prime_post_caches( array_values( array_unique( $ids ) ), false, false );
+		}
 		$out = [];
-		foreach ( (array) get_option( self::OPT_ASKED, [] ) as $un ) {
+		foreach ( $raw as $un ) {
 			$e = self::entry( (array) $un );
 			if ( $e['id'] < 1 || ! $e['langs'] ) {
 				continue;
@@ -650,12 +720,99 @@ final class DZE_Translate {
 		$keep = [];
 		foreach ( $file as $e ) {
 			if ( (int) ( $e['id'] ?? 0 ) > 0 && ! empty( $e['langs'] ) ) {
-				$keep[] = $e;
+				$keep[] = self::entry( (array) $e );
 			}
 		}
-		// BORNÉE : une file qu'on ne vide jamais est une file qui grossit
-		// jusqu'à ne plus tenir dans une option.
-		update_option( self::OPT_ASKED, array_slice( $keep, -2000 ), false );
+		update_option( self::OPT_ASKED, $keep, false );
+		// UNE FILE VIDE N'EST PAS UNE FILE EN PAUSE : « la file est en pause »
+		// restait affiché au-dessus d'une file vidée.
+		if ( ! $keep ) {
+			self::clear_stop();
+		}
+	}
+
+	/**
+	 * TOUTE MODIFICATION DE LA FILE EST LUE DANS LA BASE ET ÉCRITE SOUS UN VERROU.
+	 *
+	 * WordPress garde une option en mémoire pour toute la requête dès qu'il l'a
+	 * lue une fois — et le cache d'objets de LiteSpeed aussi. Une passe qui
+	 * durait quatre minutes réécrivait donc, à la fin, la file qu'elle avait
+	 * lue au début : l'annulation faite entre-temps depuis l'écran était
+	 * défaite et la langue traduite et payée quand même, et un envoi fait
+	 * pendant la passe disparaissait sans un mot.
+	 *
+	 * Chaque changement relit maintenant la file dans la base, la modifie, et
+	 * l'écrit, sous un verrou que deux requêtes ne peuvent pas tenir ensemble.
+	 *
+	 * @param callable(array):array $change reçoit la file telle qu'écrite, rend ce qu'il faut écrire.
+	 */
+	private static function with_queue( callable $change ): void {
+		$tenu = self::take( 'queue', 10 );
+		try {
+			$file = self::queue_rows( (array) self::fresh_option( self::OPT_ASKED, [] ) );
+			self::save_asked( (array) $change( $file ) );
+		} finally {
+			if ( $tenu ) {
+				self::give( 'queue' );
+			}
+		}
+	}
+
+	/** Une option lue dans la base, et non dans ce que la requête en a gardé. */
+	private static function fresh_option( string $name, $default ) {
+		if ( function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( $name, 'options' );
+			$not = function_exists( 'wp_cache_get' ) ? wp_cache_get( 'notoptions', 'options' ) : false;
+			if ( is_array( $not ) && isset( $not[ $name ] ) ) {
+				unset( $not[ $name ] );
+				wp_cache_set( 'notoptions', $not, 'options' );
+			}
+		}
+		return get_option( $name, $default );
+	}
+
+	/**
+	 * UN VERROU QUE LA BASE DONNE À UNE SEULE REQUÊTE — et qu'elle reprend
+	 * toute seule quand la requête meurt.
+	 *
+	 * Le verrou d'avant était un transitoire : lu, puis écrit, avec la file lue
+	 * entre les deux — deux passes lancées ensemble le trouvaient libre toutes
+	 * les deux et payaient le même travail deux fois. Et un passage tué en
+	 * chemin le gardait quinze minutes. `GET_LOCK` de MySQL est pris d'un coup
+	 * ou pas du tout, et rendu par MySQL dès que la connexion se ferme.
+	 */
+	private static function lock_name( string $what ): string {
+		global $wpdb;
+		$base = ( defined( 'DB_NAME' ) ? (string) DB_NAME : '' ) . '|' . (string) ( $wpdb->prefix ?? '' );
+		return 'dze_tr_' . $what . '_' . substr( md5( $base ), 0, 16 );
+	}
+
+	private static function take( string $what, int $wait = 0 ): bool {
+		global $wpdb;
+		$got = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK( %s, %d )', self::lock_name( $what ), max( 0, $wait ) ) );
+		if ( null === $got && '' !== (string) ( $wpdb->last_error ?? '' ) ) {
+			// UNE BASE QUI REFUSE LES VERROUS NOMMÉS n'arrête pas la file : on
+			// retombe sur un transitoire, qui vaut mieux que rien.
+			if ( get_transient( 'dze_tr_lock_' . $what ) ) {
+				return false;
+			}
+			set_transient( 'dze_tr_lock_' . $what, 1, 120 );
+			return true;
+		}
+		return '1' === (string) $got;
+	}
+
+	private static function give( string $what ): void {
+		global $wpdb;
+		$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK( %s )', self::lock_name( $what ) ) );
+		delete_transient( 'dze_tr_lock_' . $what );
+	}
+
+	/** Si quelqu'un tient ce verrou en ce moment. */
+	private static function held( string $what ): bool {
+		global $wpdb;
+		$who = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_USED_LOCK( %s )', self::lock_name( $what ) ) );
+		return null !== $who || (bool) get_transient( 'dze_tr_lock_' . $what );
 	}
 
 	/**
@@ -677,39 +834,63 @@ final class DZE_Translate {
 	}
 
 	/**
-	 * CE QUE LA PASSE TRADUIT À CET INSTANT, lu dans son verrou.
+	 * CE QUI EST PARTI ET NE PEUT PLUS ÊTRE REPRIS : les langues envoyées dans
+	 * un lot chez Anthropic, et celles revenues qui attendent d'être écrites.
 	 *
 	 * @return array<string,string[]> ref => langues
 	 */
 	public static function running(): array {
-		$lock = get_transient( self::LOCK_DRAIN );
-		return is_array( $lock ) ? (array) ( $lock['refs'] ?? [] ) : [];
+		$out = [];
+		foreach ( self::asked() as $e ) {
+			foreach ( $e['langs'] as $code ) {
+				if ( isset( $e['sent'][ $code ] ) || isset( $e['land'][ $code ] ) ) {
+					$out[ self::ref( $e ) ][] = $code;
+				}
+			}
+		}
+		return $out;
 	}
 
 	/**
 	 * RETIRE DE LA FILE une langue d'un objet, ou l'objet entier.
 	 *
-	 * « J'ai peur de payer pour rien. » Ce qui est envoyé doit pouvoir être
-	 * repris avant de coûter. Ce que la passe traduit à cet instant est déjà
-	 * payé : cela arrivera quand même, et l'écran le dit.
+	 * « J'ai peur de payer pour rien. » Ce qui attend encore son lot sort de la
+	 * file, et rien n'est dépensé. Ce qui est déjà parti chez Anthropic ne peut
+	 * plus être repris : cela arrivera, mais dans « À relire », jamais publié
+	 * sans relecture — et l'écran le dit. Ce qui est déjà revenu attend dans
+	 * « À relire » : il sort de la file et n'est pas publié.
 	 *
-	 * @return int combien de langues ont quitté la file.
+	 * @return int combien de langues ont quitté la file sans rien coûter.
 	 */
 	public static function cancel( string $ref, string $lang = '' ): int {
 		$lang = sanitize_key( $lang );
-		$file = self::asked();
 		$n    = 0;
-		foreach ( $file as $i => $e ) {
-			if ( self::ref( $e ) !== $ref ) {
-				continue;
+		self::with_queue( static function ( array $file ) use ( $ref, $lang, &$n ): array {
+			foreach ( $file as $i => $e ) {
+				if ( self::ref( $e ) !== $ref ) {
+					continue;
+				}
+				$reste = [];
+				foreach ( $e['langs'] as $code ) {
+					if ( '' !== $lang && $code !== $lang ) {
+						$reste[] = $code;
+						continue;
+					}
+					if ( isset( $e['land'][ $code ] ) ) {
+						continue; // revenue : elle attend dans « À relire », non publiée.
+					}
+					if ( isset( $e['sent'][ $code ] ) ) {
+						// PARTIE : elle reviendra, pour être relue.
+						$file[ $i ]['keep'][ $code ] = 1;
+						$reste[]                     = $code;
+						continue;
+					}
+					$n++;
+				}
+				$file[ $i ]['langs'] = $reste;
 			}
-			$keep = '' === $lang ? [] : array_values( array_diff( $e['langs'], [ $lang ] ) );
-			$n   += count( $e['langs'] ) - count( $keep );
-			$file[ $i ]['langs'] = $keep;
-		}
-		if ( $n ) {
-			self::save_asked( $file );
-		}
+			return $file;
+		} );
 		return $n;
 	}
 
@@ -719,270 +900,1417 @@ final class DZE_Translate {
 	}
 
 	/**
-	 * CE QUI EST FAIT SORT DE LA DEMANDE — relu dans la file au moment
-	 * d'écrire, jamais recopié d'une lecture faite avant le travail : l'écran a
-	 * pu ajouter une langue, ou en retirer une, pendant que la passe tournait.
+	 * CE QUI VIENT D'ÊTRE ÉCRIT OU TRADUIT À LA MAIN n'est plus à la file.
+	 *
+	 * Envoyée « sans relecture », une langue revenait d'Anthropic et écrivait
+	 * par-dessus la traduction que la boutique venait de corriger à la main dans
+	 * l'intervalle. Ce qui attendait son lot sort ; ce qui est parti reviendra
+	 * pour être relu, jamais publié.
+	 *
+	 * @param string[] $langs
 	 */
-	private static function drop_langs( array $e, array $langs, bool $ok ): void {
-		$k    = self::entry_key( $e );
-		$file = self::asked();
-		foreach ( $file as $i => $one ) {
-			if ( self::entry_key( $one ) !== $k ) {
+	public static function forget_langs( string $ref, array $langs ): void {
+		foreach ( $langs as $code ) {
+			self::cancel( $ref, (string) $code );
+		}
+	}
+
+	/**
+	 * VIDE LA FILE, et arrête chez Anthropic ce qui n'a pas encore été traduit.
+	 *
+	 * « Tout annuler » veut dire que plus rien ne sera dépensé. Ce qui attendait
+	 * son lot sort ; les lots en cours sont annulés — ce qu'Anthropic n'a pas
+	 * encore traduit n'est pas facturé, et ce qu'il avait déjà fini arrive
+	 * dans « À relire », jamais publié. Un lot en train de partir est annulé
+	 * par le passage qui l'envoie, dès qu'il existe : plus personne ne le veut.
+	 *
+	 * @return array{removed:int,sent:int}
+	 */
+	public static function cancel_all(): array {
+		$out = [ 'removed' => 0, 'sent' => 0 ];
+		self::with_queue( static function ( array $file ) use ( &$out ): array {
+			foreach ( $file as $e ) {
+				foreach ( $e['langs'] as $code ) {
+					if ( isset( $e['sent'][ $code ] ) || isset( $e['land'][ $code ] ) ) {
+						$out['sent']++;
+					} else {
+						$out['removed']++;
+					}
+				}
+			}
+			return [];
+		} );
+		foreach ( self::batches() as $bid => $b ) {
+			if ( 'in_progress' !== (string) ( $b['status'] ?? '' ) ) {
 				continue;
 			}
-			$file[ $i ]['langs'] = array_values( array_diff( $one['langs'], $langs ) );
-			if ( $ok ) {
-				$file[ $i ]['tries'] = 0;
+			try {
+				DZE_Marketing_Ai::batch_cancel( (string) $bid );
+				$b['status'] = 'canceling';
+				self::batch_save( (string) $bid, $b );
+			} catch ( \Throwable $e ) {
+				// Il finira de lui-même, et arrivera dans « À relire ».
+				continue;
 			}
 		}
-		self::save_asked( $file );
+		delete_option( self::OPT_DRAIN_ERRORS );
+		self::clear_stop();
+		return $out;
 	}
 
-	/** Un essai de plus sur cette demande, compté AVANT le travail. */
-	private static function bump_tries( array $e ): void {
-		$k    = self::entry_key( $e );
-		$file = self::asked();
-		foreach ( $file as $i => $one ) {
-			if ( self::entry_key( $one ) === $k ) {
-				$file[ $i ]['tries'] = (int) $one['tries'] + 1;
-			}
-		}
-		self::save_asked( $file );
-	}
+	// =========================================================================
+	// LA FILE PART CHEZ ANTHROPIC, EN LOTS
+	//
+	// « Fais comme WPML, ça ne coupe pas même avec des gros batch. »
+	//
+	// La passe d'avant traduisait DANS une requête du site : quatre minutes
+	// d'appels au modèle, pendant que la page du tableau de bord attendait la
+	// réponse. Chez Hostinger une requête aussi longue est coupée — et la passe
+	// mourait en plein travail, sans rien enregistrer de ce qu'elle venait de
+	// payer, en laissant un verrou qui bloquait tout un quart d'heure. Deux
+	// fois de suite sur les catégories de Kula, au même endroit.
+	//
+	// WPML ne traduit jamais dans une requête du site : il envoie le travail à
+	// son service, qui le fait chez lui, et le site vient chercher le résultat.
+	// C'est ce que fait maintenant la file, avec l'API des lots d'Anthropic :
+	//
+	//   1. ENVOYER — tout ce qui attend part en UN lot : une requête de quelques
+	//      secondes, quelle que soit la taille.
+	//   2. RELEVER — de temps en temps, une requête d'une seconde demande où en
+	//      est le lot. Quand il est fini, ses réponses sont lues d'un coup et
+	//      déposées dans « À relire ».
+	//   3. PUBLIER — ce qui a été envoyé « sans relecture » est écrit, par
+	//      petites tranches.
+	//
+	// Aucune étape ne tient une requête plus de quelques secondes, et à moitié
+	// prix : c'est le tarif des lots.
+	//
+	// ET UN LOT PAYÉ N'EST JAMAIS PERDU NI RACHETÉ. Il est écrit AVANT de
+	// partir (« creating ») : un passage tué entre l'envoi et l'écriture, ou un
+	// envoi dont on ne sait pas s'il a abouti, est retrouvé dans la liste des
+	// lots d'Anthropic avant que quoi que ce soit reparte. Des réponses qu'on
+	// n'arrive pas à lire sont relues plus tard — elles restent vingt-neuf jours
+	// chez Anthropic — et jamais redemandées.
+	// =========================================================================
 
-	/**
-	 * LE VERROU D UN PASSAGE.
-	 *
-	 * Le rendez-vous suivant est pris AVANT de travailler — sinon un passage
-	 * qui meurt arrete la file pour toujours. Mais deux passages qui se
-	 * chevauchent traduiraient le meme objet deux fois et le paieraient deux
-	 * fois. Le verrou tranche : le second rentre aussitot.
-	 *
-	 * Il expire tout seul, parce qu un passage tue ne le rend jamais et qu un
-	 * verrou coince est une file morte. Et il dit CE QU'IL TRADUIT, pour que
-	 * l'écran fasse tourner les bonnes roues.
-	 */
+	/** L'ancien verrou des passes longues. Relu seulement pour être effacé. */
 	public const LOCK_DRAIN = 'dze_translate_draining';
 
-	/** Combien de temps un passage peut tenir le verrou. */
-	public const LOCK_LIFE = 900;
-
-	/** Le crochet que la file demandée fait tourner toute seule. */
+	/** Le crochet que la file fait tourner toute seule. */
 	public const HOOK_DRAIN = 'dze_translate_drain';
 
-	/**
-	 * COMBIEN D'APPELS UN TOUR ENVOIE — deux vagues de `PARALLEL`.
-	 *
-	 * Un tour prend en tête de file autant d'objets que ce nombre d'appels en
-	 * contient : douze catégories d'un paragraphe partent ensemble, une page de
-	 * dix mille mots part seule, ses langues étalées sur plusieurs tours.
-	 */
-	public const ROUND_CALLS = 12;
+	/** Les lots partis, et ce que chacun porte. */
+	public const OPT_BATCHES = 'dze_translate_batches';
+
+	/** Pourquoi la file s'est arrêtée, quand ce n'est pas la faute d'un texte. */
+	public const OPT_STOP = 'dze_translate_stop';
+
+	/** Jusqu'à quand ne rien renvoyer après un envoi refusé. */
+	public const OPT_BACKOFF = 'dze_translate_backoff';
+
+	/** Sur l'objet : les mots envoyés, gardés jusqu'au retour de leur lot. */
+	public const META_SENT = '_dze_tr_sent';
+
+	/** Combien d'appels un lot porte au plus — assez pour tout un catalogue de catégories. */
+	public const BATCH_MAX = 1000;
 
 	/**
-	 * LE TEMPS QU UN PASSAGE S ACCORDE.
-	 *
-	 * Quatre minutes : assez pour enchainer plusieurs tours, assez court pour ne
-	 * jamais se faire tuer en chemin. Un passage tue ne perd rien — ce qui est
-	 * traduit est depose — mais il ne rend pas son verrou et fait attendre le
-	 * suivant.
+	 * Et combien d'octets de texte : la limite d'Anthropic est 256 Mo, mais le
+	 * lot est construit en mémoire avant de partir, et la mémoire d'un
+	 * hébergement mutualisé est comptée.
 	 */
-	public const DRAIN_BUDGET = 240;
+	public const BATCH_BYTES = 8388608;
 
-	/** Les demandes qui ont échoué pendant ce passage : pas une seconde fois tout de suite. */
-	private static array $failed_now = [];
+	/** Toutes les combien de secondes on demande où en est un lot. */
+	public const POLL_EVERY = 30;
+
+	/** Combien de secondes un passage s'accorde pour écrire. */
+	public const TICK_BUDGET = 25;
+
+	/** Le prix d'un appel en lot, contre le prix d'un appel seul. */
+	public const BATCH_RATE = 0.5;
+
+	/** Combien de retours vides avant qu'une langue sorte de la file. */
+	public const TRIES = 3;
 
 	/**
-	 * LA FILE SE VIDE TOUTE SEULE, EN ARRIÈRE-PLAN.
-	 *
-	 * « Tout est traduit en background, l'équivalent de notre liste d'attente. »
-	 * Réveillée par le planificateur — ou par l'écran ouvert, qui la relance
-	 * quand elle dort — elle prend un TOUR en tête de file, l'envoie d'un coup,
-	 * et recommence tant qu'il reste du temps pour un tour de plus. Chaque
-	 * objet sort de la file langue par langue, dès que la sienne est faite.
-	 *
-	 * Rien n'est perdu si le passage tombe : ce qui a été traduit est déjà
-	 * déposé, et ce qui restait est encore dans la file.
+	 * Au-delà, un lot qui ne se laisse plus suivre est abandonné : Anthropic
+	 * termine tout lot en vingt-quatre heures au plus.
 	 */
-	public static function drain(): void {
+	public const BATCH_LOST_AFTER = 108000;
+
+	/**
+	 * UN PASSAGE : relever les lots, publier, envoyer. Quelques secondes.
+	 *
+	 * Lancé par le planificateur, ou par la page du tableau de bord tant
+	 * qu'elle est ouverte. Un seul à la fois — le suivant rentre aussitôt — et
+	 * s'il meurt, MySQL rend son verrou tout seul.
+	 *
+	 * @param int $budget Secondes pour écrire. La page en demande moins : elle
+	 *                    attend la réponse.
+	 */
+	public static function drain( $budget = self::TICK_BUDGET ): void {
 		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			return;
 		}
-		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 600 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- l'hébergeur peut refuser.
+		if ( ! self::take( 'tick', 0 ) ) {
+			return; // un passage tourne : il reprendra rendez-vous lui-même.
 		}
-		// UN SEUL PASSAGE A LA FOIS — MAIS CELUI QUI ARRIVE TROP TOT NE
-		// DISPARAIT PAS. Le rendez-vous suivant est pris en tête de passage,
-		// donc il se déclenche PENDANT que le verrou est tenu ; il se redonne
-		// rendez-vous plus tard au lieu de rompre la chaîne.
-		if ( get_transient( self::LOCK_DRAIN ) ) {
-			if ( ! wp_next_scheduled( self::HOOK_DRAIN ) ) {
-				wp_schedule_single_event( time() + 120, self::HOOK_DRAIN );
-			}
-			return;
-		}
-		if ( ! self::asked() ) {
-			return;
-		}
-		set_transient( self::LOCK_DRAIN, [ 't' => time(), 'refs' => [] ], self::LOCK_LIFE );
-		// LE RENDEZ-VOUS SUIVANT EST PRIS D'ABORD, TOUJOURS. Un passage qui
-		// meurt en chemin n'exécute jamais la ligne qui reprogramme le suivant,
-		// et la file s'arrêterait pour toujours, sans un mot.
-		self::kick_drain();
-		self::$failed_now = [];
-		$toutes           = self::target_codes();
-		$debut            = microtime( true );
-		$tours            = 0;
+		$t0     = microtime( true );
+		$budget = is_numeric( $budget ) ? max( 5, (int) $budget ) : self::TICK_BUDGET;
 		try {
-			// AUTANT DE TOURS QUE LE TEMPS ACCORDÉ EN PERMET. On mesure ce que
-			// les tours ont coûté plutôt que de le supposer : douze catégories
-			// et une page de mille mots n'ont rien à voir.
-			while ( self::drain_round( $toutes ) ) {
-				$tours++;
-				$passe = microtime( true ) - $debut;
-				if ( $passe + $passe / $tours > self::DRAIN_BUDGET ) {
-					break;
+			if ( function_exists( 'set_time_limit' ) ) {
+				@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- l'hébergeur peut refuser.
+			}
+			// Le verrou des passes d'avant, s'il en reste un, ne veut plus rien dire.
+			delete_transient( self::LOCK_DRAIN );
+			// LES MARQUES D'ABORD, avant qu'un lot ne soit relevé : un lot lu
+			// avant que ses langues ne soient rattachées laissait passer ses
+			// échecs et ses réponses partielles.
+			self::repair_marks();
+			self::collect( $t0, $budget );
+			self::publish( $t0, $budget );
+			self::dispatch();
+		} finally {
+			self::give( 'tick' );
+		}
+		self::schedule_next();
+	}
+
+	/** Le prochain passage : bientôt s'il y a à écrire ou à envoyer, sinon au prochain relevé. */
+	private static function schedule_next(): void {
+		$file = self::asked();
+		$vite = false;
+		foreach ( $file as $e ) {
+			foreach ( $e['langs'] as $code ) {
+				if ( isset( $e['land'][ $code ] ) || ! isset( $e['sent'][ $code ] ) ) {
+					$vite = true;
+					break 2;
 				}
 			}
-		} finally {
-			delete_transient( self::LOCK_DRAIN );
 		}
-		// ET ON REPREND LA MAIN SI LE RENDEZ-VOUS DU DEBUT S EST PERDU : il a
-		// pu se declencher pendant qu on tenait le verrou et rentrer bredouille.
-		if ( self::asked() ) {
-			self::kick_drain();
+		$ouverts = false;
+		foreach ( self::batches() as $b ) {
+			if ( in_array( (string) ( $b['status'] ?? '' ), [ 'creating', 'in_progress', 'canceling', 'ended' ], true ) ) {
+				$ouverts = true;
+				break;
+			}
+		}
+		if ( ! $file && ! $ouverts ) {
+			return;
+		}
+		$attente = (int) get_option( self::OPT_BACKOFF, 0 ) - time();
+		self::kick_drain( $vite && $attente <= 0 ? 5 : max( 60, $attente ) );
+	}
+
+	/**
+	 * Réveille la file : maintenant, ou dans $delay secondes.
+	 *
+	 * Un rendez-vous déjà pris plus tôt suffit ; un rendez-vous plus tardif ne
+	 * retarde pas celui qu'on demande.
+	 */
+	public static function kick_drain( int $delay = 0 ): void {
+		$quand = time() + max( 0, $delay );
+		if ( function_exists( 'as_schedule_single_action' ) && function_exists( 'as_get_scheduled_actions' ) ) {
+			// UN PASSAGE EN ATTENTE, prévu à temps, suffit — jamais celui qui
+			// tourne en ce moment. Vu de l'intérieur d'un passage lancé par le
+			// planificateur, « en cours », c'est lui-même : attendre après lui,
+			// c'était ne plus jamais reprendre rendez-vous, et la file
+			// s'arrêtait dès que la page était fermée.
+			$deja = as_get_scheduled_actions( [
+				'hook'         => self::HOOK_DRAIN,
+				'status'       => 'pending',
+				'date'         => $quand + 30,
+				'date_compare' => '<=',
+				'per_page'     => 1,
+			], 'ids' );
+			if ( $deja ) {
+				return;
+			}
+			if ( $delay <= 0 && function_exists( 'as_enqueue_async_action' ) ) {
+				as_enqueue_async_action( self::HOOK_DRAIN, [], 'dazont-ecom' );
+				return;
+			}
+			as_schedule_single_action( $quand, self::HOOK_DRAIN, [], 'dazont-ecom' );
+			return;
+		}
+		$next = wp_next_scheduled( self::HOOK_DRAIN );
+		if ( $next && $next <= $quand + 30 ) {
+			return;
+		}
+		// WordPress refuses a second event of the same hook within ten
+		// minutes of the first: a later booking is taken back before the
+		// sooner one is made.
+		if ( $next ) {
+			wp_unschedule_event( $next, self::HOOK_DRAIN );
+		}
+		wp_schedule_single_event( max( time() + 5, $quand ), self::HOOK_DRAIN );
+	}
+
+	/** Les lots connus, du plus ancien au plus récent. */
+	public static function batches(): array {
+		$all = self::fresh_option( self::OPT_BATCHES, [] );
+		return is_array( $all ) ? $all : [];
+	}
+
+	private static function batch_save( string $bid, ?array $b ): void {
+		$all = self::batches();
+		if ( null === $b ) {
+			unset( $all[ $bid ] );
+		} else {
+			$all[ $bid ] = $b;
+		}
+		// UN LOT RELEVÉ DEPUIS UNE SEMAINE N'EST PLUS QU'UNE LIGNE D'HISTOIRE.
+		foreach ( $all as $k => $one ) {
+			if ( in_array( (string) ( $one['status'] ?? '' ), [ 'landed', 'lost' ], true ) && (int) ( $one['landed'] ?? 0 ) < time() - WEEK_IN_SECONDS ) {
+				unset( $all[ $k ] );
+			}
+		}
+		update_option( self::OPT_BATCHES, $all, false );
+	}
+
+	/** Les mots envoyés pour cet objet, par lot. */
+	private static function sent_read( array $o ): array {
+		if ( function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( (int) $o['id'], 'term' === $o['kind'] ? 'term_meta' : 'post_meta' );
+		}
+		$raw = self::meta_read( $o, (int) $o['id'], self::META_SENT );
+		$row = '' !== $raw ? json_decode( $raw, true ) : [];
+		return is_array( $row ) ? $row : [];
+	}
+
+	private static function sent_write( array $o, array $sent ): void {
+		if ( ! $sent ) {
+			if ( 'term' === $o['kind'] ) {
+				delete_term_meta( (int) $o['id'], self::META_SENT );
+			} else {
+				delete_post_meta( (int) $o['id'], self::META_SENT );
+			}
+			return;
+		}
+		self::meta_write( $o, (int) $o['id'], self::META_SENT, (string) wp_json_encode( $sent ) );
+	}
+
+	/** Les mots gardés pour un lot, lâchés sur chaque objet qu'il portait. */
+	private static function sent_forget( array $b ): void {
+		$cle  = (string) ( $b['token'] ?? '' );
+		$refs = [];
+		foreach ( (array) ( $b['tasks'] ?? [] ) as $task ) {
+			$refs[ (string) ( $task['ref'] ?? '' ) ] = true;
+		}
+		foreach ( array_keys( $refs ) as $ref ) {
+			$o = self::from_ref( (string) $ref );
+			if ( ! $o ) {
+				continue;
+			}
+			$gardes = self::sent_read( $o );
+			if ( isset( $gardes[ $cle ] ) ) {
+				unset( $gardes[ $cle ] );
+				self::sent_write( $o, $gardes );
+			}
 		}
 	}
 
 	/**
-	 * UN TOUR : ce qui tient en tête de file, envoyé d'un coup.
+	 * POURQUOI LA FILE S'EST ARRÊTÉE, quand ce n'est la faute d'aucun texte :
+	 * le budget du mois atteint, la clé absente, Anthropic qui refuse le lot.
 	 *
-	 * @param string[] $toutes Les langues actives, hors langue source.
-	 * @return bool Si un tour de plus a du sens.
+	 * Rien de ce qui attend n'est compté comme un échec — trois arrêts de ce
+	 * genre vidaient la file entière, comme si chaque texte était en cause —
+	 * et la file reprend d'elle-même.
 	 */
-	private static function drain_round( array $toutes ): bool {
-		$items = [];
-		$took  = [];
-		$calls = 0;
+	private static function note_stop( string $why ): void {
+		update_option( self::OPT_STOP, [ 'why' => mb_substr( $why, 0, 300 ), 'at' => time() ], false );
+	}
+
+	private static function clear_stop(): void {
+		delete_option( self::OPT_STOP );
+		delete_option( self::OPT_BACKOFF );
+	}
+
+	/** @return array{why:string,at:int}|array{} */
+	public static function stop_said(): array {
+		$s = get_option( self::OPT_STOP, [] );
+		return is_array( $s ) && '' !== (string) ( $s['why'] ?? '' ) ? [ 'why' => (string) $s['why'], 'at' => (int) ( $s['at'] ?? 0 ) ] : [];
+	}
+
+	/** Le modèle qui traduit, résolu : celui de ce module, ou celui des réglages généraux. */
+	private static function batch_model(): string {
+		$m = self::model();
+		if ( '' === $m && class_exists( 'DZE_Marketing_Ai' ) && method_exists( 'DZE_Marketing_Ai', 'chosen_model' ) ) {
+			$m = (string) DZE_Marketing_Ai::chosen_model();
+		}
+		return $m;
+	}
+
+	/**
+	 * CE QUE LES LOTS ENCORE DEHORS COÛTERONT. Un lot n'est compté qu'à son
+	 * retour, jusqu'à un jour plus tard : sans cette réserve, deux gros envois
+	 * partaient en entier sur un budget presque épuisé.
+	 */
+	private static function inflight_cost(): float {
+		$sum = 0.0;
+		foreach ( self::batches() as $b ) {
+			if ( in_array( (string) ( $b['status'] ?? '' ), [ 'creating', 'in_progress', 'canceling', 'ended' ], true ) && empty( $b['booked'] ) ) {
+				$sum += (float) ( $b['est'] ?? 0 );
+			}
+		}
+		return $sum;
+	}
+
+	/** Ce qu'un appel du lot coûtera, estimé large — à ne jamais sous-estimer. */
+	private static function ask_cost( string $model, array $ask ): float {
+		if ( ! class_exists( 'DZE_Ai_Usage' ) || ! method_exists( 'DZE_Ai_Usage', 'estimate' ) ) {
+			return 0.0;
+		}
+		$in  = (int) ceil( ( strlen( (string) $ask['system'] ) + strlen( (string) $ask['user'] ) ) / 3.0 );
+		$out = (int) ( $ask['max'] ?? 1000 );
+		return (float) DZE_Ai_Usage::estimate( $model, $in, $out ) * self::BATCH_RATE;
+	}
+
+	/**
+	 * 1. ENVOYER — tout ce qui attend, en un lot.
+	 *
+	 * Ce qui part est décidé exactement comme avant : seulement les champs dont
+	 * les mots ont bougé, ou tout quand « Écraser » l'a demandé ; rien de ce qui
+	 * attend déjà une décision ; rien qui ne soit pas l'original.
+	 */
+	private static function dispatch(): void {
+		if ( (int) get_option( self::OPT_BACKOFF, 0 ) > time() ) {
+			return;
+		}
+		// UN LOT DONT ON NE SAIT PAS S'IL EXISTE bloque tout nouvel envoi de ce
+		// qu'il porte tant qu'on ne l'a pas retrouvé : renvoyer, ce serait
+		// peut-être payer deux fois.
+		$en_suspens = [];
+		foreach ( self::batches() as $k => $b ) {
+			if ( 'creating' === (string) ( $b['status'] ?? '' ) ) {
+				$en_suspens[ (string) ( $b['token'] ?? $k ) ] = true;
+			}
+		}
+		$rien = true;
 		foreach ( self::asked() as $e ) {
-			if ( isset( self::$failed_now[ self::entry_key( $e ) ] ) ) {
-				continue; // a déjà échoué pendant ce passage : au suivant.
-			}
-			$o = self::obj( $e['kind'], $e['id'], $e['type'] );
-			if ( ! $o ) {
-				// PLUS RIEN À TRADUIRE : l'objet a disparu, ou WPML ne le
-				// traduit plus. La demande sort plutôt que de tourner.
-				self::drop_langs( $e, $e['langs'], false );
-				continue;
-			}
-			// TROIS PASSAGES SANS RIEN PRODUIRE ET LA DEMANDE SORT. Un texte qui
-			// fait tomber l'appel à chaque fois prendrait la file entière en
-			// otage : on le perd plutôt que de tout bloquer, et on le dit.
-			if ( (int) $e['tries'] >= 3 ) {
-				self::drop_langs( $e, $e['langs'], false );
-				self::note_drain_error( $e, '', __( 'Left the queue after three passes that came back with nothing.', 'dazont-ecom' ) );
-				continue;
-			}
-			// CE QUI ATTEND DÉJÀ UN OUI OU UN NON N'EST PAS À REFAIRE, langue par
-			// langue : la reproduire la paierait deux fois. Et une langue que
-			// WPML n'offre plus sort de la demande.
-			$deja = array_keys( (array) ( self::waiting( $o )['langs'] ?? [] ) );
-			$todo = [];
-			$gone = [];
 			foreach ( $e['langs'] as $code ) {
-				if ( ! in_array( $code, $toutes, true ) || in_array( $code, $deja, true ) ) {
-					$gone[] = $code;
-					continue;
+				if ( ! isset( $e['sent'][ $code ] ) && ! isset( $e['land'][ $code ] ) ) {
+					$rien = false;
+					break 2;
 				}
-				$todo[] = $code;
 			}
-			if ( $gone ) {
-				self::drop_langs( $e, $gone, false );
+		}
+		if ( $rien ) {
+			return;
+		}
+		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
+			// LE BUDGET DU MOIS EST ATTEINT : rien ne part, rien n'est compté,
+			// et on ne redemande pas toutes les cinq secondes.
+			self::note_stop( DZE_Ai_Usage::budget_message() );
+			update_option( self::OPT_BACKOFF, time() + HOUR_IN_SECONDS, false );
+			return;
+		}
+		// CE QUI PART EST MARQUÉ AVANT DE PARTIR, sous le verrou de la file.
+		//
+		// Le lot se construit et s'envoie en quelques secondes. Une annulation
+		// pressée pendant ces secondes-là disait « rien n'a été dépensé » d'une
+		// langue qui partait quand même dans le lot. Marquée d'abord, elle se
+		// lit « déjà en route » — et l'écran dit la vérité.
+		//
+		// Une marque laissée par un passage mort en chemin, sans lot en suspens
+		// derrière elle, ne peut venir que d'un passage qui n'a rien envoyé :
+		// celui-ci tient le verrou. Elle est reprise, et la langue repart.
+		$jeton = 'pending-' . time() . '-' . substr( md5( uniqid( '', true ) ), 0, 8 );
+		$todo  = [];
+		self::with_queue( static function ( array $file ) use ( $jeton, $en_suspens, &$todo ): array {
+			foreach ( $file as $i => $e ) {
+				foreach ( $e['langs'] as $code ) {
+					$marque = (string) ( $e['sent'][ $code ] ?? '' );
+					if ( isset( $e['land'][ $code ] ) || ! empty( $e['keep'][ $code ] ) ) {
+						continue;
+					}
+					if ( '' !== $marque && ( 0 !== strpos( $marque, 'pending-' ) || isset( $en_suspens[ $marque ] ) ) ) {
+						continue;
+					}
+					$file[ $i ]['sent'][ $code ] = $jeton;
+					$todo[]                      = [ $file[ $i ], $code ];
+				}
 			}
-			if ( ! $todo ) {
+			return $file;
+		} );
+		if ( ! $todo ) {
+			return;
+		}
+		$modele = self::batch_model();
+		// LE BUDGET, BATCHES ENCORE DEHORS COMPTÉS : ce lot part avec ce qui
+		// tient dans ce qui reste, et le reste attend.
+		$reste_budget = class_exists( 'DZE_Ai_Usage' ) && method_exists( 'DZE_Ai_Usage', 'budget_left' ) ? DZE_Ai_Usage::budget_left() : null;
+		if ( null !== $reste_budget ) {
+			$reste_budget -= self::inflight_cost();
+		}
+		$toutes = self::target_codes();
+		$source = class_exists( 'DZE_Wpml' ) ? (string) DZE_Wpml::default_language() : '';
+		$asks   = [];
+		$map    = [];
+		$tasks  = [];
+		$mots   = [];
+		$objs   = [];
+		$partis = [];
+		$drop   = [];
+		$poids  = 0;
+		$est    = 0.0;
+		$coupe  = false;
+		foreach ( $todo as [ $e, $code ] ) {
+			if ( count( $asks ) >= self::BATCH_MAX || $poids >= self::BATCH_BYTES ) {
+				break; // le reste part au lot suivant.
+			}
+			$ref = self::ref( $e );
+			if ( ! array_key_exists( $ref, $objs ) ) {
+				$objs[ $ref ] = self::obj( $e['kind'], $e['id'], $e['type'] );
+			}
+			$o = $objs[ $ref ];
+			if ( ! $o || ! in_array( $code, $toutes, true ) ) {
+				// PLUS RIEN À TRADUIRE : l'objet a disparu, ou WPML ne propose
+				// plus cette langue. La demande sort plutôt que de tourner.
+				$drop[] = [ $e, $code, '' ];
 				continue;
 			}
-			$size = self::calls_of( $o );
-			// UN OBJET PLUS GROS QU'UN TOUR part seul, ses langues étalées sur
-			// plusieurs tours ; les autres attendent le tour suivant.
-			if ( ! $items && $size * count( $todo ) > self::ROUND_CALLS ) {
-				$todo = array_slice( $todo, 0, max( 1, intdiv( self::ROUND_CALLS, max( 1, $size ) ) ) );
-			} elseif ( $items && $calls + $size * count( $todo ) > self::ROUND_CALLS ) {
-				break;
+			// SEULEMENT L'ORIGINAL. Une traduction envoyée en traduction est
+			// traduite depuis une traduction, et payée pour un mauvais texte.
+			$langue = self::obj_language( $o );
+			if ( '' !== $source && '' !== $langue && $langue !== $source ) {
+				$drop[] = [ $e, $code, __( 'This is a translation, not an original: only the original is ever sent.', 'dazont-ecom' ) ];
+				continue;
 			}
-			$ik           = 'e' . count( $items );
-			$items[ $ik ] = [ 'o' => $o, 'langs' => $todo, 'all' => ! empty( $e['all'] ) ];
-			$took[ $ik ]  = $e;
-			$calls       += $size * count( $todo );
-			if ( $calls >= self::ROUND_CALLS ) {
-				break;
+			// CE QUI ATTEND DÉJÀ UN OUI OU UN NON N'EST PAS À REFAIRE : la
+			// reproduire la paierait deux fois.
+			$attend = self::waiting( $o );
+			if ( isset( $attend['langs'][ $code ] ) ) {
+				$drop[] = [ $e, $code, '' ];
+				continue;
 			}
-		}
-		if ( ! $items ) {
-			return false;
-		}
-		// LE VERROU DIT CE QUI TOURNE, et l'essai est compté AVANT le travail :
-		// un passage tué en chemin compte quand même.
-		$refs = [];
-		foreach ( $items as $ik => $it ) {
-			$refs[ self::ref( $it['o'] ) ] = $it['langs'];
-			self::bump_tries( $took[ $ik ] );
-		}
-		set_transient( self::LOCK_DRAIN, [ 't' => time(), 'refs' => $refs ], self::LOCK_LIFE );
-		$made = self::produce_set( $items );
-		foreach ( $took as $ik => $e ) {
-			$m = (array) ( $made[ $ik ] ?? [] );
-			$o = $items[ $ik ]['o'];
-			// « Écrire sans relire » voyage avec la demande : voir entry().
-			if ( ! empty( $e['accept'] ) && ! empty( $m['langs'] ) ) {
-				$w = self::accept( $o, (array) $m['langs'] );
-				foreach ( (array) ( $w['errors'] ?? [] ) as $lg => $why ) {
-					self::note_drain_error( $e, (string) $lg, (string) $why );
+			$tout  = ! empty( $e['all'] );
+			$texts = $tout ? self::obj_read( $o ) : self::obj_stale( $o, $code );
+			if ( ! $texts ) {
+				// Rien à envoyer : réglé gratuitement. Seul l'envoi ordinaire le
+				// dit réglé — « tout traduire » d'un original vide ne règle rien.
+				if ( ! $tout ) {
+					self::obj_settle( $o, $code );
 				}
+				$drop[] = [ $e, $code, '' ];
+				continue;
 			}
-				$done = array_merge( array_keys( (array) ( $m['langs'] ?? [] ) ), (array) ( $m['skipped'] ?? [] ) );
-			if ( $done ) {
-				// UNE DEMANDE QUI A PRODUIT REMET SON COMPTEUR À ZÉRO : les trois
-				// essais comptent les échecs D'AFFILÉE, pas les langues.
-				self::drop_langs( $e, $done, true );
-				self::clear_drain_errors( self::ref( $e ), $done );
+			$plan    = self::plan( $texts, self::labels_for( $o ) );
+			$subject = sanitize_key( (string) ( $o['type'] ?? '' ) );
+			$tk      = $ref . '|' . $code;
+			$ici     = [];
+			$ici_est = 0.0;
+			$ici_pds = 0;
+			foreach ( $plan['jobs'] as $i => $job ) {
+				$ask            = self::batch_ask( $job, $code, $plan['names'] );
+				$ici[ (int) $i ] = $ask;
+				$ici_est       += self::ask_cost( $modele, $ask );
+				$ici_pds       += strlen( $ask['system'] ) + strlen( $ask['user'] ) + 300;
 			}
-			foreach ( (array) ( $m['errors'] ?? [] ) as $lg => $why ) {
-				self::note_drain_error( $e, (string) $lg, (string) $why );
-				self::$failed_now[ self::entry_key( $e ) ] = true;
+			if ( null !== $reste_budget && $est + $ici_est > $reste_budget ) {
+				$coupe = true;
+				break; // ce qui ne tient pas dans le budget attend.
 			}
-			// NI FAIT NI ÉCHOUÉ n'existe pas — mais si un jour cela arrivait, la
-			// demande ne doit pas être reprise en boucle, et payée à chaque tour.
-			if ( ! $done && empty( $m['errors'] ) ) {
-				self::$failed_now[ self::entry_key( $e ) ] = true;
+			$jobs = [];
+			foreach ( $ici as $i => $ask ) {
+				// L'ENVOI SIGNE CHAQUE DEMANDE : un lot qui ne serait pas le sien
+				// — adopté par erreur — n'écrira jamais rien sur ces objets.
+				$cid          = 'd' . substr( md5( $jeton ), 0, 10 ) . '_r' . count( $map );
+				$asks[ $cid ] = $ask;
+				$map[ $cid ]  = [ $tk, (int) $i, strlen( $ask['system'] ) + strlen( $ask['user'] ) ];
+				$jobs[ $i ]   = array_map( 'strval', array_keys( $plan['jobs'][ $i ] ) );
 			}
+			$est                  += $ici_est;
+			$poids                += $ici_pds;
+			$tasks[ $tk ]          = [
+				'ref'   => $ref,
+				'lang'  => $code,
+				'jobs'  => $jobs,
+				'parts' => $plan['parts'],
+				'unit'  => 'translate' . ( '' !== $subject ? ':' . $subject : '' ),
+				'by'    => (int) $e['by'],
+			];
+			$mots[ $ref ][ $code ] = $texts;
+			$partis[]              = [ $e, $code ];
 		}
-		return true;
-	}
-
-	/** Combien d'appels une langue de cet objet demande, à la longueur de son texte. */
-	private static function calls_of( array $o ): int {
-		$n = 0;
-		foreach ( self::obj_read( $o ) as $text ) {
-			$n += mb_strlen( (string) $text );
+		if ( $drop ) {
+			self::drop_now( $drop );
 		}
-		return max( 1, (int) ceil( $n / self::CHUNK ) );
-	}
-
-	/** Réveille la file demandée, maintenant si le planificateur le permet. */
-	public static function kick_drain(): void {
-		if ( function_exists( 'as_enqueue_async_action' ) ) {
-			$next = function_exists( 'as_next_scheduled_action' ) ? as_next_scheduled_action( self::HOOK_DRAIN ) : false;
-			if ( false === $next ) {
-				as_enqueue_async_action( self::HOOK_DRAIN, [], 'dazont-ecom' );
+		if ( ! $asks ) {
+			self::unmark( $jeton );
+			if ( $coupe && class_exists( 'DZE_Ai_Usage' ) ) {
+				self::note_stop( DZE_Ai_Usage::budget_message() );
+				update_option( self::OPT_BACKOFF, time() + HOUR_IN_SECONDS, false );
+			}
+			return;
+		}
+		// LES MOTS ENVOYÉS RESTENT SUR L'OBJET jusqu'au retour : accepter dans
+		// une semaine doit inscrire au registre les mots traduits, pas ceux
+		// que quelqu'un aurait changés entre-temps. Écrits AVANT l'envoi.
+		foreach ( $mots as $ref => $par_langue ) {
+			$gardes           = self::sent_read( $objs[ $ref ] );
+			$gardes[ $jeton ] = [ 'at' => time(), 'src' => $par_langue ];
+			self::sent_write( $objs[ $ref ], $gardes );
+		}
+		// LE LOT EST ÉCRIT AVANT DE PARTIR. Un passage tué entre l'envoi et
+		// l'écriture laissait un lot payé que la boutique ignorait, et le
+		// passage suivant le rachetait.
+		$fiche = [
+			'token'  => $jeton,
+			'at'     => time(),
+			'model'  => $modele,
+			'status' => 'creating',
+			'n'      => count( $asks ),
+			'est'    => $est,
+			'map'    => $map,
+			'tasks'  => $tasks,
+		];
+		self::batch_save( $jeton, $fiche );
+		try {
+			$lot = DZE_Marketing_Ai::batch_create( $asks, $modele );
+		} catch ( \Throwable $ex ) {
+			$code_http = (int) DZE_Marketing_Ai::$batch_code;
+			// Refusé avant même d'appeler (-1 : pas de clé, budget) ou refusé par
+			// Anthropic (4xx) : rien n'est parti.
+			if ( $code_http < 0 || ( $code_http >= 400 && $code_http < 500 ) ) {
+				// REFUSÉ : rien n'est parti, rien n'est compté — les textes n'y
+				// sont pour rien.
+				self::batch_save( $jeton, null );
+				self::sent_forget( $fiche );
+				self::unmark( $jeton );
+				self::note_stop( $ex->getMessage() );
+				update_option( self::OPT_BACKOFF, time() + 10 * MINUTE_IN_SECONDS, false );
 				return;
 			}
-			if ( true !== $next ) {
-				return; // un passage attend déjà son tour.
+			// SANS RÉPONSE CLAIRE, personne ne sait si Anthropic l'a fait — et
+			// facturé. Le lot reste « en suspens » : un passage suivant le
+			// cherche dans la liste des lots avant que rien ne reparte.
+			$fiche['unsure'] = $ex->getMessage();
+			self::batch_save( $jeton, $fiche );
+			self::note_stop( __( 'Anthropic did not say whether it received the last batch. Nothing is sent again until it has been found or ruled out.', 'dazont-ecom' ) );
+			return;
+		}
+		self::batch_adopt( $jeton, $fiche, $lot );
+		self::clear_stop();
+	}
+
+	/**
+	 * LES MARQUES « EN ROUTE », VÉRIFIÉES AVANT TOUT ENVOI.
+	 *
+	 * Une marque ne vaut que si une fiche de lot la porte. Un passage tué
+	 * pendant qu'il construisait son lot laissait ses langues « chez Anthropic »
+	 * pour toujours ; un passage tué au milieu d'une adoption laissait des
+	 * marques qu'on aurait reprises et rachetées pendant que le vrai lot
+	 * revenait. Chaque marque est donc relue contre les fiches :
+	 *   - un lot en suspens (« creating ») : elle attend qu'il soit retrouvé ;
+	 *   - un lot connu sous son nom : l'adoption interrompue est terminée ;
+	 *   - un lot déjà relevé : sa traduction attend en relecture, ou part être
+	 *     publiée si c'était demandé ;
+	 *   - rien derrière elle : rien n'est parti, la langue reprend sa place —
+	 *     ou sort, si elle a été annulée entre-temps.
+	 */
+	private static function repair_marks(): void {
+		$par_jeton = [];
+		$par_id    = [];
+		foreach ( self::batches() as $b ) {
+			$tok = (string) ( $b['token'] ?? '' );
+			$id  = (string) ( $b['id'] ?? '' );
+			$st  = (string) ( $b['status'] ?? '' );
+			if ( '' !== $tok && ( ! isset( $par_jeton[ $tok ] ) || '' !== $id ) ) {
+				$par_jeton[ $tok ] = [ 'id' => $id, 'status' => $st ];
+			}
+			if ( '' !== $id ) {
+				$par_id[ $id ] = $st;
 			}
 		}
-		if ( ! wp_next_scheduled( self::HOOK_DRAIN ) ) {
-			wp_schedule_single_event( time() + 5, self::HOOK_DRAIN );
+		self::with_queue( static function ( array $file ) use ( $par_jeton, $par_id ): array {
+			foreach ( $file as $i => $e ) {
+				$reste = [];
+				foreach ( $e['langs'] as $code ) {
+					$m = (string) ( $e['sent'][ $code ] ?? '' );
+					if ( '' === $m ) {
+						$reste[] = $code;
+						continue;
+					}
+					if ( 0 === strpos( $m, 'pending-' ) ) {
+						$r = $par_jeton[ $m ] ?? null;
+						if ( $r && '' === $r['id'] ) {
+							$reste[] = $code; // en suspens : on le cherche.
+							continue;
+						}
+						if ( $r ) {
+							$m                          = $r['id'];
+							$file[ $i ]['sent'][ $code ] = $m;
+						} else {
+							unset( $file[ $i ]['sent'][ $code ] );
+							if ( empty( $e['keep'][ $code ] ) ) {
+								$reste[] = $code;
+							}
+							continue;
+						}
+					}
+					$st = $par_id[ $m ] ?? null;
+					if ( null === $st || 'lost' === $st ) {
+						unset( $file[ $i ]['sent'][ $code ] );
+						if ( empty( $e['keep'][ $code ] ) ) {
+							$reste[] = $code;
+						}
+						continue;
+					}
+					if ( 'landed' === $st ) {
+						unset( $file[ $i ]['sent'][ $code ] );
+						if ( ! empty( $e['keep'][ $code ] ) ) {
+							continue;
+						}
+						// RELEVÉ SANS ELLE : ce qui attend vraiment en relecture part
+						// être publié si c'était demandé ; sinon elle reprend sa place
+						// — jamais rayée en silence.
+						$o   = self::obj( $e['kind'], $e['id'], $e['type'] );
+						$att = $o ? self::waiting( $o ) : [];
+						if ( isset( $att['langs'][ $code ] ) ) {
+							if ( ! empty( $e['accept'] ) ) {
+								$file[ $i ]['land'][ $code ] = 1;
+								$reste[]                     = $code;
+							}
+							continue;
+						}
+						$reste[] = $code;
+						continue;
+					}
+					$reste[] = $code;
+				}
+				$file[ $i ]['langs'] = $reste;
+			}
+			return $file;
+		} );
+	}
+
+	/**
+	 * UN LOT ENVOYÉ DEVIENT SON LOT : la fiche passe sous son identifiant, les
+	 * langues marquées « en route » portent son nom, ce qui n'y est pas entré
+	 * reprend sa place — et s'il n'est plus voulu par personne, il est arrêté
+	 * chez Anthropic à l'instant : ce qui n'est pas encore traduit n'est pas
+	 * facturé.
+	 */
+	private static function batch_adopt( string $jeton, array $fiche, array $lot ): void {
+		$bid = (string) ( $lot['id'] ?? '' );
+		if ( '' === $bid ) {
+			return;
+		}
+		$etat            = (string) ( $lot['processing_status'] ?? '' );
+		$fiche['tried']  = array_values( array_unique( array_merge( (array) ( $fiche['tried'] ?? [] ), [ $bid ] ) ) );
+		$fiche['id']     = $bid;
+		$fiche['status'] = in_array( $etat, [ 'ended', 'canceling' ], true ) ? $etat : 'in_progress';
+		$fiche['polled'] = time();
+		unset( $fiche['unsure'] );
+		// SOUS SON NOM D'ABORD, puis les marques, puis la fiche d'attente
+		// effacée : tué entre deux, le passage suivant retrouve le même lot par
+		// son jeton et termine la même chose — il ne le rachète jamais.
+		self::batch_save( $bid, $fiche );
+		$inclus = [];
+		foreach ( (array) $fiche['tasks'] as $tk => $task ) {
+			$inclus[ (string) $tk ] = true;
+		}
+		$voulus = 0;
+		self::with_queue( static function ( array $file ) use ( $jeton, $bid, $inclus, &$voulus ): array {
+			foreach ( $file as $i => $e ) {
+				foreach ( (array) $e['sent'] as $code => $v ) {
+					if ( $v !== $jeton ) {
+						continue;
+					}
+					if ( isset( $inclus[ self::ref( $e ) . '|' . $code ] ) ) {
+						$file[ $i ]['sent'][ $code ] = $bid;
+						if ( empty( $e['keep'][ $code ] ) ) {
+							$voulus++;
+						}
+						continue;
+					}
+					unset( $file[ $i ]['sent'][ $code ] );
+					// ANNULÉE PENDANT L'ENVOI ET RESTÉE HORS DU LOT : elle sort.
+					if ( ! empty( $e['keep'][ $code ] ) ) {
+						$file[ $i ]['langs'] = array_values( array_diff( $file[ $i ]['langs'], [ $code ] ) );
+					}
+				}
+			}
+			return $file;
+		} );
+		self::batch_save( $jeton, null );
+		if ( 0 === $voulus && 'in_progress' === $fiche['status'] ) {
+			try {
+				DZE_Marketing_Ai::batch_cancel( $bid );
+				$fiche['status'] = 'canceling';
+				self::batch_save( $bid, $fiche );
+			} catch ( \Throwable $ex ) {
+				// Il finira, et ce qu'il porte arrivera dans « À relire ».
+				unset( $ex );
+			}
+		}
+	}
+
+	/**
+	 * UN LOT EN SUSPENS, RETROUVÉ OU ÉCARTÉ.
+	 *
+	 * Écrit avant de partir, il a pu partir sans que ce site l'apprenne : un
+	 * envoi resté sans réponse, un passage tué juste après. Il est cherché dans
+	 * la liste des lots d'Anthropic — même taille, créé au même moment. Trouvé,
+	 * il est suivi comme les autres ; absent de la liste, il n'est jamais
+	 * parti, et ses langues reprennent leur place.
+	 */
+	private static function resolve_creating( string $jeton, array $fiche ): void {
+		// UNE ADOPTION COUPÉE EN CHEMIN se termine : le lot est déjà écrit sous
+		// son nom, et `repair_marks()` rattache ses langues.
+		$connus = [];
+		foreach ( self::batches() as $k => $b ) {
+			$id = (string) ( $b['id'] ?? '' );
+			if ( '' === $id ) {
+				continue;
+			}
+			$connus[ $id ] = true;
+			if ( (string) ( $b['token'] ?? '' ) === $jeton ) {
+				self::batch_save( $jeton, null );
+				return;
+			}
+		}
+		if ( time() - (int) ( $fiche['at'] ?? 0 ) < 60 ) {
+			return; // le temps qu'il apparaisse dans la liste.
+		}
+		try {
+			$liste = DZE_Marketing_Ai::batch_list( 50 );
+		} catch ( \Throwable $ex ) {
+			if ( time() - (int) ( $fiche['at'] ?? 0 ) < DAY_IN_SECONDS ) {
+				return; // on redemandera.
+			}
+			$liste = [];
+		}
+		// UN SEUL CANDIDAT, jamais un lot déjà suivi, créé dans la fenêtre de
+		// l'envoi — de juste avant à la fin du délai de la requête. Deux lots de
+		// même taille partis au même moment ne se départagent pas : on attend.
+		$cands = [];
+		foreach ( $liste as $lot ) {
+			$id    = (string) ( $lot['id'] ?? '' );
+			$quand = strtotime( (string) ( $lot['created_at'] ?? '' ) );
+			$total = array_sum( array_map( 'intval', (array) ( $lot['request_counts'] ?? [] ) ) );
+			if ( '' === $id || isset( $connus[ $id ] ) || ! $quand || $total !== (int) $fiche['n'] ) {
+				continue;
+			}
+			if ( $quand < (int) $fiche['at'] - 120 || $quand > (int) $fiche['at'] + 180 ) {
+				continue;
+			}
+			$cands[] = $lot;
+		}
+		// PLUSIEURS POSSIBLES : le plus proche de l'envoi est essayé tout de
+		// suite. Chaque demande porte la signature de son envoi : si ce n'était
+		// pas lui, on le saura à son retour — rien ne sera écrit ni compté — et
+		// le suivant sera essayé. Attendre un jour pour finalement racheter,
+		// c'était payer deux fois.
+		$deja = array_map( 'strval', (array) ( $fiche['tried'] ?? [] ) );
+		$cands = array_values( array_filter( $cands, static fn( $l ) => ! in_array( (string) ( $l['id'] ?? '' ), $deja, true ) ) );
+		usort( $cands, static fn( $x, $y ) => abs( (int) strtotime( (string) ( $x['created_at'] ?? '' ) ) - (int) $fiche['at'] ) <=> abs( (int) strtotime( (string) ( $y['created_at'] ?? '' ) ) - (int) $fiche['at'] ) );
+		if ( $cands ) {
+			$fiche['resolved'] = 1;
+			self::batch_adopt( $jeton, $fiche, $cands[0] );
+			self::clear_stop();
+			return;
+		}
+		// JAMAIS PARTI : rien n'est facturé, et tout reprend sa place.
+		self::batch_save( $jeton, null );
+		self::sent_forget( $fiche );
+		self::unmark( $jeton );
+		self::clear_stop();
+	}
+
+	/** Ce qui était marqué « en route » par ce passage et n'est pas parti reprend sa place. */
+	private static function unmark( string $jeton ): void {
+		self::with_queue( static function ( array $file ) use ( $jeton ): array {
+			foreach ( $file as $i => $e ) {
+				foreach ( (array) $e['sent'] as $code => $v ) {
+					if ( $v !== $jeton ) {
+						continue;
+					}
+					unset( $file[ $i ]['sent'][ $code ] );
+					// ANNULÉE PENDANT L'ENVOI, ET JAMAIS PARTIE : elle sort.
+					if ( ! empty( $e['keep'][ $code ] ) ) {
+						$file[ $i ]['langs'] = array_values( array_diff( $file[ $i ]['langs'], [ $code ] ) );
+					}
+				}
+			}
+			return $file;
+		} );
+	}
+
+	/**
+	 * CE QUI SORT DE LA FILE SANS PARTIR — rien à envoyer, ou plus lieu de
+	 * l'être — et pourquoi, quand il y a une raison à dire.
+	 *
+	 * @param array<int,array{0:array,1:string,2:string}> $drop
+	 */
+	private static function drop_now( array $drop ): void {
+		self::with_queue( static function ( array $file ) use ( $drop ): array {
+			$idx = [];
+			foreach ( $file as $i => $e ) {
+				$idx[ self::entry_key( $e ) ] = $i;
+			}
+			foreach ( $drop as [ $e, $code ] ) {
+				$i = $idx[ self::entry_key( $e ) ] ?? null;
+				if ( null !== $i ) {
+					$file[ $i ]['langs'] = array_values( array_diff( $file[ $i ]['langs'], [ $code ] ) );
+				}
+			}
+			return $file;
+		} );
+		foreach ( $drop as [ $e, $code, $why ] ) {
+			if ( '' !== $why ) {
+				self::note_drain_error( $e, $code, $why );
+			}
+		}
+	}
+
+	/**
+	 * 2. RELEVER — où en sont les lots, et lire ceux qui sont finis.
+	 */
+	private static function collect( float $t0, int $budget ): void {
+		foreach ( self::batches() as $bid => $b ) {
+			$bid    = (string) $bid;
+			$statut = (string) ( $b['status'] ?? '' );
+			if ( 'creating' === $statut ) {
+				self::resolve_creating( (string) ( $b['token'] ?? $bid ), $b );
+				continue;
+			}
+			if ( in_array( $statut, [ 'in_progress', 'canceling' ], true ) ) {
+				if ( time() - (int) ( $b['polled'] ?? 0 ) < self::POLL_EVERY ) {
+					continue;
+				}
+				try {
+					$etat = DZE_Marketing_Ai::batch_get( $bid );
+				} catch ( \Throwable $ex ) {
+					// UN LOT QUI NE SE LAISSE PLUS SUIVRE — introuvable, ou bien
+					// plus vieux que les vingt-quatre heures qu'Anthropic se donne —
+					// est abandonné : ses langues reprennent leur place.
+					$b['poll_fail']    = (int) ( $b['poll_fail'] ?? 0 ) + 1;
+					$b['poll_fail_at'] = (int) ( $b['poll_fail_at'] ?? 0 ) ?: time();
+					$vieux             = time() - (int) ( $b['at'] ?? 0 ) > self::BATCH_LOST_AFTER
+						&& $b['poll_fail'] >= 5
+						&& time() - (int) $b['poll_fail_at'] > 3 * HOUR_IN_SECONDS;
+					if ( 404 === (int) DZE_Marketing_Ai::$batch_code || $vieux ) {
+						self::lose( $bid, $b, $ex->getMessage() );
+						continue;
+					}
+					$b['polled'] = time();
+					$b['err']    = $ex->getMessage();
+					self::batch_save( $bid, $b );
+					continue;
+				}
+				unset( $b['poll_fail'], $b['poll_fail_at'] );
+				$b['polled'] = time();
+				$b['counts'] = (array) ( $etat['request_counts'] ?? [] );
+				$b['err']    = '';
+				if ( 'ended' === (string) ( $etat['processing_status'] ?? '' ) ) {
+					$b['status'] = 'ended';
+				}
+				self::batch_save( $bid, $b );
+			}
+			if ( 'ended' === (string) ( $b['status'] ?? '' ) ) {
+				if ( (int) ( $b['read_next'] ?? 0 ) > time() ) {
+					continue;
+				}
+				if ( microtime( true ) - $t0 > $budget ) {
+					break; // le passage suivant le lira.
+				}
+				self::land( $bid, $b );
+			}
+		}
+	}
+
+	/**
+	 * UN LOT ABANDONNÉ : ce qu'il portait reprend sa place, un essai compté.
+	 */
+	private static function lose( string $bid, array $b, string $why ): void {
+		$notes = [];
+		self::with_queue( static function ( array $file ) use ( $bid, &$notes ): array {
+			foreach ( $file as $i => $e ) {
+				$reste = [];
+				foreach ( $e['langs'] as $code ) {
+					if ( ( $e['sent'][ $code ] ?? '' ) !== $bid ) {
+						$reste[] = $code;
+						continue;
+					}
+					unset( $file[ $i ]['sent'][ $code ] );
+					if ( ! empty( $e['keep'][ $code ] ) ) {
+						continue;
+					}
+					$n = (int) ( $e['fails'][ $code ] ?? 0 ) + 1;
+					if ( $n >= self::TRIES ) {
+						$notes[] = [ $e, $code ];
+						continue;
+					}
+					$file[ $i ]['fails'][ $code ] = $n;
+					$reste[]                      = $code;
+				}
+				$file[ $i ]['langs'] = $reste;
+			}
+			return $file;
+		} );
+		foreach ( $notes as [ $e, $code ] ) {
+			self::note_drain_error( $e, $code, $why );
+		}
+		self::sent_forget( $b );
+		self::batch_save( $bid, [ 'id' => $bid, 'at' => (int) ( $b['at'] ?? 0 ), 'status' => 'lost', 'landed' => time(), 'n' => (int) ( $b['n'] ?? 0 ), 'err' => mb_substr( $why, 0, 200 ) ] );
+	}
+
+	/**
+	 * LES RÉPONSES D'UN LOT FINI : lues, recollées, déposées.
+	 *
+	 * Chaque réponse est lue comme une réponse seule — le même format, les
+	 * mêmes pièges, les mêmes morceaux recollés dans l'ordre. Ce qui revient
+	 * attend dans « À relire », ou part être écrit s'il a été envoyé sans
+	 * relecture. Ce qui revient vide retourne dans la file, et sort au bout de
+	 * trois fois en disant pourquoi.
+	 *
+	 * DANS UN ORDRE QUI SURVIT À UN PASSAGE TUÉ : l'argent est compté une fois
+	 * et la fiche le dit aussitôt ; les mots envoyés ne sont lâchés qu'une fois
+	 * le lot noté « relevé ». Relu après une coupure, il n'est ni compté deux
+	 * fois ni inscrit contre les mauvais mots.
+	 */
+	private static function land( string $bid, array $b ): void {
+		$reponses = [];
+		$echecs   = [];
+		$usage    = [];
+		$types    = [];
+		$pourquoi = '';
+		$lignes   = 0;
+		$siennes  = 0;
+		try {
+			foreach ( DZE_Marketing_Ai::batch_results( $bid ) as $row ) {
+				$lignes++;
+				$cid = (string) ( $row['custom_id'] ?? '' );
+				if ( ! isset( $b['map'][ $cid ] ) ) {
+					continue;
+				}
+				$siennes++;
+				[ $tk, $i, $taille ] = array_pad( (array) $b['map'][ $cid ], 3, 0 );
+				$task = $b['tasks'][ $tk ] ?? null;
+				if ( ! is_array( $task ) ) {
+					continue;
+				}
+				$res  = (array) ( $row['result'] ?? [] );
+				$type = (string) ( $res['type'] ?? '' );
+				$types[ $type ] = ( $types[ $type ] ?? 0 ) + 1;
+				if ( 'succeeded' !== $type ) {
+					$echecs[ $tk ][ $i ] = self::batch_why( $type, $res );
+					$pourquoi            = $echecs[ $tk ][ $i ];
+					continue;
+				}
+				$msg  = (array) ( $res['message'] ?? [] );
+				$text = '';
+				foreach ( (array) ( $msg['content'] ?? [] ) as $bloc ) {
+					if ( 'text' === (string) ( $bloc['type'] ?? '' ) ) {
+						$text .= (string) ( $bloc['text'] ?? '' );
+					}
+				}
+				$usage[] = [
+					'u'   => (string) $task['unit'],
+					'in'  => (int) ( $msg['usage']['input_tokens'] ?? 0 ),
+					'out' => (int) ( $msg['usage']['output_tokens'] ?? 0 ),
+					'ci'  => (int) $taille,
+					'co'  => strlen( $text ),
+					// LE MODÈLE QUI A RÉPONDU, et son prix : jamais celui d'un défaut.
+					'm'   => (string) ( $msg['model'] ?? ( $b['model'] ?? '' ) ),
+				];
+				if ( 'max_tokens' === (string) ( $msg['stop_reason'] ?? '' ) ) {
+					$echecs[ $tk ][ $i ] = __( 'The answer was cut off before it was finished — what was asked for is too long. Nothing was changed.', 'dazont-ecom' );
+					continue;
+				}
+				try {
+					$reponses[ $tk ][ $i ] = self::batch_read( $text, array_fill_keys( (array) ( $task['jobs'][ $i ] ?? [] ), '' ) );
+				} catch ( \Throwable $ex ) {
+					$echecs[ $tk ][ $i ] = $ex->getMessage();
+				}
+			}
+		} catch ( \Throwable $ex ) {
+			// LES RÉPONSES N'ONT PAS PU ÊTRE LUES. Elles sont payées, et restent
+			// vingt-neuf jours chez Anthropic : on les relit plus tard, de plus
+			// en plus espacé — jamais on ne les redemande.
+			$b['read_fail'] = (int) ( $b['read_fail'] ?? 0 ) + 1;
+			$b['read_next'] = time() + (int) min( 6 * HOUR_IN_SECONDS, MINUTE_IN_SECONDS * ( 2 ** min( 10, (int) $b['read_fail'] ) ) );
+			$b['err']       = $ex->getMessage();
+			if ( time() - (int) ( $b['at'] ?? 0 ) > 28 * DAY_IN_SECONDS ) {
+				self::lose( $bid, $b, $ex->getMessage() );
+				return;
+			}
+			self::batch_save( $bid, $b );
+			self::note_stop( sprintf(
+				/* translators: %s: why the answers could not be read */
+				__( 'The translations are done at Anthropic but could not be read yet (%s). They are kept there and read again later; nothing is ordered twice.', 'dazont-ecom' ),
+				$ex->getMessage()
+			) );
+			return;
+		}
+		// PAS UNE RÉPONSE DE CET ENVOI : ce lot n'est pas le sien — adopté par
+		// erreur. Rien n'est écrit, rien n'est compté, et ce qu'il devait porter
+		// reprend sa place sans qu'aucun essai soit compté contre personne.
+		if ( $lignes > 0 && 0 === $siennes && ! empty( $b['resolved'] ) && '' !== (string) ( $b['token'] ?? '' ) ) {
+			// RETROUVÉ PAR ERREUR : ce n'était pas lui. La fiche redevient « en
+			// suspens » sous son jeton, ce lot écarté, et le suivant sera essayé.
+			$jeton = (string) $b['token'];
+			$retour = $b;
+			unset( $retour['id'], $retour['polled'], $retour['counts'], $retour['booked'], $retour['read_fail'], $retour['read_next'], $retour['poll_fail'], $retour['poll_fail_at'] );
+			$retour['status'] = 'creating';
+			self::batch_save( $jeton, $retour );
+			self::with_queue( static function ( array $file ) use ( $bid, $jeton ): array {
+				foreach ( $file as $i => $e ) {
+					foreach ( (array) $e['sent'] as $code => $v ) {
+						if ( $v === $bid ) {
+							$file[ $i ]['sent'][ $code ] = $jeton;
+						}
+					}
+				}
+				return $file;
+			} );
+			self::batch_save( $bid, [ 'id' => $bid, 'at' => (int) ( $b['at'] ?? 0 ), 'status' => 'lost', 'landed' => time(), 'n' => (int) ( $b['n'] ?? 0 ), 'err' => 'not this site\'s batch' ] );
+			return;
+		}
+		if ( $lignes > 0 && 0 === $siennes ) {
+			self::with_queue( static function ( array $file ) use ( $bid ): array {
+				foreach ( $file as $i => $e ) {
+					foreach ( (array) $e['sent'] as $code => $v ) {
+						if ( $v === $bid ) {
+							unset( $file[ $i ]['sent'][ $code ] );
+							if ( ! empty( $e['keep'][ $code ] ) ) {
+								$file[ $i ]['langs'] = array_values( array_diff( $file[ $i ]['langs'], [ $code ] ) );
+							}
+						}
+					}
+				}
+				return $file;
+			} );
+			self::sent_forget( $b );
+			self::batch_save( $bid, [ 'id' => $bid, 'at' => (int) ( $b['at'] ?? 0 ), 'status' => 'lost', 'landed' => time(), 'n' => (int) ( $b['n'] ?? 0 ), 'err' => 'not this site\'s batch' ] );
+			return;
+		}
+		// L'ARGENT, COMPTÉ UNE FOIS, AU PRIX DU LOT — et la fiche le dit aussitôt.
+		if ( empty( $b['booked'] ) ) {
+			if ( $usage && class_exists( 'DZE_Ai_Usage' ) && method_exists( 'DZE_Ai_Usage', 'record_many' ) ) {
+				DZE_Ai_Usage::record_many( 'anthropic', (string) ( $b['model'] ?? '' ), $usage, self::BATCH_RATE );
+			}
+			$b['booked'] = 1;
+			self::batch_save( $bid, $b );
+		}
+		// UN LOT QUI N'A RIEN RENDU DU TOUT, pour une seule et même raison, ne dit
+		// rien de ses textes : Anthropic n'en a traduit aucun, et rien n'est
+		// facturé. La file s'arrête, le dit, et renvoie plus tard sans rien
+		// compter contre personne.
+		$global  = ! $reponses && ! isset( $types['succeeded'] ) && ( $types['errored'] ?? 0 ) > 0;
+		$faits   = [];
+		$partiel = [];
+		$rates   = [];
+		foreach ( (array) ( $b['tasks'] ?? [] ) as $tk => $task ) {
+			$champs  = self::assemble( (array) $task, (array) ( $reponses[ $tk ] ?? [] ) );
+			$raisons = array_values( array_filter( (array) ( $echecs[ $tk ] ?? [] ) ) );
+			if ( $champs ) {
+				$faits[ $tk ] = $champs;
+				// À MOITIÉ REVENU : ce qui est revenu attend la relecture — jamais
+				// publié à moitié — et ce qui manque est dit. Un champ envoyé et
+				// jamais revenu est un manque, même sans erreur pour le dire.
+				$manque = array_diff( self::task_fields( (array) $task ), array_keys( $champs ) );
+				if ( $raisons || $manque ) {
+					$partiel[ $tk ] = $raisons
+						? (string) $raisons[0]
+						/* translators: %s: the fields that did not come back */
+						: sprintf( __( 'these fields did not come back: %s', 'dazont-ecom' ), implode( ', ', $manque ) );
+				}
+				continue;
+			}
+			$rates[ $tk ] = $raisons ? (string) $raisons[0] : __( 'Nothing came back.', 'dazont-ecom' );
+		}
+		// CE QUI EST REVENU ATTEND UNE DÉCISION, contre les mots qui ont été
+		// envoyés — et au nom de celui qui l'a demandé, pas de la passe.
+		$par_objet = [];
+		foreach ( $faits as $tk => $champs ) {
+			[ $ref, $lang ]             = explode( '|', (string) $tk, 2 );
+			$par_objet[ $ref ][ $lang ] = $champs;
+		}
+		$qui = [];
+		foreach ( (array) ( $b['tasks'] ?? [] ) as $task ) {
+			$qui[ (string) ( $task['ref'] ?? '' ) ] = (int) ( $task['by'] ?? -1 );
+		}
+		$cle = (string) ( $b['token'] ?? $bid );
+		foreach ( $par_objet as $ref => $langs ) {
+			$o = self::from_ref( (string) $ref );
+			if ( ! $o ) {
+				continue;
+			}
+			$gardes = self::sent_read( $o );
+			self::hold_landed( $o, $langs, (array) ( $gardes[ $cle ]['src'] ?? [] ), (int) ( $qui[ $ref ] ?? -1 ) );
+			self::clear_drain_errors( (string) $ref, array_keys( $langs ) );
+		}
+		$runs = [];
+		foreach ( array_keys( $faits ) as $tk ) {
+			$unit          = (string) ( $b['tasks'][ $tk ]['unit'] ?? 'translate' );
+			$runs[ $unit ] = ( $runs[ $unit ] ?? 0 ) + 1;
+		}
+		foreach ( $runs as $unit => $n ) {
+			if ( $n > 0 && class_exists( 'DZE_Ai_Usage' ) ) {
+				DZE_Ai_Usage::finished( (string) $unit, (int) $n );
+			}
+		}
+		// LA FILE : ce qui est fait sort (relecture) ou attend d'être écrit
+		// (sans relecture) ; ce qui a échoué retourne dans la file, et sort au
+		// bout de trois fois en disant pourquoi.
+		$notes = [];
+		$tok   = (string) ( $b['token'] ?? '' );
+		self::with_queue( static function ( array $file ) use ( $bid, $tok, $faits, $partiel, $rates, $global, &$notes ): array {
+			foreach ( $file as $i => $e ) {
+				$ref   = self::ref( $e );
+				$reste = [];
+				foreach ( $e['langs'] as $code ) {
+					$m = (string) ( $e['sent'][ $code ] ?? '' );
+					if ( $m !== $bid && ( '' === $tok || $m !== $tok ) ) {
+						$reste[] = $code;
+						continue;
+					}
+					unset( $file[ $i ]['sent'][ $code ] );
+					$tk = $ref . '|' . $code;
+					if ( isset( $faits[ $tk ] ) ) {
+						unset( $file[ $i ]['fails'][ $code ] );
+						if ( ! empty( $e['accept'] ) && empty( $e['keep'][ $code ] ) && ! isset( $partiel[ $tk ] ) ) {
+							$file[ $i ]['land'][ $code ] = 1;
+							$reste[]                     = $code;
+						}
+						continue;
+					}
+					// ANNULÉE ALORS QU'ELLE ÉTAIT PARTIE : elle ne repart pas,
+					// même après une panne générale.
+					if ( ! empty( $e['keep'][ $code ] ) ) {
+						continue;
+					}
+					if ( $global ) {
+						$reste[] = $code; // renvoyée plus tard, sans compter.
+						continue;
+					}
+					$n = (int) ( $e['fails'][ $code ] ?? 0 ) + 1;
+					if ( $n >= self::TRIES ) {
+						$notes[] = [ $e, $code, (string) ( $rates[ $tk ] ?? '' ) ];
+						continue;
+					}
+					$file[ $i ]['fails'][ $code ] = $n;
+					$reste[]                      = $code;
+				}
+				$file[ $i ]['langs'] = $reste;
+			}
+			return $file;
+		} );
+		foreach ( $notes as [ $e, $code, $why ] ) {
+			self::note_drain_error(
+				$e,
+				$code,
+				sprintf(
+					/* translators: %s: the last reason the model gave */
+					__( 'Left the queue after three tries that came back with nothing. Last reason: %s', 'dazont-ecom' ),
+					'' !== $why ? $why : __( 'Nothing came back.', 'dazont-ecom' )
+				)
+			);
+		}
+		foreach ( $partiel as $tk => $why ) {
+			[ $ref, $lang ] = explode( '|', (string) $tk, 2 );
+			$o               = self::from_ref( (string) $ref );
+			if ( ! $o ) {
+				continue;
+			}
+			self::note_drain_error(
+				$o,
+				$lang,
+				sprintf(
+					/* translators: %s: why part of the text did not come back */
+					__( 'Part of it did not come back (%s). What came back waits in « To review », not published.', 'dazont-ecom' ),
+					$why
+				)
+			);
+		}
+		if ( $global ) {
+			self::note_stop( '' !== $pourquoi ? $pourquoi : __( 'Anthropic translated nothing in the last batch.', 'dazont-ecom' ) );
+			update_option( self::OPT_BACKOFF, time() + 30 * MINUTE_IN_SECONDS, false );
+		}
+		self::batch_save( $bid, [
+			'id'     => $bid,
+			'token'  => (string) ( $b['token'] ?? '' ),
+			'at'     => (int) ( $b['at'] ?? 0 ),
+			'status' => 'landed',
+			'landed' => time(),
+			'n'      => (int) ( $b['n'] ?? 0 ),
+			'done'   => count( $faits ),
+			'failed' => count( $rates ),
+			'booked' => 1,
+		] );
+		// LES MOTS ENVOYÉS SONT LÂCHÉS EN DERNIER, une fois le lot noté relevé.
+		self::sent_forget( $b );
+	}
+
+	/** Pourquoi une réponse de lot n'est pas venue, dans les mots de l'écran. */
+	private static function batch_why( string $type, array $res ): string {
+		if ( 'expired' === $type ) {
+			return __( 'Anthropic did not get to it within 24 hours. Nothing was billed for it.', 'dazont-ecom' );
+		}
+		if ( 'canceled' === $type ) {
+			return __( 'Cancelled before it was translated. Nothing was billed for it.', 'dazont-ecom' );
+		}
+		$msg = (string) ( $res['error']['error']['message'] ?? ( $res['error']['message'] ?? '' ) );
+		/* translators: %s: the provider's own message */
+		return sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), '' !== $msg ? $msg : $type );
+	}
+
+	/** Les champs qu'une tâche a envoyés, morceaux ramenés à leur champ. @return string[] */
+	private static function task_fields( array $task ): array {
+		$out = [];
+		foreach ( (array) ( $task['jobs'] ?? [] ) as $cles ) {
+			foreach ( (array) $cles as $k ) {
+				$pos         = strpos( (string) $k, self::PART );
+				$fid         = false === $pos ? (string) $k : substr( (string) $k, 0, $pos );
+				$out[ $fid ] = true;
+			}
+		}
+		return array_keys( $out );
+	}
+
+	/**
+	 * LES MORCEAUX REMIS ENSEMBLE, dans l'ordre — la même règle que pour un
+	 * appel seul : un champ dont un morceau manque n'est pas écrit à moitié.
+	 *
+	 * @param array{jobs:array<int,string[]>,parts:array<string,int>} $task
+	 * @param array<int,array<string,string>> $reponses indice du morceau => champ => texte
+	 * @return array<string,string>
+	 */
+	private static function assemble( array $task, array $reponses ): array {
+		$sac = [];
+		foreach ( $reponses as $got ) {
+			foreach ( (array) $got as $k => $v ) {
+				$sac[ (string) $k ] = (string) $v;
+			}
+		}
+		$ordre = [];
+		foreach ( (array) ( $task['jobs'] ?? [] ) as $cles ) {
+			foreach ( (array) $cles as $k ) {
+				$pos = strpos( (string) $k, self::PART );
+				$fid = false === $pos ? (string) $k : substr( (string) $k, 0, $pos );
+				$ordre[ $fid ] = true;
+			}
+		}
+		$parts = (array) ( $task['parts'] ?? [] );
+		$out   = [];
+		foreach ( array_keys( $ordre ) as $fid ) {
+			if ( isset( $parts[ $fid ] ) ) {
+				$tout = '';
+				for ( $k = 0; $k < (int) $parts[ $fid ]; $k++ ) {
+					$piece = (string) ( $sac[ $fid . self::PART . $k ] ?? '' );
+					if ( '' === trim( $piece ) ) {
+						$tout = '';
+						break;
+					}
+					$tout .= $piece;
+				}
+				if ( '' !== trim( $tout ) ) {
+					$out[ $fid ] = $tout;
+				}
+				continue;
+			}
+			$v = (string) ( $sac[ $fid ] ?? '' );
+			if ( '' !== trim( $v ) ) {
+				$out[ $fid ] = $v;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * CE QUI REVIENT REJOINT CE QUI ATTENDAIT DÉJÀ, langue par langue, chacune
+	 * contre les mots qui ont été envoyés POUR ELLE.
+	 *
+	 * @param array<string,array<string,string>> $langs langue => champ => texte
+	 * @param array<string,array<string,string>> $envoye langue => champ => mots envoyés
+	 */
+	private static function hold_landed( array $o, array $langs, array $envoye, int $by ): void {
+		if ( function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( (int) $o['id'], 'term' === $o['kind'] ? 'term_meta' : 'post_meta' );
+		}
+		$held   = self::waiting( $o );
+		$keep   = (array) ( $held['langs'] ?? [] );
+		$srcl   = (array) ( $held['srcl'] ?? [] );
+		$shared = (array) ( $held['src'] ?? [] );
+		foreach ( $langs as $lang => $champs ) {
+			$keep[ $lang ] = (array) $champs;
+			$srcl[ $lang ] = (array) ( $envoye[ $lang ] ?? [] );
+			$shared        = array_merge( $shared, $srcl[ $lang ] );
+		}
+		self::hold( $o, $keep, $shared, $by, $srcl );
+	}
+
+	/**
+	 * 3. PUBLIER — ce qui a été envoyé « sans relecture », écrit par tranches.
+	 *
+	 * Par le même accept() qu'un oui donné à la main. Chaque objet est PRIS
+	 * dans la file, relue dans la base, juste avant d'être écrit : une
+	 * annulation faite pendant que le passage écrivait les précédents est vue,
+	 * et respectée. Ce qui ne peut pas être écrit reste dans « À relire » avec
+	 * sa raison.
+	 */
+	private static function publish( float $t0, int $budget ): void {
+		$candidats = [];
+		foreach ( self::asked() as $e ) {
+			if ( array_intersect( $e['langs'], array_keys( (array) $e['land'] ) ) ) {
+				$candidats[] = self::entry_key( $e );
+			}
+		}
+		foreach ( $candidats as $k ) {
+			if ( microtime( true ) - $t0 > $budget ) {
+				break; // la suite au passage suivant.
+			}
+			// PRIS DANS LA FILE, relue : encore revenue, jamais annulée.
+			$pris = [];
+			$qui  = null;
+			self::with_queue( static function ( array $file ) use ( $k, &$pris, &$qui ): array {
+				foreach ( $file as $i => $e ) {
+					if ( self::entry_key( $e ) !== $k ) {
+						continue;
+					}
+					$reste = [];
+					foreach ( $e['langs'] as $code ) {
+						if ( isset( $e['land'][ $code ] ) ) {
+							if ( empty( $e['keep'][ $code ] ) ) {
+								$pris[] = $code;
+							}
+							continue;
+						}
+						$reste[] = $code;
+					}
+					$file[ $i ]['langs'] = $reste;
+					$qui                 = $e;
+				}
+				return $file;
+			} );
+			if ( ! $pris || ! $qui ) {
+				continue;
+			}
+			$o = self::obj( $qui['kind'], $qui['id'], $qui['type'] );
+			if ( ! $o ) {
+				continue;
+			}
+			if ( function_exists( 'wp_cache_delete' ) ) {
+				wp_cache_delete( (int) $o['id'], 'term' === $o['kind'] ? 'term_meta' : 'post_meta' );
+			}
+			$held  = (array) ( self::waiting( $o )['langs'] ?? [] );
+			$ecrit = array_intersect_key( $held, array_flip( $pris ) );
+			if ( ! $ecrit ) {
+				continue; // acceptée ou jetée à la main entre-temps.
+			}
+			try {
+				$w = self::accept( $o, $ecrit, (int) $qui['by'] );
+			} catch ( \Throwable $ex ) {
+				$w = [ 'errors' => array_fill_keys( array_keys( $ecrit ), $ex->getMessage() ) ];
+			}
+			foreach ( (array) ( $w['errors'] ?? [] ) as $lg => $why ) {
+				self::note_drain_error( $qui, (string) $lg, (string) $why );
+			}
 		}
 	}
 
@@ -991,10 +2319,15 @@ final class DZE_Translate {
 	 * l'objet et la langue, pour que la ligne le montre là où on le cherche.
 	 */
 	private static function note_drain_error( array $o, string $lang, string $why ): void {
-		$log = self::drain_log();
+		$log = array_values( array_filter( (array) self::fresh_option( self::OPT_DRAIN_ERRORS, [] ), 'is_array' ) );
+		$ref = self::ref( $o );
+		$lg  = sanitize_key( $lang );
+		// UNE LIGNE PAR LANGUE QUI A ÉCHOUÉ, pas une par tentative : le bandeau
+		// compte des langues, pas des essais.
+		$log = array_values( array_filter( $log, static fn( $row ) => ! ( (string) ( $row['ref'] ?? '' ) === $ref && (string) ( $row['lang'] ?? '' ) === $lg ) ) );
 		array_unshift( $log, [
-			'ref'  => self::ref( $o ),
-			'lang' => sanitize_key( $lang ),
+			'ref'  => $ref,
+			'lang' => $lg,
 			'why'  => mb_substr( $why, 0, 200 ),
 			'at'   => time(),
 		] );
@@ -1003,7 +2336,7 @@ final class DZE_Translate {
 
 	/** Une langue réussie efface ce qui avait été noté contre elle. */
 	private static function clear_drain_errors( string $ref, array $langs ): void {
-		$log  = self::drain_log();
+		$log  = array_values( array_filter( (array) self::fresh_option( self::OPT_DRAIN_ERRORS, [] ), 'is_array' ) );
 		$keep = [];
 		foreach ( $log as $row ) {
 			$row = (array) $row;
@@ -3619,24 +4952,54 @@ final class DZE_Translate {
 		return is_array( $row ) && ! empty( $row['langs'] ) ? $row : [];
 	}
 
-	/** Stores what came back, against the source it came from. */
-	public static function hold( array $o, array $langs, array $source ): void {
+	/**
+	 * Stores what came back, against the source it came from.
+	 *
+	 * @param int   $by       Who asked for it; -1 for the person pressing now.
+	 *                        A translation that comes back from the queue was
+	 *                        asked for by whoever sent it, not by « Automatic ».
+	 * @param array $per_lang Language => the words sent FOR THAT language.
+	 * @param int   $at       When it was produced; 0 for now.
+	 */
+	public static function hold( array $o, array $langs, array $source, int $by = -1, array $per_lang = [], int $at = 0 ): void {
 		if ( ! $o || ! $langs ) {
 			return;
 		}
 		self::meta_write( $o, (int) $o['id'], self::META_WAIT, (string) wp_json_encode( [
-			'at'    => time(),
+			'at'    => $at > 0 ? $at : time(),
 			// ET QUI L A DEMANDE. Une file partagee qui ne nomme personne fait
 			// relancer deux fois le meme objet par deux personnes, et l une des
 			// deux traductions part a la poubelle apres avoir ete payee.
-			'by'    => function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0,
+			'by'    => $by >= 0 ? $by : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 ),
 			'langs' => $langs,
 			// WHAT IT WAS TRANSLATED FROM. Accepting a week later must write
 			// the register against the words that were actually sent, not
 			// against a source somebody has edited since — otherwise the
 			// register claims a field is current when it is not.
 			'src'   => $source,
+			// AND FOR EACH LANGUAGE, THE WORDS SENT FOR IT. Languages arrive at
+			// different times now; one shared source made an older language
+			// register against words sent later, and the register then called
+			// a translation current that had been made from the old text.
+			'srcl'  => array_intersect_key( $per_lang, $langs ),
 		] ) );
+	}
+
+	/**
+	 * ONE LANGUAGE THROWN AWAY, the others kept.
+	 *
+	 * « Discard » on the page of one language used to throw away every
+	 * language waiting on the object — five translations for one press.
+	 */
+	public static function drop_wait_lang( array $o, string $lang ): void {
+		$held = self::waiting( $o );
+		$left = (array) ( $held['langs'] ?? [] );
+		unset( $left[ $lang ] );
+		if ( ! $left ) {
+			self::drop_wait( $o );
+			return;
+		}
+		self::hold( $o, $left, (array) ( $held['src'] ?? [] ), (int) ( $held['by'] ?? -1 ), (array) ( $held['srcl'] ?? [] ), (int) ( $held['at'] ?? 0 ) );
 	}
 
 	/** Throws the waiting translation away. Refusing, and accepting, both end here. */
@@ -3771,6 +5134,7 @@ final class DZE_Translate {
 			}
 		}
 		$source = [];
+		$srcl   = [];
 		foreach ( $whose as $tk => $w ) {
 			[ $ik, $lang ] = $w;
 			if ( isset( $res[ $ik ]['errors'][ $lang ] ) ) {
@@ -3784,6 +5148,7 @@ final class DZE_Translate {
 			$res[ $ik ]['cost']          = true;
 			$res[ $ik ]['langs'][ $lang ] = $one['texts'];
 			$source[ $ik ]               = ( $source[ $ik ] ?? [] ) + $tasks[ $tk ]['texts'];
+			$srcl[ $ik ][ $lang ]        = $tasks[ $tk ]['texts'];
 		}
 		foreach ( $source as $ik => $src ) {
 			$o    = (array) $items[ $ik ]['o'];
@@ -3795,12 +5160,16 @@ final class DZE_Translate {
 			// for a one-field run, only that field.
 			$held = self::waiting( $o );
 			$keep = (array) ( $held['langs'] ?? [] );
+			$par  = (array) ( $held['srcl'] ?? [] );
 			foreach ( $res[ $ik ]['langs'] as $lg => $fields ) {
 				$keep[ $lg ] = '' !== $only
 					? array_merge( (array) ( $keep[ $lg ] ?? [] ), (array) $fields )
 					: (array) $fields;
+				$par[ $lg ]  = '' !== $only
+					? array_merge( (array) ( $par[ $lg ] ?? [] ), (array) ( $srcl[ $ik ][ $lg ] ?? [] ) )
+					: (array) ( $srcl[ $ik ][ $lg ] ?? [] );
 			}
-			self::hold( $o, $keep, array_merge( (array) ( $held['src'] ?? [] ), $src ) );
+			self::hold( $o, $keep, array_merge( (array) ( $held['src'] ?? [] ), $src ), -1, $par );
 		}
 		return $res;
 	}
@@ -3814,7 +5183,7 @@ final class DZE_Translate {
 	 * @param array<string,array<string,string>> $keep language => field => text
 	 * @return array{written:array<string,int>,errors:array<string,string>}
 	 */
-	public static function accept( array $o, array $keep ): array {
+	public static function accept( array $o, array $keep, int $by = -1 ): array {
 		$out = [ 'written' => [], 'errors' => [], 'warnings' => [] ];
 		if ( ! $o || ! $keep ) {
 			return $out;
@@ -3834,6 +5203,8 @@ final class DZE_Translate {
 			if ( '' === $lang || ! isset( $targets[ $lang ] ) || ! $texts ) {
 				continue;
 			}
+			// THE WORDS SENT FOR THIS LANGUAGE, when they were kept apart.
+			$sent_for = isset( $held['srcl'][ $lang ] ) ? (array) $held['srcl'][ $lang ] : $source;
 			// LES LIENS SUIVENT LA LANGUE. Juste avant l ecriture, parce que ce
 			// qui est ecrit est ce qui compte : une correction faite plus tot
 			// serait defaite par une relecture a la main, et le modele, lui, a
@@ -3883,7 +5254,7 @@ final class DZE_Translate {
 			// ET QUI A DIT OUI, a cote du drapeau plutot qu a sa place : les
 			// requetes qui listent le travail fait se servent de ce drapeau
 			// comme d une presence, et un identifiant a la place le casserait.
-			self::meta_write( $o, $target, self::META_WHO, (string) ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 ) );
+			self::meta_write( $o, $target, self::META_WHO, (string) ( $by >= 0 ? $by : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 ) ) );
 			// THE REGISTER IS WRITTEN AGAINST WHAT WAS SENT, never against the
 			// source as it stands now: accepting a batch a week later must not
 			// claim a field is current when somebody has edited it since.
@@ -3892,7 +5263,7 @@ final class DZE_Translate {
 			// for ever and the next batch paid to translate it again. The
 			// person typing it read the original on the screen in front of
 			// them, so THAT is the source it was made from.
-			$reg     = array_intersect_key( $source, $texts );
+			$reg     = array_intersect_key( $sent_for, $texts );
 			$untyped = array_diff_key( $texts, $reg );
 			if ( $untyped ) {
 				$src_now = $src_now ?? self::obj_read( $o );
@@ -3916,7 +5287,8 @@ final class DZE_Translate {
 		// sweep clears the object off the list.
 		$left = array_diff_key( (array) ( $held['langs'] ?? [] ), $out['written'] );
 		if ( $left ) {
-			self::hold( $o, $left, $source );
+			// WHAT IS STILL WAITING KEEPS ITS DATE AND ITS AUTHOR.
+			self::hold( $o, $left, $source, (int) ( $held['by'] ?? -1 ), (array) ( $held['srcl'] ?? [] ), (int) ( $held['at'] ?? 0 ) );
 		} else {
 			self::drop_wait( $o );
 		}
@@ -5238,24 +6610,27 @@ final class DZE_Translate {
 	 * la main tout de suite. Ce qui travaille ensuite est `drain()`, réveillé
 	 * par le planificateur — on peut fermer l'onglet.
 	 */
-	/** Fait avancer la file d un cran, a la demande. */
+	/**
+	 * FAIT AVANCER LA FILE D'UN CRAN, depuis la page ouverte.
+	 *
+	 * Un cran, c'est quelques secondes : envoyer ce qui attend, demander où en
+	 * est le lot, écrire une tranche de ce qui est revenu. Jamais une
+	 * traduction faite dans cette requête — c'est ce qui se faisait couper.
+	 * Si un passage tourne déjà, rien n'est lancé en double.
+	 */
 	public function ajax_runqueue(): void {
 		$this->screen_guard();
-		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 600 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		}
 		ignore_user_abort( true );
-		self::drain();
+		$occupe = self::held( 'tick' );
+		if ( ! $occupe ) {
+			self::drain( 12 );
+		}
 		$reste = count( self::asked() );
 		wp_send_json_success( [
+			'started' => ! $occupe,
+			'running' => $occupe,
 			'left'    => $reste,
-			'message' => $reste
-				? sprintf(
-					/* translators: %s: how many are still waiting */
-					_n( 'Done. %s page still waiting.', 'Done. %s pages still waiting.', $reste, 'dazont-ecom' ),
-					number_format_i18n( $reste )
-				)
-				: __( 'The queue is empty.', 'dazont-ecom' ),
+			'queue'   => method_exists( __CLASS__, 'queue_said' ) ? self::queue_said() : [],
 		] );
 	}
 
@@ -5269,16 +6644,23 @@ final class DZE_Translate {
 	 */
 	public function ajax_emptyqueue(): void {
 		$this->screen_guard();
-		$n = count( self::asked() );
-		update_option( self::OPT_ASKED, [], false );
-		delete_option( self::OPT_DRAIN_ERRORS );
+		$r   = self::cancel_all();
+		$msg = sprintf(
+			/* translators: %s: how many languages were taken out before being sent */
+			_n( '%s translation taken out of the queue before it was sent: nothing is spent on it.', '%s translations taken out of the queue before they were sent: nothing is spent on them.', (int) $r['removed'], 'dazont-ecom' ),
+			number_format_i18n( (int) $r['removed'] )
+		);
+		if ( $r['sent'] ) {
+			$msg .= ' ' . sprintf(
+				/* translators: %s: how many languages were already with Anthropic */
+				_n( '%s was already with Anthropic: it is stopped there, what was not translated yet is not billed, and what was already done arrives in « To review », never published.', '%s were already with Anthropic: they are stopped there, what was not translated yet is not billed, and what was already done arrives in « To review », never published.', (int) $r['sent'], 'dazont-ecom' ),
+				number_format_i18n( (int) $r['sent'] )
+			);
+		}
 		wp_send_json_success( [
 			'left'    => 0,
-			'message' => sprintf(
-				/* translators: %s: how many were dropped */
-				_n( '%s page taken out of the queue. Nothing was translated.', '%s pages taken out of the queue. Nothing was translated.', $n, 'dazont-ecom' ),
-				number_format_i18n( $n )
-			),
+			'message' => $msg,
+			'queue'   => method_exists( __CLASS__, 'queue_said' ) ? self::queue_said() : [],
 		] );
 	}
 
@@ -5321,14 +6703,17 @@ final class DZE_Translate {
 				$sent[ $ref ] = $want;
 			}
 		}
-		$n = 0;
+		$n    = 0;
+		$refu = 0;
 		foreach ( $groups as $codes => $list ) {
-			$n += self::ask( $list, $accept, explode( ',', (string) $codes ), $all );
+			$pas = 0;
+			$n  += self::ask( $list, $accept, explode( ',', (string) $codes ), $all, $pas );
+			$refu += (int) $pas;
 		}
 		if ( $n ) {
 			self::kick_drain();
 		}
-		return [ 'queued' => $n, 'sent' => $sent ];
+		return [ 'queued' => $n, 'sent' => $sent, 'refused' => $refu ];
 	}
 
 	/**
@@ -5374,22 +6759,34 @@ final class DZE_Translate {
 		}
 		$done = self::send( array_values( $objs ), $langs, $accept, $all );
 		$n    = (int) $done['queued'];
+		$msg  = $n
+			? sprintf(
+				/* translators: %s: how many items were sent */
+				_n(
+					'%s item sent to translation. It goes to Anthropic in one batch, at half price, and usually comes back within minutes — at most 24 hours. You can leave this page: each language appears on its row when it is done.',
+					'%s items sent to translation. They go to Anthropic in one batch, at half price, and usually come back within minutes — at most 24 hours. You can leave this page: each language appears on its row when it is done.',
+					$n,
+					'dazont-ecom'
+				),
+				number_format_i18n( $n )
+			)
+			: __( 'Nothing was sent: in these languages, everything ticked is already translated, on its way, or waiting for your review.', 'dazont-ecom' );
+		if ( ! empty( $done['refused'] ) ) {
+			$msg .= ' ' . sprintf(
+				/* translators: 1: how many were refused, 2: how many the queue holds at most */
+				_n( '%1$s item did not fit: the queue holds %2$s at most. Send it again once the queue has moved.', '%1$s items did not fit: the queue holds %2$s at most. Send them again once the queue has moved.', (int) $done['refused'], 'dazont-ecom' ),
+				number_format_i18n( (int) $done['refused'] ),
+				number_format_i18n( self::QUEUE_MAX )
+			);
+		}
 		wp_send_json_success( [
 			'queued'  => $n,
+			'refused' => (int) ( $done['refused'] ?? 0 ),
+			// THE PAGE DOES NOT START A SECOND ONE: the server already has.
+			'kicked'  => $n > 0,
 			'sent'    => $done['sent'],
 			'queue'   => self::queue_said(),
-			'message' => $n
-				? sprintf(
-					/* translators: %s: how many items were sent */
-					_n(
-						'%s item sent to translation. It is translated in the background: you can leave this page, each language appears on its row when it is done.',
-						'%s items sent to translation. They are translated in the background: you can leave this page, each language appears on its row when it is done.',
-						$n,
-						'dazont-ecom'
-					),
-					number_format_i18n( $n )
-				)
-				: __( 'Nothing was sent: in these languages, everything ticked is already translated, on its way, or waiting for your review.', 'dazont-ecom' ),
+			'message' => $msg,
 		] );
 	}
 	public function ajax_batch(): void {
@@ -5422,6 +6819,15 @@ final class DZE_Translate {
 		$all  = ! empty( $_POST['all'] );
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() checked it.
 		$only = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
+		// DÉJÀ CHEZ ANTHROPIC : traduire ici la même langue la paierait deux
+		// fois. Elle arrivera dans « À relire ».
+		$en_route = array_values( array_intersect( $langs, (array) ( self::running()[ self::ref( $o ) ] ?? [] ) ) );
+		if ( $en_route ) {
+			wp_send_json_error( [ 'message' => __( 'This language is already being translated in a batch sent from the dashboard: it will arrive in « To review ». Translating it here as well would pay for it twice.', 'dazont-ecom' ) ] );
+		}
+		// CE QUI EST TRADUIT ICI n'est plus à la file : un lot plus tardif ne
+		// viendra pas le refaire, ni écrire par-dessus.
+		self::forget_langs( self::ref( $o ), $langs );
 		$made = self::produce( $o, $langs, $all, $only );
 		// ACCEPTER SANS RELIRE, QUAND LA BOUTIQUE LE DEMANDE.
 		//
@@ -5480,9 +6886,11 @@ final class DZE_Translate {
 				$refs[] = self::ref( $row );
 			}
 		}
-		$done = 0;
-		$objs = 0;
-		$errs = [];
+		$done  = 0;
+		$objs  = 0;
+		$errs  = [];
+		$warn  = [];
+		$still = [];
 		foreach ( $refs as $ref ) {
 			$o = self::from_ref( (string) $ref );
 			if ( ! $o ) {
@@ -5501,12 +6909,23 @@ final class DZE_Translate {
 			foreach ( (array) ( $res['errors'] ?? [] ) as $lang => $why ) {
 				$errs[] = self::obj_label( $o ) . ' (' . $lang . ') : ' . $why;
 			}
+			// WRITTEN, BUT WRONG ON THE SHOP: a product whose variations are
+			// missing on the translation shows as unavailable. The editor said
+			// so; the buttons that accept a whole row said « Written. »
+			foreach ( (array) ( $res['warnings'] ?? [] ) as $lang => $why ) {
+				$warn[] = self::obj_label( $o ) . ' (' . $lang . ') : ' . $why;
+			}
+			// AND WHAT IS STILL WAITING ON IT — a language that could not be
+			// written stays, and its row must stay with it.
+			$still[ (string) $ref ] = count( (array) ( self::waiting( $o )['langs'] ?? [] ) );
 		}
 		wp_send_json_success( [
-			'objects' => $objs,
-			'fields'  => $done,
-			'errors'  => array_slice( $errs, 0, 8 ),
-			'left'    => self::review_count(),
+			'objects'  => $objs,
+			'fields'   => $done,
+			'errors'   => array_slice( $errs, 0, 8 ),
+			'warnings' => array_slice( $warn, 0, 8 ),
+			'still'    => $still,
+			'left'     => self::review_count(),
 		] );
 	}
 
@@ -5568,10 +6987,18 @@ final class DZE_Translate {
 		if ( ! $o ) {
 			wp_send_json_error( [ 'message' => __( 'Unknown object.', 'dazont-ecom' ) ] );
 		}
-		$how = isset( $_POST['how'] ) ? sanitize_key( wp_unslash( $_POST['how'] ) ) : '';
+		$how  = isset( $_POST['how'] ) ? sanitize_key( wp_unslash( $_POST['how'] ) ) : '';
+		$lang = isset( $_POST['lang'] ) ? sanitize_key( wp_unslash( $_POST['lang'] ) ) : '';
 		if ( 'refuse' === $how ) {
-			self::drop_wait( $o );
-			wp_send_json_success( [ 'refused' => true, 'left' => 0 ] );
+			// FROM THE PAGE OF ONE LANGUAGE, THAT LANGUAGE — the list's own
+			// Discard, which names no language, throws the object's lot.
+			if ( '' !== $lang ) {
+				self::drop_wait_lang( $o, $lang );
+			} else {
+				self::drop_wait( $o );
+			}
+			$next = self::next_waiting( $o );
+			wp_send_json_success( [ 'refused' => true, 'left' => count( $next ), 'next' => $next ] );
 		}
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- each field is sanitized in obj_write() by its own kind.
 		$keep = isset( $_POST['keep'] ) ? (array) wp_unslash( $_POST['keep'] ) : [];
@@ -5582,6 +7009,9 @@ final class DZE_Translate {
 		if ( ! $done['written'] && $done['errors'] ) {
 			wp_send_json_error( [ 'message' => implode( ' ', $done['errors'] ) ] );
 		}
+		// WRITTEN BY HAND IS FINAL: a batch still out for these languages
+		// comes back to « To review », never over what was just written.
+		self::forget_langs( self::ref( $o ), array_keys( (array) $done['written'] ) );
 		wp_send_json_success( [
 			'written' => $done['written'],
 			'errors'  => $done['errors'],
@@ -5593,7 +7023,34 @@ final class DZE_Translate {
 			// nobody decided on. A row that vanished on a half decision would
 			// be a list that lies.
 			'left'    => count( (array) ( self::waiting( $o )['langs'] ?? [] ) ),
+			// AND WHICH ONES, WITH THE WAY TO EACH. « Accepté mais toujours là »:
+			// the Russian was written, four other languages were still waiting,
+			// and nothing on the page said so or led to them.
+			'next'    => self::next_waiting( $o ),
 		] );
+	}
+
+	/**
+	 * The languages of this object still waiting for a decision, in the
+	 * shop's order, each with the page that reads it.
+	 *
+	 * @return array<int,array{lang:string,name:string,url:string}>
+	 */
+	public static function next_waiting( array $o ): array {
+		$held  = (array) ( self::waiting( $o )['langs'] ?? [] );
+		$names = method_exists( __CLASS__, 'lang_names' ) ? self::lang_names() : [];
+		$out   = [];
+		foreach ( self::target_codes() as $code ) {
+			if ( ! isset( $held[ $code ] ) ) {
+				continue;
+			}
+			$out[] = [
+				'lang' => (string) $code,
+				'name' => (string) ( $names[ $code ] ?? strtoupper( (string) $code ) ),
+				'url'  => method_exists( __CLASS__, 'editor_url' ) ? self::editor_url( $o, (string) $code ) : '',
+			];
+		}
+		return $out;
 	}
 
 	/** The screen's own assets, asked for from inside the body that needs them. */
@@ -5649,7 +7106,7 @@ final class DZE_Translate {
 				/* translators: %s: the most items one selection holds */
 				'capped'       => __( 'Only the first %s were selected: send them, then select the rest.', 'dazont-ecom' ),
 				'cancelAsk'    => __( 'Take this language out of the queue? Nothing has been spent on it yet.', 'dazont-ecom' ),
-				'cancelAllAsk' => __( 'Take everything out of the queue? What is being translated right now will still arrive; nothing else is spent.', 'dazont-ecom' ),
+				'cancelAllAsk' => __( 'Take everything out of the queue? Nothing more is spent: what is waiting is taken out, and what is already with Anthropic is stopped there — what it had already finished arrives in « To review », never published.', 'dazont-ecom' ),
 				'oneProgress'  => __( '1 item is being translated in the background.', 'dazont-ecom' ),
 				/* translators: %s: how many items are on their way */
 				'nProgress'    => __( '%s items are being translated in the background.', 'dazont-ecom' ),
@@ -5667,6 +7124,21 @@ final class DZE_Translate {
 				// ONE OBJECT is not "any of them".
 				'nothingNewOne' => __( 'Nothing has moved on this one: not one word was sent, nothing was spent, and WPML has been told it is up to date.', 'dazont-ecom' ),
 				'confirmNo'  => __( 'Throw this translation away? It cannot be recovered; the object stays exactly as it is.', 'dazont-ecom' ),
+				'confirmNoLang' => __( 'Throw away what was translated into this language? The other languages waiting are kept, and the translation stays exactly as it is.', 'dazont-ecom' ),
+				/* translators: %s: the languages still waiting, e.g. "Polski, Français" */
+				'stillWaiting'  => __( 'Still waiting for your review on this item: %s.', 'dazont-ecom' ),
+				/* translators: %s: the next language's name */
+				'reviewNext'    => __( 'Review %s →', 'dazont-ecom' ),
+				'acceptRestOne' => __( 'Accept the other one as it came', 'dazont-ecom' ),
+				/* translators: %s: how many languages are still waiting */
+				'acceptRest'    => __( 'Accept the %s others as they came', 'dazont-ecom' ),
+				'nothingElse'   => __( 'Nothing else is waiting for your review on this item.', 'dazont-ecom' ),
+				'progPaused'    => __( 'Nothing is sent while the queue is paused.', 'dazont-ecom' ),
+				'progBatch'     => __( 'It is translated by Anthropic in one batch, at half price: usually within minutes, at most 24 hours. You can leave this page — each language appears on its row as soon as it is done.', 'dazont-ecom' ),
+				'allWritten'    => __( 'Every language of this item is decided.', 'dazont-ecom' ),
+				'backToList'    => __( 'Back to « To review »', 'dazont-ecom' ),
+				/* translators: %s: how many items are still waiting for review */
+				'rowDone'       => __( 'Written. %s item(s) still waiting for review.', 'dazont-ecom' ),
 				'saved'      => __( 'Written ✓', 'dazont-ecom' ),
 				'saving'     => __( 'Writing…', 'dazont-ecom' ),
 				// THE CHIP AFTER A SAVE says what the dashboard says: complete.
