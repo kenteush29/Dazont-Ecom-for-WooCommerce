@@ -328,14 +328,31 @@ ok( 'et le principal reste le sien',         ( DZE_Netlinking::domains()['en'] ?
 $src2 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-netlinking.php' );
 // LA REGLE A CHANGE PARCE QU ON A TROUVE LE TAUX. WooPayments ecrit sur
 // chaque commande le taux REEL du jour de l achat, donc la recette se compte
-// — mais JAMAIS sans cette conversion, sinon on additionne des dollars et des
+// — mais JAMAIS sans conversion, sinon on additionne des dollars et des
 // livres turques comme la premiere fois.
 ok( 'la recette est toujours convertie',
 	false !== strpos( $src2, '_wcpay_multi_currency_stripe_exchange_rate' ), true );
-ok( 'et jamais sommee sans son taux',
-	1, substr_count( $src2, 'SUM( l.product_net_revenue' ) );
-ok( 'la somme porte bien le taux',
-	false !== strpos( $src2, 'SUM( l.product_net_revenue * COALESCE' ), true );
+$wcml = [ 'EUR' => 0.875, 'TRY' => 43.37 ];
+ok( 'le taux garde sur la commande passe en premier',
+	round( (float) DZE_Netlinking::to_shop_currency( 100.0, 'EUR', 1.15, 'USD', $wcml ), 2 ), 115.0 );
+ok( 'la devise de la boutique ne se convertit pas',
+	DZE_Netlinking::to_shop_currency( 100.0, 'USD', 0.0, 'USD', $wcml ), 100.0 );
+// SANS TAUX GARDE, LE TAUX COURANT DE WCML — et non plus un pour un : 4 337
+// lires turques comptaient 4 337 dollars.
+ok( 'sans taux garde, le taux courant de WooCommerce Multilingual',
+	round( (float) DZE_Netlinking::to_shop_currency( 4337.0, 'TRY', 0.0, 'USD', $wcml ), 2 ), 100.0 );
+ok( 'et une devise que personne ne sait convertir n est pas additionnee',
+	DZE_Netlinking::to_shop_currency( 5000.0, 'ARS', 0.0, 'USD', $wcml ), null );
+// LA TABLE D ANALYSE GARDE LES COMMANDES SUPPRIMEES : 28 lignes pesaient
+// 1,48 million sur Kula, 674 102 pour une categorie a cinq ventes.
+ok( 'une commande introuvable ne compte pas',
+	false !== strpos( $src2, "continue; // commande disparue, ou qui n est pas une vente." ), true );
+ok( 'ni une commande annulee, echouee ou en attente de paiement',
+	false !== strpos( $src2, "'wc-pending', 'wc-failed', 'wc-cancelled'" ), true );
+ok( 'mais « Shipped » et les statuts propres a la boutique comptent',
+	false !== strpos( $src2, 'in_array( (string) $sale[\'status\'], self::NOT_SOLD, true )' ), true );
+ok( 'un remboursement suit sa commande',
+	false !== strpos( $src2, "'shop_order_refund' === (string) \$r['type']" ), true );
 
 echo "\nUNE CONSIGNE SANS ADRESSE EST UNE CONSIGNE QU ON NE PEUT PAS SUIVRE\n";
 // « Il manque des explications. Url là ou il faut aller ? » L encart disait
