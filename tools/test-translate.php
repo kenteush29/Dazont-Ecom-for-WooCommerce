@@ -3613,11 +3613,12 @@ ok( 'its record is gone',                          isset( $GLOBALS['opts'][ DZE_
 ok( 'and its language went again, right away',     $GLOBALS['direct_waves'], [ 1 ] );
 ok( 'and came back',                               DZE_Translate::asked(), [] );
 
-echo "\nCHEAP, THEN « TRANSLATE THE REST RIGHT AWAY »\n";
+echo "\nCHEAP WAITS FOR ITS BATCH, AND NOTHING SWITCHES IT ON THE WAY\n";
 // « On pourrait ici garder de la flexibilité et donner le choix : traduction
-// rapide ou traduction cheap. » Sent cheap, it waits in a batch; one press
-// and what Anthropic has not done yet is cancelled — which bills nothing —
-// and goes right away, with nothing counted against it.
+// rapide ou traduction cheap. » Then: « Le bouton "Translate the rest right
+// away — normal price" doit être enlevé, puisque l'option est maintenant dispo
+// avant le lancement des traductions. » Sent cheap, it waits in its batch and
+// comes back with it.
 $dze_direct_fresh();
 $GLOBALS['model_answer_fn'] = $dze_good;
 $dze_nx = null;
@@ -3626,20 +3627,22 @@ $GLOBALS['batch_status'] = 'in_progress';
 DZE_Translate::drain();
 ok( 'sent cheap, it went in a batch, the shop default notwithstanding', count( $GLOBALS['batch_store'] ), 1 );
 ok( 'and nothing went right away',                  $GLOBALS['direct_waves'], [] );
-ok( 'the screen offers to hurry it',                (int) ( DZE_Translate::queue_said()['cheap'] ?? 0 ), 1 );
-ok( 'one press moves it over',                      DZE_Translate::hurry(), 1 );
-ok( 'and nothing is left at half price',            (int) ( DZE_Translate::queue_said()['cheap'] ?? -1 ), 0 );
+ok( 'the screen is told its lane',                  DZE_Translate::queue_said()['lane'] ?? '', 'batch' );
+ok( 'and no count of what a press would hurry',     array_key_exists( 'cheap', DZE_Translate::queue_said() ), false );
+ok( 'the hurry is gone from the module',            method_exists( 'DZE_Translate', 'hurry' ), false );
+$dze_trsrc_all = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' )
+	. (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate-screen.php' )
+	. (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/translate-screen.js' );
+ok( 'and from the screen, its endpoint and its script',
+	(bool) preg_match( '/dze_tr_hurry|dze-trd-hurry|Translate the rest right away/', $dze_trsrc_all ), false );
+$GLOBALS['batch_status'] = 'ended';
 foreach ( (array) $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] as $k => $b ) { $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $k ]['polled'] = 0; }
 DZE_Translate::drain();
-ok( 'the waiting batch is cancelled',              $GLOBALS['batch_cancels'], [ 'msgbatch_test0' ] );
-$GLOBALS['batch_status']    = 'ended';
-$GLOBALS['batch_line_type'] = 'canceled';
-foreach ( (array) $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ] as $k => $b ) { $GLOBALS['opts'][ DZE_Translate::OPT_BATCHES ][ $k ]['polled'] = 0; }
-DZE_Translate::drain();
-unset( $GLOBALS['batch_line_type'], $GLOBALS['batch_status'] );
-ok( 'what it held went right away',                $GLOBALS['direct_waves'], [ 1 ] );
-ok( 'and came back without a try counted',         DZE_Translate::asked(), [] );
-ok( 'waiting for review',                          array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr' ] );
+unset( $GLOBALS['batch_status'] );
+ok( 'nothing was cancelled',                        $GLOBALS['batch_cancels'], [] );
+ok( 'nothing went right away',                      $GLOBALS['direct_waves'], [] );
+ok( 'it came back with its batch',                  DZE_Translate::asked(), [] );
+ok( 'waiting for review',                           array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr' ] );
 
 echo "\nEACH SEND CHOOSES ITS SPEED\n";
 $dze_direct_fresh();
@@ -3651,7 +3654,7 @@ $GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [];
 DZE_Translate::ask( [ $o940 ], false, [ 'fr' ] );
 ok( 'said nothing, it takes the shop default',    DZE_Translate::asked()[0]['lane'] ?? '', 'batch' );
 DZE_Translate::ask( [ $o940 ], false, [ 'fr' ], false, $dze_nx, 'direct' );
-ok( 'asked again right away, it hurries',          DZE_Translate::asked()[0]['lane'] ?? '', 'direct' );
+ok( 'asked again right away, what waits goes right away', DZE_Translate::asked()[0]['lane'] ?? '', 'direct' );
 DZE_Translate::ask( [ $o940 ], false, [ 'fr' ], false, $dze_nx, 'batch' );
 ok( 'and never slows back down',                   DZE_Translate::asked()[0]['lane'] ?? '', 'direct' );
 $GLOBALS['opts']['dze_translate_settings']['lane'] = 'direct';

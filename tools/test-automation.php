@@ -579,13 +579,13 @@ class DZE_Translate {
 	/** What the pass put in the translation queue: one call per set of languages. */
 	public static array $deposits = [];
 	public static int $kicks = 0;
-	public static function ask( array $objets, bool $accept = false, array $langs = [], bool $all = false, ?int &$refused = null ): int {
+	public static function ask( array $objets, bool $accept = false, array $langs = [], bool $all = false, ?int &$refused = null, string $lane = '' ): int {
 		$refused = 0;
 		if ( ! empty( $GLOBALS['tr_queue_refuses'] ) ) {
 			$refused = count( $objets );
 			return 0;
 		}
-		self::$deposits[] = [ 'refs' => array_map( [ __CLASS__, 'ref' ], $objets ), 'accept' => $accept, 'langs' => array_values( $langs ), 'all' => $all ];
+		self::$deposits[] = [ 'refs' => array_map( [ __CLASS__, 'ref' ], $objets ), 'accept' => $accept, 'langs' => array_values( $langs ), 'all' => $all, 'lane' => $lane ];
 		foreach ( $objets as $o ) {
 			self::$asked[] = [ 'kind' => $o['kind'], 'id' => (int) $o['id'], 'type' => $o['type'], 'langs' => array_values( $langs ), 'accept' => $accept ? 1 : 0 ];
 		}
@@ -2379,6 +2379,10 @@ ok( 'and the queue is woken',            DZE_Translate::$kicks, 1 );
 // written straight onto its pages having chosen nothing.
 ok( 'nothing is written without a yes',  DZE_Translate::$deposits[0]['accept'] ?? null, false );
 ok( 'and nothing up to date is redone',  DZE_Translate::$deposits[0]['all'] ?? null, false );
+// ALWAYS AT HALF PRICE. « Le bloc Runs by itself — wpml — doit être toujours en
+// mode cheap, étant donné que l'opérateur n'est pas devant son écran à attendre
+// quoi que ce soit. » It took the shop's default, « right away » since 4.494.
+ok( 'and it goes cheap, whatever the shop default', DZE_Translate::$deposits[0]['lane'] ?? null, 'batch' );
 // AND THE DAY IS COUNTED, exactly as it is for every other task that spends.
 ok( "the day's figure moved",            DZE_Automation::done_today( 'translate' ), 1 );
 // AND THE ANSWER SAYS WHERE TO WATCH IT — not "the writing queue", which a

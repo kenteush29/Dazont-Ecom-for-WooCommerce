@@ -2211,9 +2211,16 @@ final class DZE_Automation {
 		}
 		$n    = 0;
 		$refu = 0;
+		// ALWAYS AT HALF PRICE. « Le bloc Runs by itself — wpml — doit être
+		// toujours en mode cheap, étant donné que l'opérateur n'est pas devant
+		// son écran à attendre quoi que ce soit. Cette fonction doit être
+		// passive et économique. » The deposit took the shop's default speed —
+		// right away since 4.494 — and so paid full price for work nobody waits
+		// for. A send made by hand keeps its own choice: what was asked for
+		// right away is never slowed down (DZE_Translate::ask()).
 		foreach ( $groups as $codes => $list ) {
 			$pas = 0;
-			$n  += (int) DZE_Translate::ask( $list, ! empty( $conf['apply'] ), explode( ',', (string) $codes ), false, $pas );
+			$n  += (int) DZE_Translate::ask( $list, ! empty( $conf['apply'] ), explode( ',', (string) $codes ), false, $pas, 'batch' );
 			$refu += (int) $pas;
 		}
 		if ( $n < 1 ) {

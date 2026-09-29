@@ -677,10 +677,9 @@ trait DZE_Translate_Screen {
 			'now'      => time(),
 			// IMMÉDIAT : ce qui est fait depuis que la file s'est remplie, depuis
 			// quand, et la dernière réponse — la barre en est faite.
-			// La voie de ce qui attend : économique dès qu'une demande l'est, et
-			// combien de traductions un clic ferait passer en rapide.
+			// La voie de ce qui attend : économique dès qu'une demande l'est. Elle
+			// se choisit avant l'envoi et ne change plus en route.
 			'lane'     => $cheap ? 'batch' : 'direct',
-			'cheap'    => $cheap,
 			'done'     => (int) ( ( (array) self::fresh_option( self::OPT_RUN, [] ) )['done'] ?? 0 ),
 			'last'     => (int) ( ( (array) self::fresh_option( self::OPT_RUN, [] ) )['last'] ?? 0 ),
 			'first'    => $first,
@@ -729,8 +728,6 @@ trait DZE_Translate_Screen {
 				<a href="<?php echo esc_url( self::url( [ 'tstatus' => 'progress' ] ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
 				&middot;
 				<button type="button" class="button-link dze-trd-cancelall" id="dze-trd-cancelall"><?php esc_html_e( 'Cancel all', 'dazont-ecom' ); ?></button>
-				<?php // TOO SLOW AT HALF PRICE? One press sends the rest right away. ?>
-				<button type="button" class="button button-small dze-trd-hurry" id="dze-trd-hurry"<?php echo ! empty( $q['cheap'] ) ? '' : ' hidden'; ?>><?php esc_html_e( 'Translate the rest right away — normal price', 'dazont-ecom' ); ?></button>
 			</p>
 			<?php
 			// HOW FAR IT HAS GOT, AND THAT THE PAGE IS ALIVE: Anthropic's own count

@@ -837,10 +837,10 @@ whose screen has not been thought through yet.
     The page's `dze_tr_runqueue` runs one tick with a short budget and never a
     translation.
   - **TWO LANES, CHOSEN AT EACH SEND** (`entry['lane']`). The shop's setting
-    (`lane()`) only says which one the screen opens on and what the automatic
-    pass uses. "Je n'attendrais en aucun cas 24h pour des traductions" —
-    followed by "on pourrait garder de la flexibilité : traduction rapide ou
-    traduction cheap." A batch is half price because Anthropic answers it when
+    (`lane()`) only says which one the screen opens on. "Je n'attendrais en
+    aucun cas 24h pour des traductions" — followed by "on pourrait garder de
+    la flexibilité : traduction rapide ou traduction cheap." A batch is half
+    price because Anthropic answers it when
     it has room. Two small batches came back in two minutes; two large ones sat
     at nought answers for forty.
     - The cheap lane sends SMALL batches (`BATCH_CHUNK`, several per tick). A
@@ -850,9 +850,15 @@ whose screen has not been thought through yet.
       because that is how it was sent.
     - Asked again « right away », a request is upgraded, and never the other
       way round.
-    - « Translate the rest right away » (`hurry()`) moves every cheap request
-      to the fast lane. It flags the waiting batches `hurry`; `collect()`
-      cancels them, and nothing is billed for what Anthropic had not started.
+    - **The automatic pass ALWAYS sends cheap**: `deposit_translate()` passes
+      `'batch'`, whatever the shop's setting. "Le bloc Runs by itself doit
+      être toujours en mode cheap, étant donné que l'opérateur n'est pas
+      devant son écran à attendre quoi que ce soit. Cette fonction doit être
+      passive et économique." That covers its « Run one now » too.
+    - **No button switches a send's speed on the way** (« Translate the rest
+      right away » was removed in 4.496.0): "l'option est maintenant dispo
+      avant le lancement des traductions". The speed is chosen before the
+      send and a batch comes back whole. Do not bring a hurry button back.
     - The « right away » lane sends waves of `DIRECT_WAVE` requests in
       parallel (`DZE_Marketing_Ai::messages_now()`). Each wave comes back in
       the time of its slowest call.
@@ -869,9 +875,8 @@ whose screen has not been thought through yet.
       `direct` record found at the start of a tick is a dead wave, because
       only one tick runs at a time: its languages are requeued and the record
       is deleted.
-    - A batch that was hurried (`hurried`) comes back with `canceled` lines.
-      They are requeued uncounted and leave as waves; what Anthropic had
-      already answered is kept.
+    - A batch line that comes back `canceled` or `expired` is requeued
+      uncounted; what Anthropic had already answered is kept.
   - **Only one tick runs at a time, through MySQL `GET_LOCK`**, never through a
     transient that is read and then written. The lock is taken whole or not at
     all, and MySQL gives it back when the process dies.
