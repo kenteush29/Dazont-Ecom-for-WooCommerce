@@ -847,7 +847,7 @@ final class DZE_Setup {
 		if ( 'off' === $state ) {
 			printf(
 				'<a class="button button-small" href="%s">%s</a>',
-				esc_url( self::tab( __( 'Modules', 'dazont-ecom' ) ) ),
+				esc_url( class_exists( 'DZE_Screens' ) && '' !== DZE_Screens::url( 'modules' ) ? DZE_Screens::url( 'modules' ) : self::tab( __( 'Modules', 'dazont-ecom' ) ) ),
 				esc_html__( 'Modules', 'dazont-ecom' )
 			);
 		} elseif ( '' !== $url ) {

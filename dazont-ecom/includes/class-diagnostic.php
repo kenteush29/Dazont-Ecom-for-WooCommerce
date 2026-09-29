@@ -3385,9 +3385,15 @@ final class DZE_Diagnostic {
 					esc_html( $dze_cat['name'] . ' (' . number_format_i18n( (int) ( $dze_cat['here'] ?? 0 ) ) . ')' )
 				);
 			}
+			// « CLEAR FILTERS », comme la barre des traductions : un filtre qu on ne
+			// peut pas retirer d un geste oblige a retrouver l option « toutes ».
+			$dze_clear = $cat > 0
+				? ' <a class="dze-trd-clear" href="' . esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $by, 'dir' => $dir ], admin_url( 'admin.php' ) ) ) . '"><span class="dashicons dashicons-no-alt" aria-hidden="true"></span>' . esc_html__( 'Clear filters', 'dazont-ecom' ) . '</a>'
+				: '';
 			printf(
-				'</select> <button type="submit" class="button">%s</button></form>',
-				esc_html__( 'Filter', 'dazont-ecom' )
+				'</select> <button type="submit" class="button">%1$s</button>%2$s</form>',
+				esc_html__( 'Filter', 'dazont-ecom' ),
+				$dze_clear // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped piece by piece above.
 			);
 		}
 
