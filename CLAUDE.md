@@ -227,7 +227,22 @@ whose screen has not been thought through yet.
     or a page is dropped at reading time, never a row. Product clicks are
     never added to their category: the owner called that "trop farfelu".
   - Sales are the products filed in the category, counted in the language of
-    the PRODUCT sold (`sales_by_term()`), converted at each order's own rate.
+    the PRODUCT sold (`sales_by_term()`), read ORDER BY ORDER (4.498.1):
+    - `wc_order_product_lookup` keeps the lines of DELETED orders: on Kula 28
+      lines of 1 529 over 90 days belonged to orders that no longer exist and
+      weighed 1.48 million — a category with five sales showed 674 102. An
+      order that cannot be found is not counted (`order_facts()`).
+    - Not a sale: pending, failed, cancelled, checkout-draft, trash, drafts
+      (what WooCommerce Analytics excludes). Everything else counts,
+      including a shop's own statuses — Kula's « Shipped » holds 659 lines.
+      A refund follows its order and takes itself off.
+    - Money: the order's own `_wcpay_multi_currency_stripe_exchange_rate`
+      (order → shop currency) first, else WCML's current rate
+      (`_wcml_settings['currency_options'][X]['rate']`, 1 shop unit = rate X,
+      so divide), else NOT added. Never one for one: Turkish lira and
+      Argentine pesos used to count as dollars.
+    - HPOS or not: `order_facts()` reads `wc_orders` / `wc_orders_meta` when
+      `woocommerce_custom_orders_table_enabled` is `yes`, the posts otherwise.
   - One row per category: several addresses of one category (trailing slash,
     old slug) add up, and the position is weighted by impressions.
   - Status says what to do: `reach` (a link would lift it), `strong`,

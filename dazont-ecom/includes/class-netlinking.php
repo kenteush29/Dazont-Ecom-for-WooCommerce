@@ -531,60 +531,170 @@ final class DZE_Netlinking {
 	// =========================================================================
 
 	/**
+	 * CE QUI N EST PAS UNE VENTE : ce que WooCommerce Analytics ecarte de lui-
+	 * meme (en attente de paiement, echouee, annulee), la corbeille et les
+	 * brouillons. Tout le reste compte — y compris les statuts qu une boutique
+	 * ajoute : sur Kula, « Shipped » porte a lui seul 659 lignes en 90 jours,
+	 * et une liste blanche l aurait jete.
+	 */
+	private const NOT_SOLD = [ 'wc-pending', 'wc-failed', 'wc-cancelled', 'wc-checkout-draft', 'pending', 'failed', 'cancelled', 'checkout-draft', 'trash', 'draft', 'auto-draft' ];
+
+	/**
 	 * LE CHIFFRE D AFFAIRES, RAMENE A LA DEVISE DE LA BOUTIQUE.
 	 *
 	 * « Il faudrait quantité d'articles vendus et chiffre d'affaire. »
 	 *
-	 * Une version precedente refusait de compter l argent, et elle avait raison
-	 * de refuser CE calcul-la : la table d analyse garde chaque commande dans
-	 * SA devise, et cette boutique en encaisse huit — additionner des dollars
-	 * et des livres turques rend un nombre qui ne veut rien dire.
+	 * La table d analyse garde chaque ligne dans la devise de SA commande, et
+	 * cette boutique en encaisse vingt-cinq. Dans l ordre :
+	 *   1. le taux que WooPayments a garde sur la commande le jour du paiement
+	 *      (`_wcpay_multi_currency_stripe_exchange_rate`, devise de la commande
+	 *      vers celle de la boutique) — le vrai ;
+	 *   2. sinon, le taux courant de WooCommerce Multilingual (une unite de la
+	 *      boutique vaut `rate` unites de la devise) — ce qui s en approche ;
+	 *   3. sinon rien : une somme qu on ne sait pas convertir n est pas
+	 *      additionnee. La version d avant la comptait telle quelle, un pour un :
+	 *      des lires turques et des pesos argentins passaient pour des dollars.
 	 *
-	 * Ce qui a change, c est qu on a trouve le taux. WooPayments ecrit sur
-	 * chaque commande le taux REEL du jour de l achat
-	 * (`_wcpay_multi_currency_stripe_exchange_rate`) : ce n est pas une
-	 * estimation d aujourd hui appliquee a une vente de l an dernier, c est le
-	 * taux qui a servi. Mesure sur la boutique : 2 952 lignes deja en dollars,
-	 * 550 converties ainsi, 300 sans taux — celles-la prennent le taux courant
-	 * de WCML, faute de mieux, et c est dit.
-	 *
-	 * Le fragment SQL est rendu seul pour que chaque lecture de ventes compte
-	 * l argent exactement de la meme facon.
+	 * @param array<string,float> $wcml devise => taux WCML.
+	 * @return float|null null quand la somme ne peut pas etre convertie.
 	 */
-	private static function revenue_sql(): string {
-		global $wpdb;
-		return "SUM( l.product_net_revenue * COALESCE( NULLIF( CAST( rate.meta_value AS DECIMAL(20,8) ), 0 ), 1 ) )";
+	public static function to_shop_currency( float $net, string $cur, float $rate, string $shop, array $wcml ): ?float {
+		if ( $rate > 0 ) {
+			return $net * $rate;
+		}
+		if ( '' === $cur || $cur === $shop ) {
+			return $net;
+		}
+		$r = (float) ( $wcml[ $cur ] ?? 0 );
+		return $r > 0 ? $net / $r : null;
 	}
 
-	/** La jointure qui va avec : le taux garde sur la commande, s il y est. */
-	private static function revenue_join(): string {
-		global $wpdb;
-		return " LEFT JOIN {$wpdb->postmeta} rate ON rate.post_id = l.order_id AND rate.meta_key = '_wcpay_multi_currency_stripe_exchange_rate' ";
+	/** Les taux courants de WooCommerce Multilingual, devise => taux. */
+	private static function wcml_rates(): array {
+		$s   = get_option( '_wcml_settings', [] );
+		$out = [];
+		foreach ( (array) ( is_array( $s ) ? ( $s['currency_options'] ?? [] ) : [] ) as $code => $o ) {
+			$r = (float) ( is_array( $o ) ? ( $o['rate'] ?? 0 ) : 0 );
+			if ( $r > 0 ) {
+				$out[ (string) $code ] = $r;
+			}
+		}
+		return $out;
 	}
 
 	/**
-	 * CE QUE CHAQUE CATEGORIE A VENDU, toutes langues confondues.
+	 * CE QUE CHAQUE COMMANDE EST : si elle existe encore, si c est une vente,
+	 * dans quelle devise et a quel taux.
+	 *
+	 * LA TABLE D ANALYSE GARDE LES LIGNES DES COMMANDES SUPPRIMEES. Mesure sur
+	 * Kula : 28 lignes sur 1 529 en 90 jours appartenaient a des commandes qui
+	 * n existent plus, et pesaient 1,48 million — une categorie de vestes a
+	 * cinq ventes affichait 674 102 de chiffre d affaires. Une commande
+	 * introuvable ne compte pas.
+	 *
+	 * UN REMBOURSEMENT COMPTE CE QUE COMPTE SA COMMANDE : ses lignes sont
+	 * negatives, elles se deduisent quand la commande est une vente, et il prend
+	 * la devise et le taux de sa commande s il n a pas les siens.
+	 *
+	 * @param int[] $ids
+	 * @return array<int,array{ok:bool,cur:string,rate:float}>
+	 */
+	private static function order_facts( array $ids ): array {
+		global $wpdb;
+		$ids = array_values( array_filter( array_map( 'intval', array_unique( $ids ) ) ) );
+		if ( ! $ids || ! $wpdb ) {
+			return [];
+		}
+		$hpos = 'yes' === get_option( 'woocommerce_custom_orders_table_enabled' )
+			&& $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->prefix . 'wc_orders' ) ) === $wpdb->prefix . 'wc_orders';
+		$read = static function ( array $chunk ) use ( $wpdb, $hpos ): array {
+			$in = implode( ',', array_map( 'intval', $chunk ) );
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- integers only, joined above.
+			if ( $hpos ) {
+				$o = $wpdb->prefix . 'wc_orders';
+				$m = $wpdb->prefix . 'wc_orders_meta';
+				$sql = "SELECT o.id AS id, o.type AS type, o.status AS status, o.parent_order_id AS parent, o.currency AS cur,
+				               ( SELECT meta_value FROM {$m} WHERE order_id = o.id AND meta_key = '_wcpay_multi_currency_stripe_exchange_rate' LIMIT 1 ) AS rate
+				          FROM {$o} o WHERE o.id IN ( {$in} )";
+			} else {
+				$sql = "SELECT p.ID AS id, p.post_type AS type, p.post_status AS status, p.post_parent AS parent,
+				               MAX( CASE WHEN pm.meta_key = '_order_currency' THEN pm.meta_value END ) AS cur,
+				               MAX( CASE WHEN pm.meta_key = '_wcpay_multi_currency_stripe_exchange_rate' THEN pm.meta_value END ) AS rate
+				          FROM {$wpdb->posts} p
+				          LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key IN ( '_order_currency', '_wcpay_multi_currency_stripe_exchange_rate' )
+				         WHERE p.ID IN ( {$in} ) GROUP BY p.ID";
+			}
+			// phpcs:enable
+			$out = [];
+			foreach ( (array) $wpdb->get_results( $sql, ARRAY_A ) as $r ) {
+				$out[ (int) $r['id'] ] = $r;
+			}
+			return $out;
+		};
+		$raw = [];
+		foreach ( array_chunk( $ids, 500 ) as $chunk ) {
+			$raw += $read( $chunk );
+		}
+		// Les commandes des remboursements, lues a leur tour.
+		$parents = [];
+		foreach ( $raw as $r ) {
+			if ( 'shop_order_refund' === (string) $r['type'] && (int) $r['parent'] > 0 && ! isset( $raw[ (int) $r['parent'] ] ) ) {
+				$parents[] = (int) $r['parent'];
+			}
+		}
+		foreach ( array_chunk( array_values( array_unique( $parents ) ), 500 ) as $chunk ) {
+			$raw += $read( $chunk );
+		}
+		$out = [];
+		foreach ( $ids as $id ) {
+			$r = $raw[ $id ] ?? null;
+			if ( ! $r ) {
+				$out[ $id ] = [ 'ok' => false, 'cur' => '', 'rate' => 0.0 ];
+				continue;
+			}
+			$sale = $r;
+			if ( 'shop_order_refund' === (string) $r['type'] ) {
+				$sale = $raw[ (int) $r['parent'] ] ?? null;
+			}
+			$ok = null !== $sale && ! in_array( (string) $sale['status'], self::NOT_SOLD, true );
+			$cur  = (string) ( $r['cur'] ?? '' );
+			$rate = (float) ( $r['rate'] ?? 0 );
+			if ( null !== $sale && $sale !== $r ) {
+				$cur  = '' !== $cur ? $cur : (string) ( $sale['cur'] ?? '' );
+				$rate = $rate > 0 ? $rate : (float) ( $sale['rate'] ?? 0 );
+			}
+			$out[ $id ] = [ 'ok' => $ok, 'cur' => $cur, 'rate' => $rate ];
+		}
+		return $out;
+	}
+
+	/**
+	 * CE QUE CHAQUE CATEGORIE A VENDU, dans chaque langue.
 	 *
 	 * « La data GSC doit être recroisée avec les ventes au niveau des
 	 * catégories produits. » Sans cela le module classe une categorie a 4 000
 	 * impressions qui ne vend rien au-dessus d une a 800 qui vend : du trafic
 	 * pour du trafic, ce qui n est pas le metier de cette boutique.
 	 *
+	 * CE SONT LES VENTES DES PRODUITS RANGES DANS LA CATEGORIE, jamais leurs
+	 * clics : « si 10 clics sur les produits de la catégorie x, compter +10
+	 * clics sur la catégorie […] c'est trop farfelu. » Google est lu pour la
+	 * categorie elle-meme, WooCommerce pour ce que ses produits ont vendu.
+	 *
 	 * CHAQUE LANGUE COMPTE SES PROPRES VENTES. « Les ventes sont comptabilisées
-	 * seulement sur la langue concernée. »
+	 * seulement sur la langue concernée. » Un zero sur la page allemande EST
+	 * l information — ce catalogue ne vend pas encore.
 	 *
-	 * Une version precedente reportait les ventes sur tout le groupe de
-	 * traduction, au motif que la boutique vend presque tout en anglais et que
-	 * les pages traduites se seraient retrouvees a zero. C etait decider a la
-	 * place de la boutique : un zero sur la page allemande EST l information —
-	 * ce catalogue ne vend pas encore — et la masquer derriere un chiffre
-	 * anglais empechait de le voir.
+	 * LA LANGUE EST CELLE DU PRODUIT VENDU, jamais celle de sa categorie. Sur ce
+	 * catalogue les produits traduits sont ranges dans les categories
+	 * ANGLAISES : compter par la langue de la categorie rendrait zero pour
+	 * quatre langues sur cinq. On prend donc la categorie du produit et on la
+	 * ramene dans SA langue par le groupe de traduction.
 	 *
-	 * La table de WooCommerce Analytics est la source, comme pour le bloc des
-	 * meilleures ventes ; absente ou vide, on rend un tableau vide et le module
-	 * continue sans les ventes plutot que de tomber.
+	 * La table de WooCommerce Analytics est la source ; absente, on rend un
+	 * tableau vide et le module continue sans les ventes plutot que de tomber.
 	 *
-	 * @return array<int,array{units:int}> par term_id
+	 * @return array<int,array{units:int,revenue:float}> par term_id
 	 */
 	public static function sales_by_term( int $days ): array {
 		global $wpdb;
@@ -598,80 +708,67 @@ final class DZE_Netlinking {
 		}
 		$icl  = $wpdb->prefix . 'icl_translations';
 		$wpml = class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() && DZE_Wpml::has_table( $icl );
-
-		// SANS WPML, une categorie est une categorie et la question ne se pose pas.
-		if ( ! $wpml ) {
-			$rows = (array) $wpdb->get_results( $wpdb->prepare(
-				"SELECT tt.term_id AS tid, SUM( l.product_qty ) AS units, " . self::revenue_sql() . " AS revenue
-				   FROM {$lookup} l " . self::revenue_join() . "
-				   INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = l.product_id
-				   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-				  WHERE tt.taxonomy = 'product_cat'
-				    AND l.date_created > DATE_SUB( NOW(), INTERVAL %d DAY )
-				  GROUP BY tt.term_id",
-				max( 1, $days )
-			), ARRAY_A );
-			$out = [];
-			foreach ( $rows as $r ) {
-				$out[ (int) $r['tid'] ] = [ 'units' => (int) $r['units'], 'revenue' => (float) $r['revenue'] ];
-			}
-			return $out;
-			// phpcs:enable
-		}
-
-		// LA LANGUE EST CELLE DU PRODUIT VENDU, jamais celle de sa categorie.
-		//
-		// Sur ce catalogue, les produits traduits sont ranges dans les
-		// categories ANGLAISES : le produit francais 988039969 est dans la
-		// categorie 7240, qui est anglaise. Compter par la langue de la
-		// categorie rendrait donc zero pour quatre langues sur cinq — un
-		// artefact du rangement, pas un fait sur les ventes, et le genre de
-		// zero qu on prend pour une reponse.
-		//
-		// Ce qui a ete vendu, c est le produit ; sa langue est la sienne. On
-		// prend donc sa categorie, et on la ramene dans SA langue par le groupe
-		// de traduction. Une vente francaise compte pour la categorie
-		// francaise, et pour elle seule.
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WooCommerce's and WPML's own tables.
+		// UNE LIGNE PAR COMMANDE ET PAR CATEGORIE : la conversion et le tri des
+		// commandes se font ensuite, commande par commande.
 		$rows = (array) $wpdb->get_results( $wpdb->prepare(
-			"SELECT ct.trid AS trid, pl.language_code AS lang, SUM( l.product_qty ) AS units, " . self::revenue_sql() . " AS revenue
-			   FROM {$lookup} l " . self::revenue_join() . "
-			   INNER JOIN {$icl} pl ON pl.element_id = l.product_id AND pl.element_type = 'post_product'
-			   INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = l.product_id
-			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-			   INNER JOIN {$icl} ct ON ct.element_id = tt.term_taxonomy_id AND ct.element_type = 'tax_product_cat'
-			  WHERE tt.taxonomy = 'product_cat'
-			    AND l.date_created > DATE_SUB( NOW(), INTERVAL %d DAY )
-			  GROUP BY ct.trid, pl.language_code",
+			$wpml
+				? "SELECT l.order_id AS oid, ct.trid AS trid, pl.language_code AS lang, SUM( l.product_qty ) AS units, SUM( l.product_net_revenue ) AS net
+				     FROM {$lookup} l
+				     INNER JOIN {$icl} pl ON pl.element_id = l.product_id AND pl.element_type = 'post_product'
+				     INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = l.product_id
+				     INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				     INNER JOIN {$icl} ct ON ct.element_id = tt.term_taxonomy_id AND ct.element_type = 'tax_product_cat'
+				    WHERE tt.taxonomy = 'product_cat'
+				      AND l.date_created > DATE_SUB( NOW(), INTERVAL %d DAY )
+				    GROUP BY l.order_id, ct.trid, pl.language_code"
+				: "SELECT l.order_id AS oid, tt.term_id AS tid, '' AS lang, SUM( l.product_qty ) AS units, SUM( l.product_net_revenue ) AS net
+				     FROM {$lookup} l
+				     INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = l.product_id
+				     INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				    WHERE tt.taxonomy = 'product_cat'
+				      AND l.date_created > DATE_SUB( NOW(), INTERVAL %d DAY )
+				    GROUP BY l.order_id, tt.term_id",
 			max( 1, $days )
 		), ARRAY_A );
-
 		// Le terme de chaque groupe, langue par langue.
 		$members = [];
-		foreach ( (array) $wpdb->get_results(
-			"SELECT ic.trid, ic.language_code AS lang, tt.term_id AS tid
-			   FROM {$icl} ic
-			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = ic.element_id
-			  WHERE ic.element_type = 'tax_product_cat'",
-			ARRAY_A
-		) as $m ) {
-			$members[ (int) $m['trid'] ][ (string) $m['lang'] ] = (int) $m['tid'];
+		if ( $wpml ) {
+			foreach ( (array) $wpdb->get_results(
+				"SELECT ic.trid, ic.language_code AS lang, tt.term_id AS tid
+				   FROM {$icl} ic
+				   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = ic.element_id
+				  WHERE ic.element_type = 'tax_product_cat'",
+				ARRAY_A
+			) as $m ) {
+				$members[ (int) $m['trid'] ][ (string) $m['lang'] ] = (int) $m['tid'];
+			}
 		}
 		// phpcs:enable
-
-		$out = [];
+		$facts = self::order_facts( array_map( static fn( $r ) => (int) $r['oid'], $rows ) );
+		$shop  = (string) get_option( 'woocommerce_currency', '' );
+		$wcml  = self::wcml_rates();
+		$out   = [];
 		foreach ( $rows as $r ) {
-			$trid = (int) $r['trid'];
-			$lang = (string) $r['lang'];
-			// LA CATEGORIE DE CETTE LANGUE, ou rien. Quand elle n existe pas
-			// encore, la vente n est attribuee a personne plutot qu a la page
-			// anglaise : inventer une attribution est pire que de se taire.
-			$tid = (int) ( $members[ $trid ][ $lang ] ?? 0 );
+			$f = $facts[ (int) $r['oid'] ] ?? null;
+			if ( ! $f || empty( $f['ok'] ) ) {
+				continue; // commande disparue, ou qui n est pas une vente.
+			}
+			if ( $wpml ) {
+				// LA CATEGORIE DE CETTE LANGUE, ou rien : inventer une
+				// attribution est pire que de se taire.
+				$tid = (int) ( $members[ (int) $r['trid'] ][ (string) $r['lang'] ] ?? 0 );
+			} else {
+				$tid = (int) $r['tid'];
+			}
 			if ( ! $tid ) {
 				continue;
 			}
-			$out[ $tid ]['units']   = ( $out[ $tid ]['units'] ?? 0 ) + (int) $r['units'];
-			$out[ $tid ]['revenue'] = ( $out[ $tid ]['revenue'] ?? 0.0 ) + (float) $r['revenue'];
+			$out[ $tid ]['units']   = (int) ( $out[ $tid ]['units'] ?? 0 ) + (int) $r['units'];
+			$out[ $tid ]['revenue'] = (float) ( $out[ $tid ]['revenue'] ?? 0.0 );
+			$money = self::to_shop_currency( (float) $r['net'], (string) $f['cur'], (float) $f['rate'], $shop, $wcml );
+			if ( null !== $money ) {
+				$out[ $tid ]['revenue'] += $money;
+			}
 		}
 		return $out;
 	}
@@ -2133,7 +2230,7 @@ final class DZE_Netlinking {
 		foreach ( [
 			__( 'Only product categories are listed. Position, impressions and clicks are what Google measured for the category page itself; a category with several addresses has them added up.', 'dazont-ecom' ),
 			__( 'Units and revenue are what the products filed in the category sold over the same period, as WooCommerce recorded it. Each language counts its OWN sales: the language is the one of the product sold, so a sale on the French shop counts for the French category and for it alone.', 'dazont-ecom' ),
-			__( 'Revenue is converted to the shop currency at the rate recorded WITH EACH ORDER on the day it was paid, not at today\'s rate. Orders that recorded none are counted at face value, so a figure can be slightly low rather than invented.', 'dazont-ecom' ),
+			__( 'Revenue is converted to the shop currency at the rate recorded WITH EACH ORDER on the day it was paid; an order that recorded none is converted at WooCommerce Multilingual\'s current rate, and a sum in a currency nobody can convert is left out rather than counted one for one. Refunds are taken off; unpaid, failed, cancelled and deleted orders are not counted.', 'dazont-ecom' ),
 			__( '"Clicks to gain" is an estimate: what the category would get at about fifth place, against what it gets now. "Priority" has no unit and predicts nothing — it is that traffic weighted by what the category sells. It deliberately does NOT multiply clicks by units per click: sales come from every source while these clicks are Google\'s alone.', 'dazont-ecom' ),
 			__( 'Worth a link: past the third place and before the thirtieth, seen at least twenty times, and clicked less than fifth place would be. Left out: a category marked noindex, an empty one, and the default category.', 'dazont-ecom' ),
 		] as $dze_line ) {
