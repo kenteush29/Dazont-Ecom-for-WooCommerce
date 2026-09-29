@@ -1696,6 +1696,21 @@ ok( 'naming it',                         false !== strpos( $dze_one, 'Tactical g
 // A FILTER THROWN AWAY BY A COLUMN HEADING IS A FILTER NOBODY TRUSTS.
 ok( 'sorting keeps the filter',          false !== strpos( $dze_one, 'by=price&dir=desc&cat=44' ), true );
 ok( 'and so does the other tab',         false !== strpos( $dze_one, 'show=fixed&by=found&dir=desc&cat=44' ), true );
+
+// A ZERO IS NOT AN OPTION. « Et règles moi ce problème des filtres catégories
+// à 0. Ça ne devrait juste pas être affiché. » 903 — the only Airsoft product
+// — is mended: Airsoft is on the Fixed tab now, and has nothing on Issues.
+$GLOBALS['dze_meta'][903]['_product_image_gallery'] = '1,2,3';
+$dze_menu_todo = $dze_catmenu( $dze_draw( [ 'show' => 'todo' ] ) );
+ok( 'on Issues, a category with nothing there is not offered',
+	$dze_menu_todo, [ '0:All categories (2)', '31:Backpacks (1)', '44:Tactical gear (2)' ] );
+ok( 'on Fixed, only what was mended is offered',
+	$dze_catmenu( $dze_draw( [ 'show' => 'fixed' ] ) ), [ '0:All categories (1)', '12:Airsoft (1)' ] );
+// THE ONE ALREADY CHOSEN STAYS, or the menu stops saying what the screen shows
+// the moment the tab changes.
+ok( 'the chosen one stays, even at nought',
+	in_array( '12:Airsoft (0)', $dze_catmenu( $dze_draw( [ 'show' => 'todo', 'cat' => '12' ] ) ), true ), true );
+$GLOBALS['dze_meta'][903]['_product_image_gallery'] = '';
 // The chosen one is the one the menu comes back on, or the screen forgets
 // what it is showing the moment it is drawn.
 ok( 'and the menu says what is chosen',
@@ -2331,8 +2346,8 @@ ok( 'et le menu affiche ce compte-la',
 	false !== strpos( $dze_src, "\$dze_cat['here'] ?? 0" ), true );
 ok( 'et plus celui des deux listes',
 	false !== strpos( $dze_src, "number_format_i18n( count( \$dze_cat['ids'] ) )" ), false );
-// L ENTREE RESTE PRESENTE meme a zero : on ne fait pas disparaitre le
-// filtre qu on vient de choisir parce qu on a change d onglet.
+// LE MENU RESTE BATI SUR LES DEUX : la categorie qu on vient de choisir ne
+// disparait pas parce qu on a change d onglet. Les autres a zero, si.
 ok( 'le menu est toujours bati sur les deux',
 	false !== strpos( $dze_src, "cat_index( array_merge( \$split['todo'], \$split['done'] ) )" ), true );
 
