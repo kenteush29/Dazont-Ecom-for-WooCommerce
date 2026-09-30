@@ -1968,32 +1968,41 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
    Same idiom as the internal-linking table beside it: one table, figures on
    the right, the words that matter on the left.
    ========================================================================== */
-.dze-nl-table td { vertical-align: top; }
+/* ONE LINE A CATEGORY: « les lignes sont très grosses ». Centred, and the
+   padding of a compact WordPress list. */
+.dze-nl-table td { vertical-align: middle; padding-top: 6px; padding-bottom: 6px; }
 .dze-nl-table .dze-nl-fig  { width: 84px; text-align: right; white-space: nowrap; }
 .dze-nl-table th.dze-nl-fig .dze-trd-sort { justify-content: flex-end; width: 100%; }
 .dze-nl-table .dze-nl-name { width: 26%; min-width: 220px; }
-.dze-nl-table .dze-nl-name strong a { font-size: 14px; }
+.dze-nl-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.dze-nl-table .dze-nl-flag { display: inline-flex; }
 .dze-nl-table .dze-nl-flag img, .dze-nl-table .dze-nl-flag span { vertical-align: middle; }
-.dze-nl-path { color: #646970; font-size: 12px; margin-top: 2px; word-break: break-all; }
-/* WHAT COMES BEFORE A LINK, said on the row itself: a title to rework, a page
-   the site does not support yet, a category that is no target at all. */
-.dze-nl-notes { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+.dze-nl-cat { font-weight: 600; font-size: 13px; }
+/* THE ROW'S ACTIONS AS TWO SMALL ICONS: WordPress's row-actions keep a line
+   of their own even while hidden. */
+.dze-nl-ico { color: #a7aaad; text-decoration: none; line-height: 1; }
+.dze-nl-ico:hover, .dze-nl-ico:focus { color: #2271b1; box-shadow: none; }
+.dze-nl-ico .dashicons { font-size: 16px; width: 16px; height: 16px; }
+/* WHAT COMES BEFORE A LINK, in a word; the sentence is the tooltip. */
 .dze-nl-note {
-	display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11.5px;
-	background: #f0f0f1; color: #3c434a; text-decoration: none;
+	display: inline-block; padding: 0 6px; border-radius: 9px; font-size: 11px; line-height: 18px;
+	background: #f0f0f1; color: #3c434a; white-space: nowrap; cursor: help;
 }
 .dze-nl-note.is-warn { background: #fcf0e3; color: #8a4a00; }
-a.dze-nl-note.is-warn:hover { background: #f8dfc2; color: #6b3900; }
-.dze-nl-table td.dze-nl-fig.is-low { color: #b26200; font-weight: 600; }
+/* FEWER THAN THREE INTERNAL LINKS: the figure says it. */
+.dze-nl-low { color: #b26200; font-weight: 700; text-decoration: none; cursor: help; }
+a.dze-nl-low { cursor: pointer; border-bottom: 1px dotted #b26200; }
 .dze-nl-table tr.is-skip td { color: #787c82; }
-/* THE LAST COLUMN GETS WHAT IS LEFT: the anchors are the only column of
-   words that can run long, so the figures keep their known widths. */
-.dze-nl-table .dze-nl-anchors { width: auto; }
+/* THE LAST COLUMN GETS WHAT IS LEFT, on ONE line: two anchors, cut with an
+   ellipsis when long, and « +N » for the rest. */
+.dze-nl-table .dze-nl-anchors { width: auto; white-space: nowrap; }
 .dze-nl-anchor {
-	display: inline-block; margin: 0 4px 4px 0; padding: 1px 7px;
-	border: 1px solid #dcdcde; border-radius: 10px; font-size: 12px;
+	display: inline-block; max-width: 170px; margin: 0 4px 0 0; padding: 0 7px; vertical-align: middle;
+	border: 1px solid #dcdcde; border-radius: 10px; font-size: 12px; line-height: 20px;
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dze-nl-anchor.is-main { border-color: #2271b1; color: #135e96; font-weight: 600; }
+.dze-nl-anchor.is-more { color: #646970; cursor: help; }
 .dze-nl-chips { margin: 10px 0 4px; display: flex; gap: 6px; flex-wrap: wrap; }
 .dze-nl-chip {
 	display: inline-flex; align-items: center; gap: 5px;

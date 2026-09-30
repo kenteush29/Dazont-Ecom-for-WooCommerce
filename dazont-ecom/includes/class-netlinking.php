@@ -2024,69 +2024,67 @@ final class DZE_Netlinking {
 				$url  = is_string( $link ) ? $link : '';
 			}
 			$reach = 'reach' === $status;
-			echo '<tr class="is-' . esc_attr( $status ) . '"><td class="dze-nl-name">';
+			// ONE LINE A CATEGORY. « Les lignes sont très grosses. Manque de
+			// lisibilité. » The cell stacked the name, its address on a line of its
+			// own, advice written as sentences that wrapped, and WordPress's row
+			// actions, which keep their line even while hidden. The address is the
+			// link's tooltip, the actions two small icons, and every piece of advice
+			// one or two words — the explanation is on hover.
+			echo '<tr class="is-' . esc_attr( $status ) . '"><td class="dze-nl-name"><div class="dze-nl-line">';
 			if ( $multi ) {
-				echo '<span class="dze-nl-flag">' . wp_kses_post( self::flag( (string) ( $r['lang'] ?? '' ) ) ) . '</span> ';
+				echo '<span class="dze-nl-flag">' . wp_kses_post( self::flag( (string) ( $r['lang'] ?? '' ) ) ) . '</span>';
 			}
-			echo '<strong>' . ( '' !== $url
-				? '<a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html( '' !== $name ? $name : self::short( $url ) ) . '</a>'
-				: esc_html( $name ) ) . '</strong>';
-			if ( '' !== $url ) {
-				echo '<div class="dze-nl-path">/' . esc_html( self::short( $url ) ) . '</div>';
-			}
-			// CE QUI PASSE AVANT UN LIEN, dit sur la ligne meme.
-			$flags = [];
-			if ( ! empty( $r['ctr_low'] ) ) {
-				$flags[] = '<span class="dze-nl-note is-warn" title="' . esc_attr__( 'Google shows it well placed, and few people click. Rework its title and meta description first: a link does not fix a result nobody wants to click, a better one is free.', 'dazont-ecom' ) . '">' . esc_html__( 'Low click rate for its place: rework the title first', 'dazont-ecom' ) . '</span>';
-			}
-			if ( null !== ( $r['in'] ?? null ) && (int) $r['in'] < 3 && 'skip' !== $status ) {
-				$said = sprintf(
-					/* translators: %s: how many of the shop's own pages link to it */
-					_n( 'Only %s internal link: link it from your own pages first', 'Only %s internal links: link it from your own pages first', (int) $r['in'], 'dazont-ecom' ),
-					number_format_i18n( (int) $r['in'] )
-				);
-				$tip  = __( 'Fewer than three of your own pages point at it. An internal link is free, and a link from outside lands better on a page the site itself supports.', 'dazont-ecom' );
-				$flags[] = '' !== $link_url
-					? '<a class="dze-nl-note is-warn" href="' . esc_url( $link_url ) . '" title="' . esc_attr( $tip ) . '">' . esc_html( $said ) . '</a>'
-					: '<span class="dze-nl-note is-warn" title="' . esc_attr( $tip ) . '">' . esc_html( $said ) . '</span>';
-			}
-			$skip_said = [
-				'noindex' => __( 'noindex: Google is told not to index it, a link would be wasted', 'dazont-ecom' ),
-				'empty'   => __( 'Empty: no product in it or under it', 'dazont-ecom' ),
-				'default' => __( 'The default category', 'dazont-ecom' ),
-			];
-			if ( 'skip' === $status && isset( $skip_said[ (string) ( $r['skip'] ?? '' ) ] ) ) {
-				$flags[] = '<span class="dze-nl-note">' . esc_html( $skip_said[ (string) $r['skip'] ] ) . '</span>';
-			}
-			if ( 'unseen' === $status ) {
-				$flags[] = '<span class="dze-nl-note" title="' . esc_attr__( 'It sells, and Google showed its page to nobody over the period. Check that the page is indexed before anything else.', 'dazont-ecom' ) . '">' . esc_html__( 'Sells, and Google showed it to nobody', 'dazont-ecom' ) . '</span>';
-			}
-			if ( $flags ) {
-				echo '<div class="dze-nl-notes">' . wp_kses_post( implode( ' ', $flags ) ) . '</div>';
-			}
-			// LES ACTIONS DE LIGNE, comme dans toutes les listes de WordPress.
-			$acts = [];
+			echo '' !== $url
+				? '<a class="dze-nl-cat" href="' . esc_url( $url ) . '" target="_blank" rel="noopener" title="' . esc_attr( '/' . self::short( $url ) ) . '">' . esc_html( '' !== $name ? $name : self::short( $url ) ) . '</a>'
+				: '<span class="dze-nl-cat">' . esc_html( $name ) . '</span>';
 			if ( $tid > 0 && function_exists( 'get_edit_term_link' ) ) {
 				$edit = get_edit_term_link( $tid, 'product_cat' );
 				if ( is_string( $edit ) && '' !== $edit ) {
-					$acts[] = '<span class="edit"><a href="' . esc_url( $edit ) . '">' . esc_html__( 'Edit', 'dazont-ecom' ) . '</a></span>';
+					echo '<a class="dze-nl-ico" href="' . esc_url( $edit ) . '" title="' . esc_attr__( 'Edit the category', 'dazont-ecom' ) . '"><span class="dashicons dashicons-edit" aria-hidden="true"></span><span class="screen-reader-text">' . esc_html__( 'Edit', 'dazont-ecom' ) . '</span></a>';
 				}
 			}
 			$gsc = self::gsc_url( (string) ( $r['url'] ?? '' ), (string) ( $r['prop'] ?? '' ) );
 			if ( '' !== $gsc ) {
-				$acts[] = '<span><a href="' . esc_url( $gsc ) . '" target="_blank" rel="noopener">' . esc_html__( 'Search Console', 'dazont-ecom' ) . ' ↗</a></span>';
+				echo '<a class="dze-nl-ico" href="' . esc_url( $gsc ) . '" target="_blank" rel="noopener" title="' . esc_attr__( 'Open it in Search Console', 'dazont-ecom' ) . '"><span class="dashicons dashicons-chart-area" aria-hidden="true"></span><span class="screen-reader-text">' . esc_html__( 'Search Console', 'dazont-ecom' ) . '</span></a>';
 			}
-			if ( $acts ) {
-				echo '<div class="row-actions">' . wp_kses_post( implode( ' | ', $acts ) ) . '</div>';
+			// CE QUI PASSE AVANT UN LIEN : un mot sur la ligne, la phrase au survol.
+			if ( ! empty( $r['ctr_low'] ) ) {
+				echo '<span class="dze-nl-note is-warn" title="' . esc_attr__( 'Low click rate for its place. Google shows it well placed, and few people click: rework its title and meta description first — a link does not fix a result nobody wants to click, a better one is free.', 'dazont-ecom' ) . '">' . esc_html__( 'Low CTR', 'dazont-ecom' ) . '</span>';
 			}
+			$skip_said = [
+				'noindex' => [ __( 'noindex', 'dazont-ecom' ), __( 'Google is told not to index it: a link would be wasted.', 'dazont-ecom' ) ],
+				'empty'   => [ __( 'Empty', 'dazont-ecom' ), __( 'No product in it or under it.', 'dazont-ecom' ) ],
+				'default' => [ __( 'Default', 'dazont-ecom' ), __( 'The default category of the shop.', 'dazont-ecom' ) ],
+			];
+			if ( 'skip' === $status && isset( $skip_said[ (string) ( $r['skip'] ?? '' ) ] ) ) {
+				$dze_skip = $skip_said[ (string) $r['skip'] ];
+				echo '<span class="dze-nl-note" title="' . esc_attr( $dze_skip[1] ) . '">' . esc_html( $dze_skip[0] ) . '</span>';
+			}
+			if ( 'unseen' === $status ) {
+				echo '<span class="dze-nl-note" title="' . esc_attr__( 'It sells, and Google showed its page to nobody over the period. Check that the page is indexed before anything else.', 'dazont-ecom' ) . '">' . esc_html__( 'Not in Google', 'dazont-ecom' ) . '</span>';
+			}
+			echo '</div>';
 			echo '</td>';
 			$seen = (float) ( $r['impr'] ?? 0 ) > 0;
 			$dash = '<span class="description">—</span>';
 			echo '<td class="dze-nl-fig">' . ( $seen ? esc_html( number_format_i18n( (float) ( $r['pos'] ?? 0 ), 1 ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
 			echo '<td class="dze-nl-fig">' . ( $seen ? esc_html( number_format_i18n( (int) ( $r['impr'] ?? 0 ) ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 			echo '<td class="dze-nl-fig" title="' . esc_attr( $seen ? sprintf( /* translators: %s: a click-through rate */ __( 'Click rate: %s%%', 'dazont-ecom' ), number_format_i18n( 100 * (float) ( $r['ctr'] ?? 0 ), 1 ) ) : '' ) . '">' . ( $seen ? esc_html( number_format_i18n( (int) ( $r['clicks'] ?? 0 ) ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			$in = $r['in'] ?? null;
-			echo '<td class="dze-nl-fig' . ( null !== $in && (int) $in < 3 ? ' is-low' : '' ) . '">' . ( null === $in ? $dash : esc_html( number_format_i18n( (int) $in ) ) ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			// FEWER THAN THREE INTERNAL LINKS: the figure itself says it — orange,
+			// with the advice on hover, and a click leads to the internal linking.
+			$in  = $r['in'] ?? null;
+			$low = null !== $in && (int) $in < 3 && 'skip' !== $status;
+			$tip = __( 'Fewer than three of your own pages point at it. Link it from your own pages first: an internal link is free, and a link from outside lands better on a page the site itself supports.', 'dazont-ecom' );
+			if ( null === $in ) {
+				$in_cell = $dash;
+			} elseif ( $low && '' !== $link_url ) {
+				$in_cell = '<a class="dze-nl-low" href="' . esc_url( $link_url ) . '" title="' . esc_attr( $tip ) . '">' . esc_html( number_format_i18n( (int) $in ) ) . '</a>';
+			} elseif ( $low ) {
+				$in_cell = '<span class="dze-nl-low" title="' . esc_attr( $tip ) . '">' . esc_html( number_format_i18n( (int) $in ) ) . '</span>';
+			} else {
+				$in_cell = esc_html( number_format_i18n( (int) $in ) );
+			}
+			echo '<td class="dze-nl-fig">' . $in_cell . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
 			echo '<td class="dze-nl-fig">' . esc_html( number_format_i18n( (int) ( $r['units'] ?? 0 ) ) ) . '</td>';
 			echo '<td class="dze-nl-fig">' . ( (float) ( $r['revenue'] ?? 0 ) > 0 ? esc_html( self::money( (float) $r['revenue'] ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 			echo '<td class="dze-nl-fig">' . ( (float) ( $r['per_click'] ?? 0 ) > 0 ? esc_html( self::money( (float) $r['per_click'] ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
@@ -2094,14 +2092,20 @@ final class DZE_Netlinking {
 			// UN RANG, PAS UNE PROMESSE : pas de signe +, pas d unite.
 			$worth = (float) ( $r['worth'] ?? 0 );
 			echo '<td class="dze-nl-fig">' . ( $worth > 0 ? '<strong>' . esc_html( number_format_i18n( (int) round( $worth ) ) ) . '</strong>' : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			// TWO ANCHORS ON THE LINE, the others behind a « +N » that lists them.
+			$dze_terms = array_values( (array) ( $r['terms'] ?? [] ) );
 			echo '<td class="dze-nl-anchors">';
-			foreach ( array_values( (array) ( $r['terms'] ?? [] ) ) as $dze_i => $t ) {
-				echo '<span class="dze-nl-anchor' . ( 0 === $dze_i ? ' is-main' : '' ) . '" title="' . esc_attr( sprintf(
+			foreach ( array_slice( $dze_terms, 0, 2 ) as $dze_i => $t ) {
+				echo '<span class="dze-nl-anchor' . ( 0 === $dze_i ? ' is-main' : '' ) . '" title="' . esc_attr( (string) ( $t['q'] ?? '' ) . ' — ' . sprintf(
 					/* translators: 1: impressions, 2: a position */
 					__( '%1$s impressions, position %2$s', 'dazont-ecom' ),
 					number_format_i18n( (int) ( $t['impr'] ?? 0 ) ),
 					number_format_i18n( (float) ( $t['pos'] ?? 0 ), 1 )
 				) ) . '">' . esc_html( (string) ( $t['q'] ?? '' ) ) . '</span>';
+			}
+			$dze_more = array_slice( $dze_terms, 2 );
+			if ( $dze_more ) {
+				echo '<span class="dze-nl-anchor is-more" title="' . esc_attr( implode( ' · ', array_map( static fn( $t ) => (string) ( $t['q'] ?? '' ), $dze_more ) ) ) . '">+' . esc_html( number_format_i18n( count( $dze_more ) ) ) . '</span>';
 			}
 			echo '</td></tr>';
 		}
