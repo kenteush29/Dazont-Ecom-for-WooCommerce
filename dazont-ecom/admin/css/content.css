@@ -1970,7 +1970,13 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
    ========================================================================== */
 /* ONE LINE A CATEGORY: « les lignes sont très grosses ». Centred, and the
    padding of a compact WordPress list. */
-.dze-nl-table td { vertical-align: middle; padding-top: 6px; padding-bottom: 6px; }
+.dze-nl-table td { vertical-align: middle; padding-top: 8px; padding-bottom: 8px; }
+/* A READING SIZE: « la police d'écriture, elle est toute petite ». WordPress
+   lists are 13px and grey; this one is read figure by figure. */
+.widefat.dze-nl-table td { font-size: 15px; line-height: 1.45; color: #1d2327; }
+.widefat.dze-nl-table th { font-size: 14px; }
+.dze-nl-table td.is-thin { color: #646970; cursor: help; text-decoration: underline dotted #a7aaad; text-underline-offset: 3px; }
+.dze-nl-table td.dze-nl-prio strong { font-size: 16px; }
 /* NO COLUMN MAY PUSH THE TABLE PAST THE SCREEN: « page maintenant étirée en
    largeur ». The figures stay on one line, but a two-word header (« Clicks to
    gain », « Internal links ») takes two lines instead of widening its column,
@@ -1978,14 +1984,14 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
    that, the table scrolls inside its own box — never the whole page. */
 .dze-nl-scroll { overflow-x: auto; }
 .dze-nl-table { table-layout: auto; width: 100%; }
-.dze-nl-table .dze-nl-fig  { width: 72px; padding-left: 6px; padding-right: 8px; text-align: right; white-space: nowrap; }
+.dze-nl-table .dze-nl-fig  { width: 96px; padding-left: 6px; padding-right: 8px; text-align: right; white-space: nowrap; }
 .dze-nl-table th.dze-nl-fig { white-space: normal; line-height: 1.3; vertical-align: bottom; }
 .dze-nl-table th.dze-nl-fig .dze-trd-sort { justify-content: flex-end; width: 100%; }
 .dze-nl-table .dze-nl-name { width: auto; min-width: 180px; }
 .dze-nl-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
 .dze-nl-table .dze-nl-flag { display: inline-flex; }
 .dze-nl-table .dze-nl-flag img, .dze-nl-table .dze-nl-flag span { vertical-align: middle; }
-.dze-nl-cat { font-weight: 600; font-size: 13px; }
+.dze-nl-cat { font-weight: 600; font-size: 15px; }
 /* THE ROW'S ACTIONS AS TWO SMALL ICONS: WordPress's row-actions keep a line
    of their own even while hidden. */
 .dze-nl-ico { color: #a7aaad; text-decoration: none; line-height: 1; }
@@ -1993,19 +1999,16 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-nl-ico .dashicons { font-size: 16px; width: 16px; height: 16px; }
 /* WHAT COMES BEFORE A LINK, in a word; the sentence is the tooltip. */
 .dze-nl-note {
-	display: inline-block; padding: 0 6px; border-radius: 9px; font-size: 11px; line-height: 18px;
+	display: inline-block; padding: 0 7px; border-radius: 10px; font-size: 12px; line-height: 20px;
 	background: #f0f0f1; color: #3c434a; white-space: nowrap; cursor: help;
 }
 .dze-nl-note.is-warn { background: #fcf0e3; color: #8a4a00; }
-/* FEWER THAN THREE INTERNAL LINKS: the figure says it. */
-.dze-nl-low { color: #b26200; font-weight: 700; text-decoration: none; cursor: help; }
-a.dze-nl-low { cursor: pointer; border-bottom: 1px dotted #b26200; }
 .dze-nl-table tr.is-skip td { color: #787c82; }
 .dze-nl-chips { margin: 10px 0 4px; display: flex; gap: 6px; flex-wrap: wrap; }
 .dze-nl-chip {
 	display: inline-flex; align-items: center; gap: 5px;
 	padding: 2px 9px; border: 1px solid #dcdcde; border-radius: 11px;
-	font-size: 12px; background: #fff;
+	font-size: 13px; background: #fff;
 }
 .dze-nl-chip .dashicons { font-size: 14px; width: 14px; height: 14px; }
 /* THE SORT LINKS WEAR THE SORT BUTTONS OF THE TRANSLATIONS DASHBOARD. */

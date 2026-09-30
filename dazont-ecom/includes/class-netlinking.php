@@ -160,6 +160,13 @@ final class DZE_Netlinking {
 	private const PER_PAGE = 50;
 	/** Le plancher d impressions sous lequel un gain calcule ne veut rien dire. */
 	private const MIN_IMPR = 20;
+	/**
+	 * CE QU UN CLIC RAPPORTE NE SE JUGE PAS SUR QUATRE CLICS. Le chiffre
+	 * d affaires d une categorie vient de partout ; divise par quatre clics
+	 * Google, une seule grosse commande en fait 500 $ le clic. La priorite le
+	 * compte sur au moins autant de clics que ceci.
+	 */
+	public const SMOOTH_CLICKS = 20;
 
 	private static ?self $instance = null;
 
@@ -1092,16 +1099,6 @@ final class DZE_Netlinking {
 			if ( 'reach' !== $status ) {
 				$gain = 0.0;
 			}
-			// UNE PRIORITE, ET SURTOUT PAS UNE PREVISION.
-			//
-			// Le premier calcul multipliait les clics a gagner par « unites
-			// vendues / clics Google » : /military-balaclava sortait a +171
-			// unites pour +17 clics. Le rapport est structurellement faux.
-			// Ce qu on peut faire honnetement, c est CLASSER : le trafic a gagner,
-			// pondere par le fait que la categorie vende. Le logarithme ecrase
-			// l ecart entre 50 et 500 sans effacer celui entre 0 et 50.
-			$worth = 'reach' === $status && $units > 0 ? $gain * ( 1.0 + log10( 1.0 + (float) $units ) ) : 0.0;
-
 			// UN TITRE AVANT UN LIEN. Bien placee et peu cliquee, une page a un
 			// probleme d extrait — titre, description — qu aucun lien ne regle,
 			// et qui se regle gratuitement.
@@ -1126,28 +1123,69 @@ final class DZE_Netlinking {
 				// c est dit. Il sert a comparer deux categories entre elles.
 				'per_click' => $rev > 0 && $clicks >= 1 ? $rev / $clicks : 0.0,
 				'gain'      => $gain,
-				'worth'     => $worth,
+				'worth'     => 0, // score() la pose, sur toute la lecture.
 				'status'    => $status,
 				'skip'      => $skip,
 				'ctr_low'   => $ctr_low,
-				// Les liens internes qui arrivent deja, quand le maillage les a
-				// comptes ; null quand il ne sait pas.
-				'in'        => isset( $m['in'] ) ? (int) $m['in'] : null,
 				'terms'     => $terms,
 			];
+		}
+		return self::score( $out );
+	}
+
+	/**
+	 * LA PRIORITE : les clics qu une meilleure place donnerait, fois ce qu un
+	 * clic rapporte deja a cette categorie.
+	 *
+	 * « Le score est mauvais. Le revenu par clic et les ventes par rapport à la
+	 * position de la catégorie actuelle, c'est ce qui m'intéresse vraiment. »
+	 * L ancienne priorite ponderait les clics a gagner par le LOGARITHME des
+	 * unites vendues : les ventes n y pesaient presque rien, et Gorka Suits
+	 * (19 038 impressions, 3 ventes, 0,90 $ le clic) passait devant Tactical
+	 * belt suspenders (76 ventes, 63 $ le clic).
+	 *
+	 * La position entre par les clics a gagner — la cinquieme place contre la
+	 * place actuelle —, les ventes par ce qu un clic rapporte : le chiffre
+	 * d affaires sur les clics, compte sur au moins SMOOTH_CLICKS clics. Sans
+	 * vente, pas de priorite. Rendue sur 100, la premiere categorie de la
+	 * lecture valant 100 : C EST UN RANG, PAS UNE PREVISION, puisque le chiffre
+	 * d affaires vient de toutes les sources et les clics de Google seul.
+	 *
+	 * Refaite a l affichage aussi : une lecture gardee d une version d avant
+	 * montre le rang d aujourd hui sans attendre la suivante.
+	 *
+	 * @param array<int,array<string,mixed>> $rows Les lignes de rank(), ou celles d une lecture gardee.
+	 * @return array<int,array<string,mixed>> Les memes avec « value » et « worth », a portee d abord et par priorite.
+	 */
+	public static function score( array $rows ): array {
+		$best = 0.0;
+		foreach ( $rows as $i => $r ) {
+			$rev   = (float) ( $r['revenue'] ?? 0 );
+			$value = 'reach' === (string) ( $r['status'] ?? '' ) && $rev > 0
+				? $rev / max( (float) ( $r['clicks'] ?? 0 ), (float) self::SMOOTH_CLICKS )
+				: 0.0;
+			$rows[ $i ]['value'] = $value;
+			$rows[ $i ]['raw']   = $value * max( 0.0, (float) ( $r['gain'] ?? 0 ) );
+			$best                = max( $best, $rows[ $i ]['raw'] );
 		}
 		// A PORTEE D ABORD, PAR PRIORITE PUIS PAR CLICS A GAGNER ; le reste par
 		// ce qu il vend, puis par ce que Google en montre.
 		$order = [ 'reach' => 0, 'strong' => 1, 'unseen' => 2, 'far' => 3, 'skip' => 4 ];
-		usort( $out, static function ( $a, $b ) use ( $order ) {
-			$sa = $order[ $a['status'] ] ?? 9;
-			$sb = $order[ $b['status'] ] ?? 9;
+		usort( $rows, static function ( $a, $b ) use ( $order ) {
+			$sa = $order[ (string) ( $a['status'] ?? '' ) ] ?? 9;
+			$sb = $order[ (string) ( $b['status'] ?? '' ) ] ?? 9;
 			if ( $sa !== $sb ) {
 				return $sa <=> $sb;
 			}
-			return [ $b['worth'], $b['gain'], $b['revenue'], $b['impr'] ] <=> [ $a['worth'], $a['gain'], $a['revenue'], $a['impr'] ];
+			return [ $b['raw'], (float) ( $b['gain'] ?? 0 ), (float) ( $b['revenue'] ?? 0 ), (float) ( $b['impr'] ?? 0 ) ]
+				<=> [ $a['raw'], (float) ( $a['gain'] ?? 0 ), (float) ( $a['revenue'] ?? 0 ), (float) ( $a['impr'] ?? 0 ) ];
 		} );
-		return $out;
+		foreach ( $rows as $i => $r ) {
+			// CE QUI VAUT QUELQUE CHOSE NE S AFFICHE JAMAIS « 0 ».
+			$rows[ $i ]['worth'] = $best > 0 && $r['raw'] > 0 ? max( 1, (int) round( 100 * $r['raw'] / $best ) ) : 0;
+			unset( $rows[ $i ]['raw'] );
+		}
+		return $rows;
 	}
 
 	/** Un texte reduit a ses lettres et chiffres, en minuscules : « Kula-Tactical » → « kulatactical ». */
@@ -1194,13 +1232,13 @@ final class DZE_Netlinking {
 	/**
 	 * CE QUE LA BOUTIQUE SAIT DE CHAQUE CATEGORIE, en trois requetes : son nom et
 	 * sa langue, si elle est vide, si Rank Math la dit « noindex », si c est la
-	 * categorie par defaut — et combien de ses propres pages pointent deja vers
-	 * elle, quand le maillage interne l a compte.
+	 * categorie par defaut. Pas ses liens internes : « internal link n'a pas lieu
+	 * d'être ici » — ils sont l affaire de l ecran du maillage.
 	 *
 	 * VIDE VEUT DIRE VIDE AVEC SA DESCENDANCE : une categorie de tete ne porte
 	 * souvent rien elle-meme et tout son rayon dessous.
 	 *
-	 * @return array<int,array{name:string,lang:string,empty:bool,noindex:bool,default:bool,in?:int}>
+	 * @return array<int,array{name:string,lang:string,empty:bool,noindex:bool,default:bool}>
 	 */
 	public static function term_meta(): array {
 		global $wpdb;
@@ -1266,10 +1304,7 @@ final class DZE_Netlinking {
 		// polonais qu en anglais.
 		$def      = (int) get_option( 'default_product_cat', 0 );
 		$def_trid = (int) ( $trid[ $def ] ?? 0 );
-		$census   = class_exists( 'DZE_Mesh' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'mesh' ) )
-			? (array) ( DZE_Mesh::census()['per'] ?? [] )
-			: [];
-		$out = [];
+		$out      = [];
 		foreach ( $rows as $r ) {
 			$tid         = (int) $r['tid'];
 			$out[ $tid ] = [
@@ -1279,9 +1314,6 @@ final class DZE_Netlinking {
 				'noindex' => isset( $noindex[ $tid ] ),
 				'default' => $tid === $def || ( $def_trid > 0 && $trid[ $tid ] === $def_trid ),
 			];
-			if ( isset( $census[ 'product_cat:' . $tid ]['in'] ) ) {
-				$out[ $tid ]['in'] = (int) $census[ 'product_cat:' . $tid ]['in'];
-			}
 		}
 		return $out;
 	}
@@ -1826,19 +1858,24 @@ final class DZE_Netlinking {
 	 * les filtres : une vue triee est un signet, et c est l idiome des tableaux
 	 * de WordPress.
 	 *
+	 * CE QUI COMPTE, ET RIEN D AUTRE : « il y a des colonnes en trop. internal
+	 * link n'a pas lieu d'être ici. […] Le revenu par clic et les ventes par
+	 * rapport à la position de la catégorie actuelle, c'est ce qui m'intéresse
+	 * vraiment. » Les impressions passent au survol de la position, les clics a
+	 * gagner au survol de la priorite ; les liens internes sont l affaire de
+	 * l ecran du maillage. Un signet trie sur une colonne partie retombe sur la
+	 * priorite (sort_now()).
+	 *
 	 * @return array<string,array{label:string,title:string}>
 	 */
 	private static function columns(): array {
 		return [
 			'pos'       => [ 'label' => __( 'Position', 'dazont-ecom' ), 'title' => __( 'Average position of the category page in Google over the period.', 'dazont-ecom' ) ],
-			'impr'      => [ 'label' => __( 'Impressions', 'dazont-ecom' ), 'title' => __( 'How often Google showed the category page.', 'dazont-ecom' ) ],
 			'clicks'    => [ 'label' => __( 'Clicks', 'dazont-ecom' ), 'title' => __( 'How often the category page was clicked from Google.', 'dazont-ecom' ) ],
-			'in'        => [ 'label' => __( 'Internal links', 'dazont-ecom' ), 'title' => __( 'How many of your own pages link to it, as the internal linking module counted them.', 'dazont-ecom' ) ],
 			'units'     => [ 'label' => __( 'Units sold', 'dazont-ecom' ), 'title' => __( 'What the products filed in this category sold over the same period, in this language.', 'dazont-ecom' ) ],
 			'revenue'   => [ 'label' => __( 'Revenue', 'dazont-ecom' ), 'title' => __( 'Converted to the shop currency at the rate recorded with each order.', 'dazont-ecom' ) ],
-			'per_click' => [ 'label' => __( 'Per click', 'dazont-ecom' ), 'title' => __( 'Revenue divided by the clicks Google sent to the category. It overstates, because sales come from every source.', 'dazont-ecom' ) ],
-			'gain'      => [ 'label' => __( 'Clicks to gain', 'dazont-ecom' ), 'title' => __( 'Estimated: what the category would get at about fifth place, against what it gets now.', 'dazont-ecom' ) ],
-			'worth'     => [ 'label' => __( 'Priority', 'dazont-ecom' ), 'title' => __( 'No unit and no prediction: the clicks to gain, weighted by what the category sells.', 'dazont-ecom' ) ],
+			'per_click' => [ 'label' => __( 'Revenue / click', 'dazont-ecom' ), 'title' => __( 'Revenue divided by the clicks Google sent to the category. It overstates, because sales come from every source: it compares categories, it does not predict.', 'dazont-ecom' ) ],
+			'worth'     => [ 'label' => __( 'Priority', 'dazont-ecom' ), 'title' => __( 'The clicks a better place would bring, times what a click earns this category. 100 is the first category of this reading.', 'dazont-ecom' ) ],
 		];
 	}
 
@@ -1900,7 +1937,9 @@ final class DZE_Netlinking {
 		if ( $all && 2 !== (int) ( $d['model'] ?? 0 ) ) {
 			$all = [];
 		}
-		$f = self::filters();
+		// LE RANG D AUJOURD HUI, meme sur une lecture faite avant lui.
+		$all = self::score( $all );
+		$f   = self::filters();
 
 		self::render_error();
 		self::render_chips( $d, $all );
@@ -2000,7 +2039,6 @@ final class DZE_Netlinking {
 		$rows  = array_slice( $rows, ( $f['paged'] - 1 ) * self::PER_PAGE, self::PER_PAGE );
 		$multi = count( $langs ) > 1;
 		$cols  = self::columns();
-		$link_url = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'linking' ) : '';
 
 		if ( ! $rows ) {
 			echo '<p class="description">' . esc_html__( 'No category matches these filters.', 'dazont-ecom' ) . '</p>';
@@ -2024,7 +2062,6 @@ final class DZE_Netlinking {
 				$link = get_term_link( $tid, 'product_cat' );
 				$url  = is_string( $link ) ? $link : '';
 			}
-			$reach = 'reach' === $status;
 			// ONE LINE A CATEGORY. « Les lignes sont très grosses. Manque de
 			// lisibilité. » The cell stacked the name, its address on a line of its
 			// own, advice written as sentences that wrapped, and WordPress's row
@@ -2077,31 +2114,39 @@ final class DZE_Netlinking {
 			echo '</td>';
 			$seen = (float) ( $r['impr'] ?? 0 ) > 0;
 			$dash = '<span class="description">—</span>';
-			echo '<td class="dze-nl-fig">' . ( $seen ? esc_html( number_format_i18n( (float) ( $r['pos'] ?? 0 ), 1 ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
-			echo '<td class="dze-nl-fig">' . ( $seen ? esc_html( number_format_i18n( (int) ( $r['impr'] ?? 0 ) ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			// THE POSITION, with what Google showed of it on hover.
+			$impr_tip = $seen ? sprintf( /* translators: %s: how many impressions */ __( '%s impressions', 'dazont-ecom' ), number_format_i18n( (int) ( $r['impr'] ?? 0 ) ) ) : '';
+			echo '<td class="dze-nl-fig" title="' . esc_attr( $impr_tip ) . '">' . ( $seen ? esc_html( number_format_i18n( (float) ( $r['pos'] ?? 0 ), 1 ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
 			echo '<td class="dze-nl-fig" title="' . esc_attr( $seen ? sprintf( /* translators: %s: a click-through rate */ __( 'Click rate: %s%%', 'dazont-ecom' ), number_format_i18n( 100 * (float) ( $r['ctr'] ?? 0 ), 1 ) ) : '' ) . '">' . ( $seen ? esc_html( number_format_i18n( (int) ( $r['clicks'] ?? 0 ) ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			// FEWER THAN THREE INTERNAL LINKS: the figure itself says it — orange,
-			// with the advice on hover, and a click leads to the internal linking.
-			$in  = $r['in'] ?? null;
-			$low = null !== $in && (int) $in < 3 && 'skip' !== $status;
-			$tip = __( 'Fewer than three of your own pages point at it. Link it from your own pages first: an internal link is free, and a link from outside lands better on a page the site itself supports.', 'dazont-ecom' );
-			if ( null === $in ) {
-				$in_cell = $dash;
-			} elseif ( $low && '' !== $link_url ) {
-				$in_cell = '<a class="dze-nl-low" href="' . esc_url( $link_url ) . '" title="' . esc_attr( $tip ) . '">' . esc_html( number_format_i18n( (int) $in ) ) . '</a>';
-			} elseif ( $low ) {
-				$in_cell = '<span class="dze-nl-low" title="' . esc_attr( $tip ) . '">' . esc_html( number_format_i18n( (int) $in ) ) . '</span>';
-			} else {
-				$in_cell = esc_html( number_format_i18n( (int) $in ) );
-			}
-			echo '<td class="dze-nl-fig">' . $in_cell . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
 			echo '<td class="dze-nl-fig">' . esc_html( number_format_i18n( (int) ( $r['units'] ?? 0 ) ) ) . '</td>';
 			echo '<td class="dze-nl-fig">' . ( (float) ( $r['revenue'] ?? 0 ) > 0 ? esc_html( self::money( (float) $r['revenue'] ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			echo '<td class="dze-nl-fig">' . ( (float) ( $r['per_click'] ?? 0 ) > 0 ? esc_html( self::money( (float) $r['per_click'] ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			echo '<td class="dze-nl-fig">' . ( $reach ? '<strong>+' . esc_html( number_format_i18n( (int) round( (float) ( $r['gain'] ?? 0 ) ) ) ) . '</strong>' : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			// UN RANG, PAS UNE PROMESSE : pas de signe +, pas d unite.
-			$worth = (float) ( $r['worth'] ?? 0 );
-			echo '<td class="dze-nl-fig">' . ( $worth > 0 ? '<strong>' . esc_html( number_format_i18n( (int) round( $worth ) ) ) . '</strong>' : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			// A REVENUE PER CLICK ON FOUR CLICKS SAYS SO: one large order makes it
+			// $500 a click. Greyed, and the hover says what the priority counts.
+			$per     = (float) ( $r['per_click'] ?? 0 );
+			$value   = (float) ( $r['value'] ?? 0 );
+			$n_click = (int) ( $r['clicks'] ?? 0 );
+			$thin    = $per > 0 && $n_click < self::SMOOTH_CLICKS;
+			$per_tip = '';
+			if ( $thin ) {
+				/* translators: %s: how many clicks */
+				$per_tip = sprintf( _n( 'On %s click only: too few to judge.', 'On %s clicks only: too few to judge.', $n_click, 'dazont-ecom' ), number_format_i18n( $n_click ) );
+				if ( $value > 0 ) {
+					/* translators: %s: an amount per click */
+					$per_tip .= ' ' . sprintf( __( 'The priority counts %s a click.', 'dazont-ecom' ), self::money( $value ) );
+				}
+			}
+			echo '<td class="dze-nl-fig' . ( $thin ? ' is-thin' : '' ) . '" title="' . esc_attr( $per_tip ) . '">' . ( $per > 0 ? esc_html( self::money( $per ) ) : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			// THE PRIORITY, and on hover the two figures it is made of.
+			$worth = (int) ( $r['worth'] ?? 0 );
+			$w_tip = $worth > 0
+				? sprintf(
+					/* translators: 1: how many clicks, 2: an amount per click */
+					__( '+%1$s clicks at about fifth place × %2$s a click', 'dazont-ecom' ),
+					number_format_i18n( (int) round( (float) ( $r['gain'] ?? 0 ) ) ),
+					self::money( $value )
+				)
+				: '';
+			echo '<td class="dze-nl-fig dze-nl-prio" title="' . esc_attr( $w_tip ) . '">' . ( $worth > 0 ? '<strong>' . esc_html( number_format_i18n( $worth ) ) . '</strong>' : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 			echo '</tr>';
 		}
 		echo '</tbody></table></div>';
@@ -2218,7 +2263,6 @@ final class DZE_Netlinking {
 			__( 'Vary the anchor: the category name, your brand, the bare address, and now and then one of the searches it is already found with — shown when you hover its name. The same exact words on every link looks bought.', 'dazont-ecom' ),
 			__( 'One link from a site about the same subject is worth more than ten from anywhere. Leave out footers, sidebars, link swaps and bought packages.', 'dazont-ecom' ),
 			__( 'A category marked « Low click rate » has a title problem, not a link problem: rework its title and meta description first, it costs nothing.', 'dazont-ecom' ),
-			__( 'A category with fewer than three internal links: link it from your own articles and categories first. An outside link lands better on a page the site itself supports.', 'dazont-ecom' ),
 			__( 'Look again a few weeks after a link is placed: Google takes that long to move, and the period read can be set above the list.', 'dazont-ecom' ),
 		] as $dze_line ) {
 			echo '<li>' . esc_html( $dze_line ) . '</li>';
@@ -2230,7 +2274,11 @@ final class DZE_Netlinking {
 			__( 'Only product categories are listed. Position, impressions and clicks are what Google measured for the category page itself; a category with several addresses has them added up.', 'dazont-ecom' ),
 			__( 'Units and revenue are what the products filed in the category sold over the same period, as WooCommerce recorded it. Each language counts its OWN sales: the language is the one of the product sold, so a sale on the French shop counts for the French category and for it alone.', 'dazont-ecom' ),
 			__( 'Revenue is converted to the shop currency at the rate recorded WITH EACH ORDER on the day it was paid; an order that recorded none is converted at WooCommerce Multilingual\'s current rate, and a sum in a currency nobody can convert is left out rather than counted one for one. Refunds are taken off; unpaid, failed, cancelled and deleted orders are not counted.', 'dazont-ecom' ),
-			__( '"Clicks to gain" is an estimate: what the category would get at about fifth place, against what it gets now. "Priority" has no unit and predicts nothing — it is that traffic weighted by what the category sells. It deliberately does NOT multiply clicks by units per click: sales come from every source while these clicks are Google\'s alone.', 'dazont-ecom' ),
+			sprintf(
+				/* translators: %s: a number of clicks */
+				__( '"Priority" puts first the categories whose clicks earn the most and that a better place would bring the most clicks to: the clicks the category would get at about fifth place against what it gets now, times its revenue per click — counted on at least %s clicks, so one large order on four clicks does not jump the queue. No sale, no priority. 100 is the first category of the reading. It ranks and predicts nothing: sales come from every source, while these clicks are Google\'s alone. Hover a priority for the two figures it is made of.', 'dazont-ecom' ),
+				number_format_i18n( self::SMOOTH_CLICKS )
+			),
 			__( 'Worth a link: past the third place and before the thirtieth, seen at least twenty times, and clicked less than fifth place would be. Left out: a category marked noindex, an empty one, and the default category.', 'dazont-ecom' ),
 		] as $dze_line ) {
 			echo '<p class="description">' . esc_html( $dze_line ) . '</p>';
