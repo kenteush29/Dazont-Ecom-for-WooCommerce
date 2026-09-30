@@ -281,7 +281,15 @@ fait" (4.499.0):
     first".
   - Anchor ideas are the category's own Google queries, the brand ones left
     out (the site name and each domain's label, squashed: "kula-tactical" →
-    "kulatactical").
+    "kulatactical"). They are the name's TOOLTIP ("Searched as: …"), never a
+    column (4.501.2): « page maintenant étirée en largeur […] tu peux enlever
+    anchor ideas ». Words kept on one line in a cell pushed the table past the
+    screen, under the admin menu.
+  - **No column may push that table past the screen.** Figures stay on one
+    line; a two-word header wraps instead; the name takes what is left; the
+    table sits in `.dze-nl-scroll` so a narrow screen scrolls the table, never
+    the page. The owner's browser is 1536 px wide: measure there
+    (`scrollWidth` against `clientWidth`), not by reading the CSS.
   - `domains()` reads `get_option( 'home' )`, never `home_url()`: WPML
     rewrites the latter in the language of the visit that fired the cron.
 - Settings pages are saved by ONE mechanism: WordPress's own Save Changes,
