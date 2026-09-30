@@ -446,6 +446,11 @@ ok( 'et un domaine non couvert est nomme', false !== strpos( $src5, 'Not read:' 
 ok( 'une lecture d avant, qui melangeait les produits, ne se montre pas', false !== strpos( $src5, "2 !== (int) ( \$d['model'] ?? 0 )" ), true );
 $css = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/css/content.css' );
 ok( 'le module a sa feuille de style',    false !== strpos( $css, '.dze-nl-table' ), true );
+// « page maintenant étirée en largeur […] tu peux enlever anchor ideas ».
+ok( 'plus de colonne d idees d ancre',     false === strpos( $src5, "'Anchor ideas'" ) && false === strpos( $src5, 'dze-nl-anchors' ), true );
+ok( 'elles restent au survol du nom',      false !== strpos( $src5, "'Searched as: %s'" ), true );
+ok( 'le tableau defile dans son cadre',    false !== strpos( $src5, '<div class="dze-nl-scroll"><table' ) && false !== strpos( $css, '.dze-nl-scroll { overflow-x: auto; }' ), true );
+ok( 'un en-tete de deux mots passe a la ligne', false !== strpos( $css, '.dze-nl-table th.dze-nl-fig { white-space: normal;' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
