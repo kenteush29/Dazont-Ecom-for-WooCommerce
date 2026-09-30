@@ -2007,12 +2007,13 @@ final class DZE_Netlinking {
 			self::render_notes();
 			return;
 		}
-		echo '<table class="widefat striped dze-trd-table dze-nl-table"><thead><tr>';
+		// THE TABLE SCROLLS IN ITS OWN BOX on a narrow screen, never the page:
+		// « page maintenant étirée en largeur. Ce n'est pas bon. »
+		echo '<div class="dze-nl-scroll"><table class="widefat striped dze-trd-table dze-nl-table"><thead><tr>';
 		echo wp_kses_post( self::th( 'name', __( 'Category', 'dazont-ecom' ), __( 'The category page a link should point at.', 'dazont-ecom' ), $f, 'dze-nl-name' ) );
 		foreach ( $cols as $key => $col ) {
 			echo wp_kses_post( self::th( (string) $key, (string) $col['label'], (string) $col['title'], $f, 'dze-nl-fig' ) );
 		}
-		echo '<th class="dze-nl-anchors" title="' . esc_attr__( 'What people already type in Google to reach this category, most seen first, brand searches left out.', 'dazont-ecom' ) . '">' . esc_html__( 'Anchor ideas', 'dazont-ecom' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $rows as $r ) {
 			$tid    = (int) ( $r['tid'] ?? 0 );
@@ -2034,9 +2035,18 @@ final class DZE_Netlinking {
 			if ( $multi ) {
 				echo '<span class="dze-nl-flag">' . wp_kses_post( self::flag( (string) ( $r['lang'] ?? '' ) ) ) . '</span>';
 			}
+			// THE ANCHOR IDEAS ON HOVER, not in a column: « page maintenant étirée
+			// en largeur […] tu peux enlever anchor ideas ». A column of words on one
+			// line pushed the table past the screen, under the admin menu.
+			$dze_tip = '' !== $url ? '/' . self::short( $url ) : '';
+			$dze_q   = array_values( array_filter( array_map( static fn( $t ) => (string) ( $t['q'] ?? '' ), (array) ( $r['terms'] ?? [] ) ) ) );
+			if ( $dze_q ) {
+				/* translators: %s: the searches that already lead to the category */
+				$dze_tip .= ( '' !== $dze_tip ? "\n" : '' ) . sprintf( __( 'Searched as: %s', 'dazont-ecom' ), implode( ' · ', $dze_q ) );
+			}
 			echo '' !== $url
-				? '<a class="dze-nl-cat" href="' . esc_url( $url ) . '" target="_blank" rel="noopener" title="' . esc_attr( '/' . self::short( $url ) ) . '">' . esc_html( '' !== $name ? $name : self::short( $url ) ) . '</a>'
-				: '<span class="dze-nl-cat">' . esc_html( $name ) . '</span>';
+				? '<a class="dze-nl-cat" href="' . esc_url( $url ) . '" target="_blank" rel="noopener" title="' . esc_attr( $dze_tip ) . '">' . esc_html( '' !== $name ? $name : self::short( $url ) ) . '</a>'
+				: '<span class="dze-nl-cat" title="' . esc_attr( $dze_tip ) . '">' . esc_html( $name ) . '</span>';
 			if ( $tid > 0 && function_exists( 'get_edit_term_link' ) ) {
 				$edit = get_edit_term_link( $tid, 'product_cat' );
 				if ( is_string( $edit ) && '' !== $edit ) {
@@ -2092,24 +2102,9 @@ final class DZE_Netlinking {
 			// UN RANG, PAS UNE PROMESSE : pas de signe +, pas d unite.
 			$worth = (float) ( $r['worth'] ?? 0 );
 			echo '<td class="dze-nl-fig">' . ( $worth > 0 ? '<strong>' . esc_html( number_format_i18n( (int) round( $worth ) ) ) . '</strong>' : $dash ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			// TWO ANCHORS ON THE LINE, the others behind a « +N » that lists them.
-			$dze_terms = array_values( (array) ( $r['terms'] ?? [] ) );
-			echo '<td class="dze-nl-anchors">';
-			foreach ( array_slice( $dze_terms, 0, 2 ) as $dze_i => $t ) {
-				echo '<span class="dze-nl-anchor' . ( 0 === $dze_i ? ' is-main' : '' ) . '" title="' . esc_attr( (string) ( $t['q'] ?? '' ) . ' — ' . sprintf(
-					/* translators: 1: impressions, 2: a position */
-					__( '%1$s impressions, position %2$s', 'dazont-ecom' ),
-					number_format_i18n( (int) ( $t['impr'] ?? 0 ) ),
-					number_format_i18n( (float) ( $t['pos'] ?? 0 ), 1 )
-				) ) . '">' . esc_html( (string) ( $t['q'] ?? '' ) ) . '</span>';
-			}
-			$dze_more = array_slice( $dze_terms, 2 );
-			if ( $dze_more ) {
-				echo '<span class="dze-nl-anchor is-more" title="' . esc_attr( implode( ' · ', array_map( static fn( $t ) => (string) ( $t['q'] ?? '' ), $dze_more ) ) ) . '">+' . esc_html( number_format_i18n( count( $dze_more ) ) ) . '</span>';
-			}
-			echo '</td></tr>';
+			echo '</tr>';
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 		self::render_pager( $found, $pages, $f );
 		self::render_notes();
 	}
@@ -2220,7 +2215,7 @@ final class DZE_Netlinking {
 		echo '<details class="dze-set dze-nl-how"><summary>' . esc_html__( 'How to use this list', 'dazont-ecom' ) . '</summary><ul>';
 		foreach ( [
 			__( 'Point the link at the category page itself, never at a product: a category passes what it receives on to every product it lists, and it stays online when a product goes.', 'dazont-ecom' ),
-			__( 'Vary the anchor: the category name, your brand, the bare address, and now and then one of the anchor ideas — the same exact words on every link looks bought.', 'dazont-ecom' ),
+			__( 'Vary the anchor: the category name, your brand, the bare address, and now and then one of the searches it is already found with — shown when you hover its name. The same exact words on every link looks bought.', 'dazont-ecom' ),
 			__( 'One link from a site about the same subject is worth more than ten from anywhere. Leave out footers, sidebars, link swaps and bought packages.', 'dazont-ecom' ),
 			__( 'A category marked « Low click rate » has a title problem, not a link problem: rework its title and meta description first, it costs nothing.', 'dazont-ecom' ),
 			__( 'A category with fewer than three internal links: link it from your own articles and categories first. An outside link lands better on a page the site itself supports.', 'dazont-ecom' ),
