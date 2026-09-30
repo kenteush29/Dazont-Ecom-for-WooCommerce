@@ -274,11 +274,35 @@ fait" (4.499.0):
     in Rank Math, empty with its descendants, or the default category in
     every language). The list opens on `reach`, like the translations
     dashboard opens on "Not completed".
-  - Before a link comes a title, and before a title comes internal linking.
-    A category placed ≤ 10 with less than half the expected CTR is flagged
-    "rework the title first". A category with fewer than 3 internal links (the
-    mesh census, `product_cat:<id>`) is flagged "link it from your own pages
-    first".
+  - Before a link comes a title. A category placed ≤ 10 with less than half
+    the expected CTR is flagged "rework the title first". Internal links are
+    NOT this screen's business (4.502.0): « internal link n'a pas lieu d'être
+    ici ». The mesh census is not read here, and nothing on this screen
+    counts or advises about internal links.
+  - **PRIORITY = the clicks a better place would bring × what a click earns
+    that category** (`score()`, 4.502.0). « Le score est mauvais. Le revenu
+    par clic et les ventes par rapport à la position de la catégorie
+    actuelle, c'est ce qui m'intéresse vraiment. » The old priority weighted
+    the clicks to gain by log10 of the units sold. Sales barely counted, so
+    Gorka Suits (19,038 impressions, 3 sales, $0.90 a click) came first,
+    ahead of Tactical belt suspenders (76 sales, $63 a click).
+    - Position enters through the gain: fifth place against the place now.
+    - Sales enter through the value of a click: revenue ÷ max(clicks,
+      `SMOOTH_CLICKS` = 20). From 20 clicks up it is exactly the figure in
+      the column; below, one large order on 4 clicks ($503 a click) cannot
+      jump the queue. The column still shows the plain
+      division, greyed under 20 clicks, and its tooltip gives the figure the
+      priority used.
+    - No sale, no priority.
+    - The score is out of 100, where 100 is the first category of the
+      reading. It ranks and predicts nothing.
+    - `score()` also runs at DISPLAY, on the kept reading. A change to the
+      formula shows at once instead of waiting for the next Google read.
+  - Columns: Position (impressions on hover), Clicks, Units sold, Revenue,
+    Revenue / click, Priority (the gain and the per-click on hover). « il y a
+    des colonnes en trop » — Impressions, Clicks to gain and Internal links
+    are gone. A bookmark sorted on a gone column falls back to the priority.
+    The table reads at 15px (« la police […] est toute petite »).
   - Anchor ideas are the category's own Google queries, the brand ones left
     out (the site name and each domain's label, squashed: "kula-tactical" →
     "kulatactical"). They are the name's TOOLTIP ("Searched as: …"), never a

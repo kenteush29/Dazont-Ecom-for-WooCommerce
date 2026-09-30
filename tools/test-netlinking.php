@@ -189,11 +189,10 @@ ok( 'pas quand il est normal',               $bien['ctr_low'], false );
 $loin  = DZE_Netlinking::rank( [ cat( 'x', 18.0, 3000, 0.001 ) ], [], smap( [ 'x' => 7 ] ) )[0];
 ok( 'ni en deuxieme page, ou c est la place qui manque', $loin['ctr_low'], false );
 
-echo "\nLES LIENS INTERNES D ABORD\n";
+echo "\nLES LIENS INTERNES NE SONT PAS D ICI\n";
+// « internal link n'a pas lieu d'être ici » : ils sont l affaire du maillage.
 $in = DZE_Netlinking::rank( [ $vrai ], [], $m1, [ 11 => [ 'name' => 'Bottes', 'in' => 1 ] ] )[0];
-ok( 'le maillage interne est repris',        $in['in'], 1 );
-$nil = DZE_Netlinking::rank( [ $vrai ], [], $m1, [ 11 => [ 'name' => 'Bottes' ] ] )[0];
-ok( 'et rien n est invente quand il ne sait pas', $nil['in'], null );
+ok( 'une ligne ne porte plus de liens internes', array_key_exists( 'in', $in ), false );
 
 echo "\nL ORDRE EST CELUI DU GAIN, PAS CELUI DE LA POSITION\n";
 // La mieux placee n est pas celle qui rapporte le plus : c est le VOLUME.
@@ -249,7 +248,7 @@ echo "\nLES VENTES DECIDENT, PAS LE TRAFIC\n";
 $map = [ 'en|bottes' => 11, 'en|casques' => 22, 'fr|bottes' => 33, '|bottes' => 11, '|casques' => 22 ];
 $vend  = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
 $creux = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 10.0, 'impr' => 4000.0, 'ctr' => 0.0025, 'pos' => 12.0, 'terms' => [] ];
-$sales = [ 11 => [ 'units' => 400 ], 22 => [ 'units' => 0 ] ];
+$sales = [ 11 => [ 'units' => 400, 'revenue' => 8000.0 ], 22 => [ 'units' => 0, 'revenue' => 0.0 ] ];
 $r = DZE_Netlinking::rank( [ $creux, $vend ], $sales, $map );
 ok( 'la categorie qui vend passe devant', $r[0]['url'], $vend['url'] );
 ok( 'et celle qui ne vend rien suit',     $r[1]['url'], $creux['url'] );
@@ -399,24 +398,47 @@ ok( 'le script est branche avant le retour anticipe',
 $apres = $pos_vide !== false ? substr( $src4, $pos_vide ) : '';
 ok( 'et plus aucun script ne vit apres lui', false !== strpos( $apres, '<script>' ), false );
 
-echo "\nUN RANG NE SE FAIT PAS PASSER POUR UNE PREVISION\n";
-// Le premier calcul multipliait les clics a gagner par « unites vendues /
-// clics Google » : /military-balaclava sortait a +171 unites pour +17 clics.
-$maigre = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 5.0, 'impr' => 443.0, 'ctr' => 0.011, 'pos' => 29.5, 'terms' => [] ];
-$r5 = DZE_Netlinking::rank( [ $maigre ], [ 11 => [ 'units' => 50 ] ], $map )[0];
-ok( 'la priorite reste du meme ordre que les clics', $r5['worth'] < $r5['gain'] * 3, true );
+echo "\nLA PRIORITE : CE QU UN CLIC RAPPORTE, SUR LES CLICS A GAGNER\n";
+// « Le score est mauvais. Le revenu par clic et les ventes par rapport à la
+// position de la catégorie actuelle, c'est ce qui m'intéresse vraiment. »
+// Les vrais chiffres de Kula sur 90 jours (30/09/2026) : Gorka Suits passait
+// premier avec 3 ventes et 0,90 $ le clic, devant 76 ventes a 63 $ le clic.
+$gorka = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 624.0, 'impr' => 19038.0, 'ctr' => 624 / 19038, 'pos' => 7.6, 'terms' => [] ];
+$bret  = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 53.0, 'impr' => 3793.0, 'ctr' => 53 / 3793, 'pos' => 12.3, 'terms' => [] ];
+$duo   = DZE_Netlinking::rank( [ $gorka, $bret ], [ 22 => [ 'units' => 3, 'revenue' => 564.0 ], 11 => [ 'units' => 76, 'revenue' => 3362.0 ] ], $map );
+ok( 'celle dont le clic rapporte passe devant celle qui a le volume', $duo[0]['url'], $bret['url'] );
+ok( 'la premiere vaut 100',                  $duo[0]['worth'], 100 );
+ok( 'le volume sans ventes reste loin derriere', $duo[1]['worth'] > 0 && $duo[1]['worth'] < 20, true );
+ok( 'au-dela du plancher, le clic de la priorite est celui de la colonne', round( $duo[0]['value'], 2 ), round( $duo[0]['per_click'], 2 ) );
+// UNE GROSSE COMMANDE SUR QUATRE CLICS NE DOUBLE PAS TOUT LE MONDE.
+$quatre = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 4.0, 'impr' => 1024.0, 'ctr' => 4 / 1024, 'pos' => 20.0, 'terms' => [] ];
+$q      = DZE_Netlinking::rank( [ $quatre ], [ 22 => [ 'units' => 31, 'revenue' => 2010.0 ] ], $map )[0];
+ok( 'le revenu par clic affiche reste la division', round( $q['per_click'], 2 ), 502.5 );
+ok( 'la priorite le compte sur au moins vingt clics', round( $q['value'], 2 ), round( 2010 / DZE_Netlinking::SMOOTH_CLICKS, 2 ) );
+// SANS VENTE, PAS DE PRIORITE — et la categorie reste dans la liste.
+$zero = DZE_Netlinking::rank( [ $bret ], [], $map )[0];
+ok( 'sans vente, pas de priorite',           $zero['worth'], 0 );
+ok( 'mais elle reste a portee',              $zero['status'], 'reach' );
+// A TRAFIC EGAL, CELLE QUI VEND PASSE DEVANT.
 $a1 = [ 'url' => 'https://kula-tactical.com/bottes',  'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
 $a2 = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 10.0, 'impr' => 900.0, 'ctr' => 0.011, 'pos' => 12.0, 'terms' => [] ];
-$r6 = DZE_Netlinking::rank( [ $a2, $a1 ], [ 11 => [ 'units' => 50 ] ], $map );
+$r6 = DZE_Netlinking::rank( [ $a2, $a1 ], [ 11 => [ 'units' => 50, 'revenue' => 500.0 ] ], $map );
 ok( 'celle qui vend passe devant a trafic egal', $r6[0]['url'], $a1['url'] );
-$p50  = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 50 ] ], $map )[0]['worth'];
-$p500 = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 500 ] ], $map )[0]['worth'];
-ok( 'dix fois plus de ventes ne fait pas dix fois le rang', $p500 < $p50 * 2, true );
-ok( 'mais il monte quand meme',                          $p500 > $p50, true );
+// LA POSITION ENTRE PAR LES CLICS A GAGNER : deja en tete, rien a gagner.
+$fort = DZE_Netlinking::rank( [ cat( 'bottes', 2.0, 5000, 0.20 ) ], [ 11 => [ 'units' => 300, 'revenue' => 30000.0 ] ], $m1 )[0];
+ok( 'deja en tete : pas de priorite, quelles que soient ses ventes', [ $fort['status'], $fort['worth'] ], [ 'strong', 0 ] );
 // LA VALEUR DU CLIC. « Manque comptage de la valeur de chaque clic. »
 $pc = DZE_Netlinking::rank( [ $a1 ], [ 11 => [ 'units' => 5, 'revenue' => 500.0 ] ], $map )[0];
 ok( 'la valeur du clic est le chiffre de la categorie sur ses clics', round( $pc['per_click'], 2 ), 50.0 );
-
+// UNE LECTURE GARDEE EST RE-CLASSEE : faite avant cette version, elle montre
+// le rang d aujourd hui sans attendre la suivante.
+$neuf = DZE_Netlinking::score( [
+	[ 'tid' => 22, 'status' => 'reach', 'clicks' => 624.0, 'gain' => 328.0, 'revenue' => 564.0,  'impr' => 19038.0, 'worth' => 525.0 ],
+	[ 'tid' => 11, 'status' => 'reach', 'clicks' => 53.0,  'gain' => 137.0, 'revenue' => 3362.0, 'impr' => 3793.0,  'worth' => 394.0 ],
+	[ 'tid' => 33, 'status' => 'far',   'clicks' => 1.0,   'gain' => 0.0,   'revenue' => 90.0,   'impr' => 50.0,    'worth' => 0.0 ],
+] );
+ok( 'une lecture gardee est re-classee',     array_column( $neuf, 'tid' ), [ 11, 22, 33 ] );
+ok( 'avec des rangs sur 100',                array_column( $neuf, 'worth' ), [ 100, 3, 0 ] );
 echo "\nLE MODULE EST BRANCHE COMME LES AUTRES\n";
 $h = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-health.php' );
 ok( 'il a son controle de sante',        false !== strpos( $h, 'function check_searchconsole' ), true );
@@ -451,6 +473,13 @@ ok( 'plus de colonne d idees d ancre',     false === strpos( $src5, "'Anchor ide
 ok( 'elles restent au survol du nom',      false !== strpos( $src5, "'Searched as: %s'" ), true );
 ok( 'le tableau defile dans son cadre',    false !== strpos( $src5, '<div class="dze-nl-scroll"><table' ) && false !== strpos( $css, '.dze-nl-scroll { overflow-x: auto; }' ), true );
 ok( 'un en-tete de deux mots passe a la ligne', false !== strpos( $css, '.dze-nl-table th.dze-nl-fig { white-space: normal;' ), true );
+// « il y a des colonnes en trop. internal link n'a pas lieu d'être ici ».
+ok( 'plus de colonne des liens internes',  false === strpos( $src5, "'Internal links'" ) && false === strpos( $src5, 'DZE_Mesh::census' ), true );
+ok( 'ni impressions ni clics a gagner en colonne', false === strpos( $src5, "'impr'      => [ 'label'" ) && false === strpos( $src5, "'gain'      => [ 'label'" ), true );
+ok( 'le revenu par clic dit son nom',      false !== strpos( $src5, "'Revenue / click'" ), true );
+ok( 'le rang est refait a l affichage',    false !== strpos( $src5, '$all = self::score( $all );' ), true );
+// « la police d'écriture, elle est toute petite ».
+ok( 'la police du tableau se lit',         false !== strpos( $css, '.widefat.dze-nl-table td { font-size: 15px;' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
