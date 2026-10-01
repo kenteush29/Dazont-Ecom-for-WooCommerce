@@ -68,9 +68,8 @@
 		m.tpls = tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n, photos: j.photos }; });
 		saveMem(m);
 	}
-	// The run's own rows, and no others: the same row lives on a product's
-	// panel now, and what is typed there is that product's business — storing
-	// it as the run's would change what every other product does.
+	// The run's rows, remembered as they change: they are the only order the
+	// page has — every ticked product runs it.
 	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-scene, #dze-cb-tplrows .dze-tpl-n, #dze-cb-tplrows .dze-tpl-target, #dze-cb-tplrows .dze-tpl-photos, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn, #dze-cb-model', persist);
 	// The bill before the press follows the model picked.
 	$(document).on('change', '#dze-cb-model', function () { drawPicked(); });
@@ -115,11 +114,11 @@
 		// launched, not for ever.
 		syncTarget($r);
 		syncScene($r);
-		// A row DRAWN AGAIN from an order already made keeps what was chosen on
-		// it — a product's own order is rebuilt every time its panel is opened,
-		// and the destination it was given would go back to the prompt's on
-		// every look. A fresh row carries neither key and opens on the prompt's
-		// own, which is what the two lines above are for.
+		// A row DRAWN AGAIN from an order already made — the one this browser
+		// remembered — keeps what was chosen on it, or the destination it was
+		// given would go back to the prompt's on every reload. A fresh row
+		// carries neither key and opens on the prompt's own, which is what the
+		// two lines above are for.
 		if (typeof row.scene !== 'undefined' && $r.find('.dze-tpl-scene option[value="' + row.scene + '"]').length) {
 			$r.find('.dze-tpl-scene').val(String(row.scene));
 		}
@@ -164,27 +163,19 @@
 	// The fate of the main image only arises when something is about to take
 	// its place: the question appears with the answer that makes it necessary.
 	function syncOldMainRow() {
-		// Any order that writes a main image raises it, the run's or a
-		// product's own: it is the same decision about the image being pushed
-		// out. A product's own is read from the ORDER and not from its panel —
-		// that panel is emptied by every run and drawn again on demand, so the
-		// question would come and go with a drawer nobody had opened.
+		// Any row of the run that writes a main image raises it — the only
+		// order there is since a product can no longer have its own (4.506.3).
 		var main = $('#dze-cb-tplrows .dze-tpl-target').filter(function () {
 			return 'main' === $(this).val();
 		}).length > 0;
-		var kept = own || {};
-		Object.keys(kept).forEach(function (id) {
-			(kept[id] || []).forEach(function (j) { if ('main' === j.target) { main = true; } });
-		});
 		$('#dze-cb-oldwrap').toggle(main);
 	}
 	function runKeepOld() {
 		return ($('#dze-cb-oldmain').val() === '0') ? 0 : 1;
 	}
-	// ONE set of rows, wherever they are drawn: the run's at the top of the
-	// page and a product's own on its panel are the same order, so they are
-	// built, counted and read by the same functions. Two builders is how two
-	// screens start behaving differently while looking the same.
+	// The rows of the run's order are built, counted and read by these
+	// functions alone. Two builders is how two screens start behaving
+	// differently while looking the same.
 	function syncRows($wrap) {
 		var $rows = $wrap.find('.dze-tplrow');
 		var room = $rows.length < tplCount();
@@ -2089,9 +2080,9 @@
 		});
 		refreshApplyBar();
 
-		// How many steps a product is worth is ITS OWN question now: one of
-		// them may be running its own order of one photograph while the next
-		// runs the run's five.
+		// How many steps a product is worth: every one runs the same order,
+		// and the count is still asked per product so the bar adds up what
+		// each was actually sent.
 		function stepsFor(id) {
 			return (fields.length ? 1 : 0) + (doPrice ? 1 : 0) +
 				(doImg ? imgCount(id) : 0) + (doRev ? 1 : 0);
