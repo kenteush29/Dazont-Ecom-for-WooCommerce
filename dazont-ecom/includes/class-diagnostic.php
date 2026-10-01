@@ -3008,7 +3008,9 @@ final class DZE_Diagnostic {
 		if ( ! $rule || ! $ids || 'category' === $scope ) {
 			return [ 'todo' => $ids, 'done' => [], 'live' => false, 'band' => [] ];
 		}
-		$slot = 'dze_diag_split_' . md5( $id . '|' . (string) wp_json_encode( $rule ) . '|' . implode( ',', $ids ) . '|' . self::touched( $ids ) );
+		// « v2 » : une liste rejugée dans la langue de l'administration avant ce
+		// correctif était vide, et ne doit pas être resservie pendant cinq minutes.
+		$slot = 'dze_diag_split_' . md5( 'v2|' . $id . '|' . (string) wp_json_encode( $rule ) . '|' . implode( ',', $ids ) . '|' . self::touched( $ids ) );
 		$got  = get_transient( $slot );
 		if ( is_array( $got ) && isset( $got['todo'], $got['done'], $got['band'] ) ) {
 			return $got;
@@ -3020,28 +3022,48 @@ final class DZE_Diagnostic {
 		// same question, and a page of it rather than the whole list — which
 		// cannot be sorted.
 		$band = [];
-		foreach ( array_chunk( $ids, 200 ) as $some ) {
-			$posts = get_posts( [
-				'post__in'               => $some,
-				// The scope IS the post type here — 'product', 'post', 'page'
-				// — and asking for that one rather than "any" keeps a list
-				// honest when a shop has a post type WordPress leaves out of
-				// "any".
-				'post_type'              => $scope,
-				'post_status'            => 'any',
-				'posts_per_page'         => count( $some ),
-				'orderby'                => 'post__in',
-				'ignore_sticky_posts'    => true,
-				'no_found_rows'          => true,
-				'update_post_meta_cache' => true,
-				'suppress_filters'       => '' === self::main_language(),
-			] );
-			self::prime_thumbs( $posts );
-			foreach ( $posts as $post ) {
-				$verdict[ (int) $post->ID ] = (bool) self::fails( $rule, $scope, $post );
-				if ( ! empty( $rule['cond'] ) ) {
-					$band[ (int) $post->ID ] = self::band_hit( $rule, $scope, $post );
+		// REJUGÉE DANS LA LANGUE PRINCIPALE, comme la lecture elle-même. « Cet
+		// écran est vide, il n'y a rien. » La liste ne tient que des produits de
+		// la langue principale, et la requête qui les relisait laissait WPML la
+		// filtrer dans la langue de l'ADMINISTRATION : en français, ce 1er
+		// octobre, elle n'en rendait aucun — et les 647 produits passaient pour
+		// supprimés depuis la lecture. Les objets sont relus par leur
+		// identifiant, sans aucun filtre de requête, et jugés dans la langue de
+		// la lecture ; celle de l'administration est rendue ensuite.
+		$lang = self::main_language();
+		$back = '' !== $lang && class_exists( 'DZE_Wpml' ) ? DZE_Wpml::current_language() : '';
+		if ( '' !== $lang ) {
+			do_action( 'wpml_switch_language', $lang );
+		}
+		try {
+			foreach ( array_chunk( $ids, 200 ) as $some ) {
+				$posts = get_posts( [
+					'post__in'               => $some,
+					// The scope IS the post type here — 'product', 'post', 'page'
+					// — and asking for that one rather than "any" keeps a list
+					// honest when a shop has a post type WordPress leaves out of
+					// "any".
+					'post_type'              => $scope,
+					'post_status'            => 'any',
+					'posts_per_page'         => count( $some ),
+					'orderby'                => 'post__in',
+					'ignore_sticky_posts'    => true,
+					'no_found_rows'          => true,
+					'update_post_meta_cache' => true,
+					// THE LIST IS THE ANSWER: no plugin's query filter narrows it.
+					'suppress_filters'       => true,
+				] );
+				self::prime_thumbs( $posts );
+				foreach ( $posts as $post ) {
+					$verdict[ (int) $post->ID ] = (bool) self::fails( $rule, $scope, $post );
+					if ( ! empty( $rule['cond'] ) ) {
+						$band[ (int) $post->ID ] = self::band_hit( $rule, $scope, $post );
+					}
 				}
+			}
+		} finally {
+			if ( '' !== $lang ) {
+				do_action( 'wpml_switch_language', '' !== $back ? $back : null );
 			}
 		}
 		$todo = [];

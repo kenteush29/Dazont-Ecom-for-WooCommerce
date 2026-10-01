@@ -435,6 +435,21 @@ fait" (4.499.0):
   multiplied by the number of languages, so that check is exercised with a
   multilingual fake shop, both ways: translations dropped, and a
   single-language shop keeping everything.
+- **A LIST OF THE MAIN LANGUAGE IS NEVER RE-READ IN THE ADMIN'S LANGUAGE**
+  (4.503.2). « Cet écran est vide, il n'y a rien. »
+  - The bug: the diagnostic's problem list re-judges its ids in `split()`,
+    and the query fetching them let WPML filter by the CURRENT language. In
+    admin that is the language picked in WPML's admin bar. The owner works in
+    French, so the query returned none of the 685 English products, and
+    every one read as "deleted since the reading": « 685 fall short, 0 of
+    them listed here ».
+  - Ids that are already the answer are fetched with
+    `'suppress_filters' => true`, and judged inside a
+    `wpml_switch_language` to the main language, restored afterwards — as
+    `scan()` reads.
+  - WP-CLI cannot show it: outside `is_admin()` WPML filters differently, so
+    the same call answered 647 in every language. Look in the owner's
+    browser, with his admin language.
 - **THE READING BELONGS TO THE OBJECT, NOT TO THE SCREEN THAT OPENED THE
   POPUP.** The toolbox knew what a product was short of only when a diagnostic
   row had opened it — from the product's own page or from the products list it
