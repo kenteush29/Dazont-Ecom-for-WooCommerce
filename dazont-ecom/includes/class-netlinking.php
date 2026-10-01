@@ -908,24 +908,57 @@ final class DZE_Netlinking {
 	 * mode repertoire, le code de langue est un morceau parmi d autres et ne
 	 * gene pas, puisqu on prend le dernier.
 	 *
+	 * UNE ADRESSE EST A LA LANGUE DE SON DOMAINE, JAMAIS A UNE AUTRE. « Non ce
+	 * n'est pas espagnol. L'espagnol est sur un autre domaine. » Google garde
+	 * les anciennes adresses : kula-tactical.es/sniper-veil est le slug anglais
+	 * sur le domaine espagnol, d avant que la categorie y ait le sien, et elle
+	 * redirige aujourd hui vers kula-tactical.es/velos-de-camuflaje-para-
+	 * francotiradores. Le slug seul la donnait a la categorie ANGLAISE : ses
+	 * chiffres s ajoutaient a ceux de kula-tactical.com/sniper-veil, et la ligne
+	 * prenait la langue de la page lue la premiere — « ES » sur une adresse
+	 * .com. Vingt lignes sur 595 l etaient. Le slug d une autre langue mene
+	 * maintenant a la traduction de la categorie dans la langue de l adresse
+	 * (meme groupe WPML), ou a rien quand il n y en a pas ; le slug seul ne sert
+	 * plus que quand la langue de l adresse est inconnue, ou que WPML ne connait
+	 * pas le terme.
+	 *
 	 * Rend 0 quand l adresse n est pas une categorie — un article, une page, un
 	 * produit — et c est une reponse, pas un echec.
 	 */
 	public static function term_of_url( string $url, array $slug_map ): int {
-		$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
-		if ( '' === $path ) {
-			return 0;
-		}
-		$bits = explode( '/', $path );
-		$slug = (string) end( $bits );
+		$slug = self::url_slug( $url );
 		if ( '' === $slug ) {
 			return 0;
 		}
 		$lang = self::lang_of_url( $url );
-		if ( '' !== $lang && isset( $slug_map[ $lang . '|' . $slug ] ) ) {
+		if ( '' === $lang ) {
+			return (int) ( $slug_map[ '|' . $slug ] ?? 0 );
+		}
+		if ( isset( $slug_map[ $lang . '|' . $slug ] ) ) {
 			return (int) $slug_map[ $lang . '|' . $slug ];
 		}
-		return (int) ( $slug_map[ '|' . $slug ] ?? 0 );
+		$other = (int) ( $slug_map[ '|' . $slug ] ?? 0 );
+		$trid  = $other ? (int) ( $slug_map[ '#' . $other ] ?? 0 ) : 0;
+		if ( $trid <= 0 ) {
+			return $other;
+		}
+		return (int) ( $slug_map[ '@' . $trid . '|' . $lang ] ?? 0 );
+	}
+
+	/** Le dernier morceau du chemin d une adresse : son slug, ou rien. */
+	private static function url_slug( string $url ): string {
+		$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+		if ( '' === $path ) {
+			return '';
+		}
+		$bits = explode( '/', $path );
+		return (string) end( $bits );
+	}
+
+	/** L adresse porte-t-elle le slug d aujourd hui de cette categorie, dans sa langue ? */
+	private static function is_live_url( string $url, int $tid, array $slug_map ): bool {
+		$slug = self::url_slug( $url );
+		return '' !== $slug && $tid === (int) ( $slug_map[ self::lang_of_url( $url ) . '|' . $slug ] ?? -1 );
 	}
 	/**
 	 * « langue|slug » et « |slug » vers le term_id, en une requete.
@@ -943,6 +976,10 @@ final class DZE_Netlinking {
 	 * La seconde clef, « |slug », est le filet : un slug dont on ne sait pas la
 	 * langue vaut mieux que pas de categorie du tout, et la premiere lui passe
 	 * devant.
+	 *
+	 * Deux clefs encore, pour l adresse d une langue qui porte le slug d une
+	 * autre (term_of_url()) : « #term_id » donne son groupe de traduction WPML,
+	 * « @groupe|langue » le terme de ce groupe dans cette langue.
 	 */
 	public static function slug_map(): array {
 		global $wpdb;
@@ -954,12 +991,12 @@ final class DZE_Netlinking {
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own read of WPML's table.
 		$rows = (array) $wpdb->get_results(
 			$wpml
-				? "SELECT t.term_id AS tid, t.slug AS slug, ic.language_code AS lang
+				? "SELECT t.term_id AS tid, t.slug AS slug, ic.language_code AS lang, COALESCE( ic.trid, 0 ) AS trid
 				     FROM {$wpdb->terms} t
 				     INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
 				     LEFT JOIN {$icl} ic ON ic.element_id = tt.term_taxonomy_id AND ic.element_type = 'tax_product_cat'
 				    WHERE tt.taxonomy = 'product_cat'"
-				: "SELECT t.term_id AS tid, t.slug AS slug, '' AS lang
+				: "SELECT t.term_id AS tid, t.slug AS slug, '' AS lang, 0 AS trid
 				     FROM {$wpdb->terms} t
 				     INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
 				    WHERE tt.taxonomy = 'product_cat'",
@@ -971,8 +1008,13 @@ final class DZE_Netlinking {
 			$tid  = (int) $r['tid'];
 			$slug = (string) $r['slug'];
 			$lang = (string) ( $r['lang'] ?? '' );
+			$trid = (int) ( $r['trid'] ?? 0 );
 			if ( '' !== $lang ) {
 				$out[ $lang . '|' . $slug ] = $tid;
+				if ( $trid > 0 ) {
+					$out[ '#' . $tid ]                = $trid;
+					$out[ '@' . $trid . '|' . $lang ] = $tid;
+				}
 			}
 			if ( ! isset( $out[ '|' . $slug ] ) ) {
 				$out[ '|' . $slug ] = $tid;
@@ -1019,13 +1061,18 @@ final class DZE_Netlinking {
 			}
 			$impr = (float) ( $p['impr'] ?? 0 );
 			if ( ! isset( $by[ $tid ] ) ) {
-				$by[ $tid ] = [ 'url' => $url, 'prop' => (string) ( $p['prop'] ?? '' ), 'lang' => (string) ( $p['lang'] ?? '' ), 'clicks' => 0.0, 'impr' => 0.0, 'pos_w' => 0.0, 'best' => -1.0, 'terms' => [] ];
+				$by[ $tid ] = [ 'url' => $url, 'prop' => (string) ( $p['prop'] ?? '' ), 'lang' => (string) ( $p['lang'] ?? '' ), 'clicks' => 0.0, 'impr' => 0.0, 'pos_w' => 0.0, 'best' => -1.0, 'live' => false, 'terms' => [] ];
 			}
 			$by[ $tid ]['clicks'] += (float) ( $p['clicks'] ?? 0 );
 			$by[ $tid ]['impr']   += $impr;
 			$by[ $tid ]['pos_w']  += (float) ( $p['pos'] ?? 0 ) * $impr;
-			// L ADRESSE QUI COMPTE est celle que Google montre le plus.
-			if ( $impr > $by[ $tid ]['best'] ) {
+			// L ADRESSE QUI COMPTE : celle qui porte le slug d aujourd hui, et entre
+			// deux du meme genre, celle que Google montre le plus. Une ancienne
+			// adresse, qui redirige, peut etre la plus vue ; un lien doit viser
+			// celle qui repond.
+			$live = self::is_live_url( $url, (int) $tid, $slug_map );
+			if ( [ $live, $impr ] > [ $by[ $tid ]['live'], $by[ $tid ]['best'] ] ) {
+				$by[ $tid ]['live'] = $live;
 				$by[ $tid ]['best'] = $impr;
 				$by[ $tid ]['url']  = $url;
 				$by[ $tid ]['prop'] = (string) ( $p['prop'] ?? '' );
@@ -1044,7 +1091,7 @@ final class DZE_Netlinking {
 		foreach ( $sales as $tid => $sold ) {
 			$tid = (int) $tid;
 			if ( $tid && ! isset( $by[ $tid ] ) && isset( $meta[ $tid ] ) && (int) ( $sold['units'] ?? 0 ) > 0 ) {
-				$by[ $tid ] = [ 'url' => '', 'prop' => '', 'lang' => '', 'clicks' => 0.0, 'impr' => 0.0, 'pos_w' => 0.0, 'best' => 0.0, 'terms' => [] ];
+				$by[ $tid ] = [ 'url' => '', 'prop' => '', 'lang' => '', 'clicks' => 0.0, 'impr' => 0.0, 'pos_w' => 0.0, 'best' => 0.0, 'live' => false, 'terms' => [] ];
 			}
 		}
 		$marks = self::brand_marks();
@@ -1106,7 +1153,8 @@ final class DZE_Netlinking {
 
 			$out[] = [
 				'tid'       => (int) $tid,
-				'lang'      => '' !== (string) $row['lang'] ? (string) $row['lang'] : (string) ( $m['lang'] ?? '' ),
+				// LA LANGUE DE LA CATEGORIE, pas celle de la premiere adresse lue.
+				'lang'      => '' !== (string) ( $m['lang'] ?? '' ) ? (string) $m['lang'] : (string) $row['lang'],
 				'name'      => (string) ( $m['name'] ?? '' ),
 				'url'       => (string) $row['url'],
 				'prop'      => (string) $row['prop'],
