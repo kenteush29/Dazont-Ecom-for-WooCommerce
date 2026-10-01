@@ -19,9 +19,12 @@
 	var MEM = 'dzeContentMem';
 
 	function esc(s) { return $('<div>').text(s == null ? '' : s).html(); }
+	// %2$s IS THE SECOND ARGUMENT, wherever it stands. Filled in order of
+	// appearance, « with %3$s · about %2$s » printed the price where the model
+	// goes: « 1 photographs with $0.24 · about GPT Image 2.5 Sunburst ».
 	function sprintf(str) {
 		var args = Array.prototype.slice.call(arguments, 1), i = 0;
-		return String(str).replace(/%\d\$s|%s/g, function () { return args[i++]; });
+		return String(str).replace(/%(\d+)\$s|%s/g, function (m, n) { return n ? args[parseInt(n, 10) - 1] : args[i++]; });
 	}
 	function mem() { try { return JSON.parse(localStorage.getItem(MEM) || '{}'); } catch (e) { return {}; } }
 	function saveMem(o) { try { localStorage.setItem(MEM, JSON.stringify(o)); } catch (e) {} }
@@ -836,19 +839,33 @@
 		var n = Math.max(0, cap > 0 ? Math.min(cap, refs) : refs);
 		return (parseFloat(p.base) || 0) + (parseFloat(p.perRef) || 0) * n;
 	}
+	// HOW MANY OF ITS OWN PHOTOGRAPHS the product sends, counted as the server
+	// counts them: all of them up to the shop's figure, and three for a main
+	// or a variation image. Until the product has answered, the shop's figure
+	// — never the model's ceiling of sixteen, which priced two photographs
+	// as sixteen and was never redrawn.
+	function ownSources(target) {
+		var own = (res.current && res.current.sources !== undefined)
+			? (parseInt(res.current.sources, 10) || 0)
+			: (parseInt(cfg.sourceCap, 10) || 10);
+		target = String(target || '');
+		if ('main' === target || 0 === target.indexOf('variation:')) { own = Math.min(own, parseInt(cfg.mainCap, 10) || 3); }
+		return own;
+	}
 	// The photographs one image of THIS product is sent: its own, what was
 	// pasted for the run, and the scene when the row has one.
-	function refsFor(scene) {
-		var own = (res.current && res.current.sources !== undefined) ? (parseInt(res.current.sources, 10) || 0) : (parseInt((cfg.imagePrice || {}).cap, 10) || 0);
+	function refsFor(scene, target) {
 		var pasted = cxPaste ? cxPaste.list().length : 0;
-		return own + pasted + ((scene !== undefined && scene >= 0) ? 1 : 0);
+		return ownSources(target) + pasted + ((scene !== undefined && scene >= 0) ? 1 : 0);
 	}
 	function willSay(n, cost) {
-		if (!cost) { return sprintf(i18n.willMake, n); }
+		var single = 1 === n;
+		if (!cost) { return (single && i18n.willMakeOne) ? i18n.willMakeOne : sprintf(i18n.willMake, n); }
 		var money = '$' + cost.toFixed(2);
-		return (cfg.imagePrice && cfg.imagePrice.model && i18n.willCostWith)
-			? sprintf(i18n.willCostWith, n, money, cfg.imagePrice.model)
-			: sprintf(i18n.willCost, n, money);
+		var fmt = (cfg.imagePrice && cfg.imagePrice.model && i18n.willCostWith)
+			? ((single && i18n.willCostWithOne) || i18n.willCostWith)
+			: ((single && i18n.willCostOne) || i18n.willCost);
+		return sprintf(fmt, n, money, (cfg.imagePrice && cfg.imagePrice.model) || '');
 	}
 	function drawWillSpend() {
 		var $out = $('#dze-cx-willspend');
@@ -859,7 +876,7 @@
 			tplJobs().forEach(function (job) {
 				var k = Math.max(1, job.n);
 				n    += k;
-				cost += k * perImage(refsFor(job.scene));
+				cost += k * perImage(refsFor(job.scene, job.target));
 			});
 		}
 		if (!n) { $out.text('').hide(); return; }
@@ -879,7 +896,10 @@
 			.then(function (r) {
 				if (r && r.success) {
 					res.current = r.data;
+					// Both bills counted the product's photographs before it
+					// had said how many it has: both are drawn again.
 					drawWillSpend();
+					oneWillSpend();
 					return res.current;
 				}
 				// A refusal is not "this product has no photographs": it is a
@@ -2009,6 +2029,8 @@
 		$('#dze-one-replacewrap').toggle(1 === ids.length);
 		if (1 !== ids.length) { $('#dze-one-replace').prop('checked', false); }
 		oneClearPreview();
+		// What is sent is what is billed: the line follows the choice.
+		oneWillSpend();
 	}
 	$(document).on('click', '.dze-one-srcpick', function () {
 		var raw = String($(this).data('id'));
@@ -2072,16 +2094,30 @@
 		// A photograph pasted, dropped or taken out changes the order: what
 		// was previewed for the last one no longer says what will be sent.
 		oneClearPreview();
+		// And the bill: each one is a photograph more for the models that
+		// charge them.
+		oneWillSpend();
 	}
 	// WHAT THIS PRESS WILL SPEND, in the same words the toolbox and the bulk
 	// screen use, from the same price. A text press spends no picture and says
 	// nothing rather than "0 photographs", which reads as a broken figure.
+	// WHAT THIS PRESS SENDS, as the server will count it: the photographs
+	// picked by hand, never cut; or the product's own set, three of them for
+	// a main or a variation image; none of them when « only these » keeps the
+	// pasted ones alone; then whatever was pasted.
+	function oneRefs() {
+		var ids = one.srcIds || [];
+		var pasted = onePastes().length;
+		var only = pasted > 0 && $('.dze-one-srcnew').hasClass('is-sel') && $('#dze-one-onlypasted').is(':checked');
+		var own = only ? 0 : (ids.length ? ids.length : ownSources($('#dze-one-target').val() || 'gallery'));
+		return own + pasted;
+	}
 	function oneWillSpend() {
 		var $out = $('#dze-one-willspend');
 		if (!$out.length) { return; }
 		var n = ('image' === one.mode) ? Math.max(1, parseInt($('#dze-one-n').val(), 10) || 1) : 0;
 		if (!n) { $out.text('').hide(); return; }
-		var said = willSay(n, n * perImage(refsFor(-1)));
+		var said = willSay(n, n * perImage(oneRefs()));
 		var cap = parseInt(cfg.falPostCap, 10) || 0;
 		if (cap > 0 && n > cap) { said += ' \u00b7 ' + sprintf(i18n.overCap, cap, n - cap); }
 		$out.show().text(said);

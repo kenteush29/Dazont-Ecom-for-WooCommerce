@@ -1493,9 +1493,38 @@ $dze_js  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/cont
 $dze_jsb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
 $dze_aj  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
 ok( 'la boite a outils compte les photographies du produit, collees et scene comprises',
-	false !== strpos( $dze_js, 'cost += k * perImage(refsFor(job.scene));' ) && false !== strpos( $dze_aj, "'sources' => count( self::product_source_ids( \$pid ) )," ), true );
+	false !== strpos( $dze_js, 'cost += k * perImage(refsFor(job.scene, job.target));' ) && false !== strpos( $dze_aj, "'sources' => count( self::product_source_ids( \$pid ) )," ), true );
 ok( 'l ecran de masse aussi, produit par produit',      false !== strpos( $dze_jsb, 'perImage(refsOf(id, j))' ), true );
 ok( 'et la phrase nomme le modele',                     false !== strpos( $dze_js, 'i18n.willCostWith' ) && false !== strpos( $dze_jsb, 'i18n.willCostWith' ), true );
+// « This press: 1 photographs with $0.24 · about GPT Image 2.5 Sunburst » : le
+// sprintf des ecrans remplissait %1$s %3$s %2$s dans l ordre d apparition, et
+// le panneau d une fiche comptait seize photographies (le plafond du modele)
+// avant d avoir lu les deux du produit, sans jamais se redessiner ensuite.
+$dze_lab = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/image-lab.js' );
+$dze_cc  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+$dze_pos = 'replace(/%(\d+)\$s|%s/g, function (m, n) { return n ? args[parseInt(n, 10) - 1] : args[i++]; });';
+ok( 'les sprintf des ecrans d images respectent la position', [ substr_count( $dze_js, $dze_pos ), substr_count( $dze_jsb, $dze_pos ), substr_count( $dze_lab, $dze_pos ) ], [ 1, 1, 1 ] );
+ok( 'le panneau d une fiche compte ce qu il envoie',      false !== strpos( $dze_js, 'var said = willSay(n, n * perImage(oneRefs()));' ), true );
+ok( 'et se redessine : produit lu, photos choisies, photo collee', [
+	(bool) preg_match( '/drawWillSpend\(\);\s*oneWillSpend\(\);/', $dze_js ),
+	(bool) preg_match( '/oneClearPreview\(\);\s*\/\/ What is sent is what is billed[^\n]*\n\s*oneWillSpend\(\);/', $dze_js ),
+	(bool) preg_match( '/charge them\.\s*oneWillSpend\(\);/', $dze_js ),
+], [ true, true, true ] );
+ok( 'avant la reponse, le chiffre de la boutique, jamais le plafond du modele',
+	false !== strpos( $dze_js, ': (parseInt(cfg.sourceCap, 10) || 10);' ) && false === strpos( $dze_js, '(parseInt((cfg.imagePrice || {}).cap, 10) || 0)' ) && false === strpos( $dze_jsb, '(parseInt((cfg.imagePrice || {}).cap, 10) || 0)' ), true );
+$dze_main = "if ('main' === target || 0 === target.indexOf('variation:')) { own = Math.min(own, parseInt(cfg.mainCap, 10) || 3); }";
+ok( 'une image principale ou de variation part avec trois photographies', [ substr_count( $dze_js, $dze_main ), substr_count( $dze_jsb, $dze_main ) ], [ 1, 1 ] );
+ok( 'l ecran de masse recoit les deux plafonds',          [ substr_count( $dze_cc, "'mainCap'   => self::MAIN_SOURCES," ), substr_count( $dze_cc, "'sourceCap' => self::source_cap()," ) ], [ 1, 1 ] );
+ok( 'une photographie se dit au singulier, sur les deux ecrans', substr_count( $dze_cc, "'willCostWithOne' => __( 'This press: 1 photograph with %3\$s · about %2\$s', 'dazont-ecom' )," ), 2 );
+// L AIDE DU CUMUL envoyait vers « Settings → Product content, next to the
+// fal.ai key » et disait le prix « a regler » quel que soit le modele.
+$GLOBALS['opts']['dze_content_settings'] = [ 'img_model' => 'gpt-image-2.5-sunburst' ];
+$dze_tip = DZE_Content::spend_tip();
+ok( 'l aide du cumul dit le bon ecran',                   [ false !== strpos( $dze_tip, 'Settings → General → fal.ai (image generation)' ), false !== strpos( $dze_tip, 'Product content' ) ], [ true, false ] );
+ok( 'et le prix du modele en vigueur',                    false !== strpos( $dze_tip, 'GPT Image 2.5 Sunburst (OpenAI), $0.050 per image plus $0.012 per photograph sent.' ), true );
+$GLOBALS['opts']['dze_content_settings'] = [ 'fal_image_cost' => 0.09 ];
+ok( 'Nano Banana 2 : le prix saisi, par image',           false !== strpos( DZE_Content::spend_tip(), 'Nano Banana 2 (Google), $0.090 per image.' ), true );
+ok( 'les deux ecrans lisent la meme aide',                substr_count( $dze_cc, '=> self::spend_tip(),' ), 2 );
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

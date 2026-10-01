@@ -1140,6 +1140,34 @@ EOT;
 	}
 
 	/**
+	 * WHAT THE « SO FAR » FIGURE COUNTS, said with the model now chosen.
+	 *
+	 * It sent the owner to « Settings → Product content, next to the fal.ai
+	 * key » and called the price « yours to set ». The key and the model are
+	 * on Settings → General, under fal.ai, and since there is a choice of
+	 * models only Nano Banana 2 has a price to set: the others are billed at
+	 * fal's list price, by the image and by the photograph sent. Each
+	 * generation was charged to the product at the price of the model that
+	 * made it (charge_product), so changing the model re-prices nothing.
+	 */
+	public static function spend_tip(): string {
+		$key   = self::image_model_key();
+		$m     = self::image_models()[ $key ];
+		$per   = (float) ( $m['per_ref'] ?? 0 );
+		$price = $per > 0
+			/* translators: 1: price of one image, 2: price of each photograph sent with it */
+			? sprintf( __( '%1$s per image plus %2$s per photograph sent', 'dazont-ecom' ), '$' . number_format_i18n( (float) $m['price'], 3 ), '$' . number_format_i18n( $per, 3 ) )
+			/* translators: %s: price of one image */
+			: sprintf( __( '%s per image', 'dazont-ecom' ), '$' . number_format_i18n( self::fal_image_cost( 0, $key ), 3 ) );
+		return sprintf(
+			/* translators: 1: the image model, 2: its price */
+			__( 'What this product has cost in images so far: every generation is counted, including the ones you threw away, at the price of the model that made it — now %1$s, %2$s. The provider never sends its bill back, so these are list prices. The model is chosen, and the Nano Banana 2 price corrected, under Settings → General → fal.ai (image generation).', 'dazont-ecom' ),
+			$m['label'],
+			$price
+		);
+	}
+
+	/**
 	 * What this shop is, in one place for the whole plugin.
 	 *
 	 * The text lives with the Settings page (Settings → General → About this
@@ -4364,6 +4392,11 @@ Answer with STRICT JSON and nothing else: "
 				// the ceiling the run would hit.
 				'imageCost' => self::fal_image_cost(),
 				'imagePrice'=> self::image_price_cfg(),
+				// A main or a variation image is remade from three of the
+				// product's photographs, not all of them: the bill says so.
+				'mainCap'   => self::MAIN_SOURCES,
+				// And an ordinary one from all of them, up to the shop's figure.
+				'sourceCap' => self::source_cap(),
 				'falPostCap'=> class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::fal_post_cap() : 0,
 				'maxPasted' => self::MAX_PASTED,
 				'maxBody'   => self::MAX_BODY,
@@ -4478,6 +4511,12 @@ Answer with STRICT JSON and nothing else: "
 					'willCostWith' => __( 'This press: %1$s photographs with %3$s · about %2$s', 'dazont-ecom' ),
 					/* translators: %s: number of photographs */
 					'willMake'  => __( '%s photographs', 'dazont-ecom' ),
+					// One photograph is not « 1 photographs ».
+					/* translators: 2: what it costs */
+					'willCostOne' => __( 'This press: 1 photograph · about %2$s', 'dazont-ecom' ),
+					/* translators: 2: what it costs, 3: the image model */
+					'willCostWithOne' => __( 'This press: 1 photograph with %3$s · about %2$s', 'dazont-ecom' ),
+					'willMakeOne' => __( '1 photograph', 'dazont-ecom' ),
 					/* translators: 1: the ceiling per product, 2: how many are over it */
 					'overCap'   => __( 'over the ceiling of %1$s per product and hour — %2$s of each will be refused', 'dazont-ecom' ),
 					'tickFirst' => __( 'Tick the products you want to work on first.', 'dazont-ecom' ),
@@ -4488,11 +4527,7 @@ Answer with STRICT JSON and nothing else: "
 					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
 					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 					'promptWord'=> __( 'Prompt', 'dazont-ecom' ),
-					'spendTip'  => sprintf(
-						/* translators: %s: the price per image the shop set */
-						__( 'What this product has cost in images so far: every generation is counted, including the ones you threw away, at %s per image. That price is YOURS to set — Settings → Product content, next to the fal.ai key — and it is the one figure the provider never sends back, so an amount that does not match your invoice is that field to correct.', 'dazont-ecom' ),
-						'$' . number_format_i18n( self::fal_image_cost(), 3 )
-					),
+					'spendTip'  => self::spend_tip(),
 					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 					'pasteNone'    => __( 'No ID found in what you pasted.', 'dazont-ecom' ),
 					'pasteReplace' => __( 'Replace the whole list with these IDs?', 'dazont-ecom' ),
@@ -5393,11 +5428,7 @@ Answer with STRICT JSON and nothing else: "
 				'redoShort'  => __( 'Generate', 'dazont-ecom' ),
 				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 				'promptWord' => __( 'Prompt', 'dazont-ecom' ),
-				'spendTip'   => sprintf(
-					/* translators: %s: the price per image the shop set */
-					__( 'What this product has cost in images so far: every generation is counted, including the ones you threw away, at %s per image. That price is YOURS to set — Settings → Product content, next to the fal.ai key — and it is the one figure the provider never sends back, so an amount that does not match your invoice is that field to correct.', 'dazont-ecom' ),
-					'$' . number_format_i18n( self::fal_image_cost(), 3 )
-				),
+				'spendTip'   => self::spend_tip(),
 				// What the press about to be made will cost, beside what the
 				// product has already cost: two different questions.
 				/* translators: 1: number of photographs, 2: amount in dollars */
@@ -5406,6 +5437,12 @@ Answer with STRICT JSON and nothing else: "
 				'willCostWith' => __( 'This press: %1$s photographs with %3$s · about %2$s', 'dazont-ecom' ),
 				/* translators: %s: number of photographs */
 				'willMake'   => __( '%s photographs', 'dazont-ecom' ),
+				// One photograph is not « 1 photographs ».
+				/* translators: 2: what it costs */
+				'willCostOne' => __( 'This press: 1 photograph · about %2$s', 'dazont-ecom' ),
+				/* translators: 2: what it costs, 3: the image model */
+				'willCostWithOne' => __( 'This press: 1 photograph with %3$s · about %2$s', 'dazont-ecom' ),
+				'willMakeOne' => __( '1 photograph', 'dazont-ecom' ),
 				/* translators: 1: the ceiling per product, 2: how many are over it */
 				'overCap'    => __( 'over the ceiling of %1$s per product and hour — %2$s of each will be refused', 'dazont-ecom' ),
 				// The fast lane.
