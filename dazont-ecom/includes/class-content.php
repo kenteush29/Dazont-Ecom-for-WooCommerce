@@ -256,6 +256,34 @@ final class DZE_Content {
 	private const JOB_GIVE_UP = 900;
 
 	/**
+	 * HD (ajax_enlarge): SeedVR2 at fal, a JPEG in and a JPEG out, billed by
+	 * the megapixel it returns. Recraft's « crisp » upscaler wants a PNG and
+	 * answers with a four-megabyte one — too heavy for a product page.
+	 */
+	public const UPSCALER         = 'seedvr-upscale';
+	public const UPSCALE_ENDPOINT = 'fal-ai/seedvr/upscale/image';
+	public const UPSCALE_PER_MP   = 0.0025;
+	/** The long side an enlargement is brought to. */
+	public const UPSCALE_LONG     = 2048;
+
+	/**
+	 * How much an enlargement multiplies by: the long side brought to
+	 * UPSCALE_LONG, never less than ×1.5 nor more than ×4. 0 when the picture
+	 * is already that large — enlarging it would only cost.
+	 */
+	public static function enlarge_factor( int $w, int $h ): float {
+		$long = max( $w, $h );
+		if ( $long < 1 || $long >= self::UPSCALE_LONG ) {
+			return 0.0;
+		}
+		return round( min( 4.0, max( 1.5, self::UPSCALE_LONG / $long ) ), 2 );
+	}
+
+	public static function upscaler_label(): string {
+		return __( 'SeedVR2 (HD enlargement)', 'dazont-ecom' );
+	}
+
+	/**
 	 * ORDER, DO NOT WAIT. Set for one request by the product page's press:
 	 * fal_generate() stops once fal has accepted the job and leaves it in
 	 * $submitted, where shoot() files it as a job instead of a picture.
@@ -312,6 +340,7 @@ final class DZE_Content {
 	private function __construct() {
 		add_action( 'admin_init',     [ $this, 'register_settings' ] );
 		add_action( 'admin_init',     [ $this, 'migrate_quick_recipe' ] );
+		add_action( 'admin_init',     [ $this, 'seed_remake_recipe' ] );
 		add_action( 'admin_menu',     [ $this, 'register_bulk_page' ], 20 );
 		// A bookmark on the old page still lands: it goes to the tab that
 		// shows it now. On admin_init, which is before a byte of the page is
@@ -341,6 +370,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
 		// The product page asks after the pictures it ordered, in short calls.
 		add_action( 'wp_ajax_dze_content_job', [ $this, 'ajax_job' ] );
+		// HD: one picture enlarged, nothing else changed.
+		add_action( 'wp_ajax_dze_content_enlarge', [ $this, 'ajax_enlarge' ] );
 		add_action( 'wp_ajax_dze_content_bg_add', [ $this, 'ajax_bg_add' ] );
 		add_action( 'wp_ajax_dze_content_prompt_toggle', [ $this, 'ajax_prompt_toggle' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
@@ -352,10 +383,10 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_inputs', [ $this, 'ajax_inputs' ] );
 		add_action( 'wp_ajax_dze_content_reframe_preview', [ $this, 'ajax_reframe_preview' ] );
 		add_action( 'wp_ajax_dze_content_reframe_apply', [ $this, 'ajax_reframe_apply' ] );
-		// The Variations panel is the box variation images are written into, so
-		// the button that fills them is planted there — one button, opening one
-		// popup, exactly like the title and the main image have.
-		add_action( 'woocommerce_variable_product_before_variations', [ $this, 'variations_button' ] );
+		// NO BUTTON IN THE VARIATIONS PANEL ANY MORE. « On peut enlever les
+		// intégrations individuelles de chaque champ inutile, qui surcharge
+		// l'UI. Il faut juste la popup principale » — variation images open from
+		// the content toolbox (« Open variation images »).
 		// The products list: one chip per row opening the toolbox on the spot.
 		add_filter( 'manage_edit-product_columns', [ $this, 'list_column' ], 22 );
 		add_action( 'manage_product_posts_custom_column', [ $this, 'list_cell' ], 10, 2 );
@@ -737,6 +768,11 @@ EOT;
 				// product sold in three colours and five sizes, not fifteen
 				// images.
 				'variation' => __( 'Variation image (one per colour)', 'dazont-ecom' ),
+				// NOT A RECIPE: the words the ✦ on one picture sends — « refaire
+				// en mieux » a photograph of the product, one pasted in, or one
+				// already generated. Never listed among the prompts that make
+				// a new picture (image_templates()).
+				'remake'    => __( 'Remake one picture better (the ✦ on a picture)', 'dazont-ecom' ),
 			];
 		}
 		return [
@@ -1991,39 +2027,130 @@ EOT;
 			if ( ( $r['type'] ?? '' ) !== 'image' || empty( $r['enabled'] ) ) {
 				continue;
 			}
-			$out[] = [
-				'id'          => (string) $r['id'],
-				'name'        => (string) ( $r['name'] ?? '' ),
-				'target'      => in_array( (string) ( $r['output'] ?? 'gallery' ), [ 'main', 'variation' ], true )
-					? (string) $r['output']
-					: 'gallery',
-				'prompt'      => (string) ( $r['prompt'] ?? '' ),
-				'valid'       => (int) ! empty( $r['valid'] ),
-				'inputs'      => (array) ( $r['inputs'] ?? [ 'title', 'description' ] ),
-				'inputs_meta' => (string) ( $r['inputs_meta'] ?? '' ),
-				// THE SHAPE SET ON THE PROMPT. It was saved from the Shape menu
-				// and never read back into this list, so every image — popup,
-				// bulk, queue, automation — went out as « auto », and a square
-				// catalogue got a portrait main image.
-				'ratio'       => self::clean_ratio( (string) ( $r['ratio'] ?? '' ) ),
-				// THE SCENE IS THE PROMPT'S OWN. It used to be one answer for
-				// the whole shop — default_scene() — applied to every prompt
-				// whatever it asked for, and the sources block tells the model
-				// in capitals that the scene IS the background of the final
-				// photograph. So a prompt asking for a customer's own snapshot
-				// came back as a white pack shot, with nothing on any screen
-				// saying why.
-				//
-				// A prompt written before this field existed carries no key at
-				// all: it keeps the shop's default, so nothing changes for the
-				// pack shots already set up, and the first save of the Product
-				// content tab pins each prompt to its own answer. An EMPTY key
-				// is an answer — "no scene" — and is left alone.
-				'scene'       => self::prompt_scene( $r ),
-				'scene_i'     => self::scene_index( self::prompt_scene( $r ) ),
-			];
+			// THE REMAKE PROMPT IS NOT A RECIPE. It works on one picture, from
+			// the ✦ on that picture: listed among the prompts that make a new
+			// photograph, it would be a row anybody could run on nothing.
+			if ( 'remake' === (string) ( $r['output'] ?? '' ) ) {
+				continue;
+			}
+			$out[] = self::template_of( $r );
 		}
 		return $out;
+	}
+
+	/**
+	 * ONE prompt row as the screens and shoot() read it — the same shape for a
+	 * recipe and for the remake prompt, so neither drifts from the other.
+	 *
+	 * @param array<string,mixed> $r A registry row.
+	 * @return array<string,mixed>
+	 */
+	private static function template_of( array $r ): array {
+		return [
+			'id'          => (string) $r['id'],
+			'name'        => (string) ( $r['name'] ?? '' ),
+			'target'      => in_array( (string) ( $r['output'] ?? 'gallery' ), [ 'main', 'variation' ], true )
+				? (string) $r['output']
+				: 'gallery',
+			'prompt'      => (string) ( $r['prompt'] ?? '' ),
+			'valid'       => (int) ! empty( $r['valid'] ),
+			'inputs'      => (array) ( $r['inputs'] ?? [ 'title', 'description' ] ),
+			'inputs_meta' => (string) ( $r['inputs_meta'] ?? '' ),
+			// THE SHAPE SET ON THE PROMPT. It was saved from the Shape menu
+			// and never read back into this list, so every image — popup,
+			// bulk, queue, automation — went out as « auto », and a square
+			// catalogue got a portrait main image.
+			'ratio'       => self::clean_ratio( (string) ( $r['ratio'] ?? '' ) ),
+			// THE SCENE IS THE PROMPT'S OWN. It used to be one answer for
+			// the whole shop — default_scene() — applied to every prompt
+			// whatever it asked for, and the sources block tells the model
+			// in capitals that the scene IS the background of the final
+			// photograph. So a prompt asking for a customer's own snapshot
+			// came back as a white pack shot, with nothing on any screen
+			// saying why.
+			//
+			// A prompt written before this field existed carries no key at
+			// all: it keeps the shop's default, so nothing changes for the
+			// pack shots already set up, and the first save of the Product
+			// content tab pins each prompt to its own answer. An EMPTY key
+			// is an answer — "no scene" — and is left alone.
+			'scene'       => self::prompt_scene( $r ),
+			'scene_i'     => self::scene_index( self::prompt_scene( $r ) ),
+		];
+	}
+
+	/**
+	 * THE WORDS THE ✦ ON ONE PICTURE SENDS. « J'aimerais pouvoir cliquer sur
+	 * une image pour que l'outil la regénère en mieux. » The shop's own row
+	 * (output « remake », editable with the other prompts), or the shipped
+	 * one when the shop has none — never nothing: the button is on screen.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function remake_template(): array {
+		foreach ( self::registry() as $r ) {
+			if ( ( $r['type'] ?? '' ) === 'image' && 'remake' === (string) ( $r['output'] ?? '' ) && ! empty( $r['enabled'] ) && '' !== trim( (string) ( $r['prompt'] ?? '' ) ) ) {
+				return [ 'target' => 'gallery' ] + self::template_of( $r );
+			}
+		}
+		return [ 'target' => 'gallery' ] + self::template_of( self::remake_row_default() );
+	}
+
+	/** The shipped remake prompt, as a registry row. */
+	public static function remake_row_default(): array {
+		return [
+			'id'          => 'img_remake_better',
+			'name'        => __( 'Remake better', 'dazont-ecom' ),
+			'type'        => 'image',
+			'prompt'      => self::default_remake_prompt(),
+			'inputs'      => [ 'title' ],
+			'inputs_meta' => '',
+			'output'      => 'remake',
+			'meta_key'    => '',
+			'enabled'     => 1,
+			'valid'       => 1,
+			'tokens'      => 0,
+			// Its own shape (« auto » keeps the picture's) and NO scene: the
+			// picture being remade keeps its own background.
+			'ratio'       => '',
+			'scene'       => '',
+		];
+	}
+
+	public static function default_remake_prompt(): string {
+		return 'Remake this exact photograph better. Keep the same product, the same framing, the same angle and the same composition. '
+			. 'Make it sharper and cleaner: crisp focus, accurate colours, soft even light, no noise, no compression artefacts, no dust or blemishes, a clean background. '
+			. 'Do not add, remove or change any detail of the product: seams, zips, buttons, logos, patterns and proportions stay exactly as they are in the photograph. '
+			. 'No text, no watermark.';
+	}
+
+	/**
+	 * THE REMAKE PROMPT JOINS THE SHOP'S PROMPTS, once: a row like the
+	 * others, under Settings → Product content → Prompts, where its words are
+	 * the owner's to change. Taken out, it does not come back — the shipped
+	 * words then stand in (remake_template()).
+	 */
+	public function seed_remake_recipe(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$s = self::get_settings();
+		if ( ! empty( $s['remake_seeded'] ) ) {
+			return;
+		}
+		$rows = self::registry();
+		foreach ( $rows as $r ) {
+			if ( 'remake' === (string) ( $r['output'] ?? '' ) ) {
+				$s['remake_seeded'] = 1;
+				$this->write_settings_direct( $s );
+				return;
+			}
+		}
+		$rows[]              = self::remake_row_default();
+		$s['registry']       = $rows;
+		$s['remake_seeded']  = 1;
+		$this->write_settings_direct( $s );
+		self::$registry_cache = null;
 	}
 
 	/**
@@ -4593,6 +4720,13 @@ Answer with STRICT JSON and nothing else: "
 					/* translators: 2: what it costs, 3: the image model */
 					'willCostWithOne' => __( 'This press: 1 photograph with %3$s · about %2$s', 'dazont-ecom' ),
 					'willMakeOne' => __( '1 photograph', 'dazont-ecom' ),
+					'picRemake' => __( '✦ Remake this picture better — same framing, cleaner. The new picture joins this product\'s strip; this one stays as it is.', 'dazont-ecom' ),
+					'picHD'     => __( 'HD — enlarge this picture to 2048 pixels, nothing else changed (about one cent). It joins this product\'s strip; this one stays as it is.', 'dazont-ecom' ),
+					'remaking'  => __( 'Remaking the picture — it joins this product\'s strip when it is made.', 'dazont-ecom' ),
+					'enlarging' => __( 'Enlarging the picture — it joins this product\'s strip when it is made.', 'dazont-ecom' ),
+					'remade'    => __( 'Remade: the new picture is in this product\'s strip.', 'dazont-ecom' ),
+					'enlarged'  => __( 'Enlarged: the new picture is in this product\'s strip.', 'dazont-ecom' ),
+					'jobGone'   => __( 'This picture was collected in another tab: reload the page to see it.', 'dazont-ecom' ),
 					/* translators: 1: the ceiling per product, 2: how many are over it */
 					'overCap'   => __( 'over the ceiling of %1$s per product and hour — %2$s of each will be refused', 'dazont-ecom' ),
 					'tickFirst' => __( 'Tick the products you want to work on first.', 'dazont-ecom' ),
@@ -5213,6 +5347,8 @@ Answer with STRICT JSON and nothing else: "
 					// has to be opened to find out what the screen can even do.
 					'btnAi'     => __( 'Main image with AI', 'dazont-ecom' ),
 					'btnRf'     => __( 'Resize images', 'dazont-ecom' ),
+					'picRemake' => __( '✦ Remake this photograph better — same framing, cleaner. The new picture arrives among the new pictures; this one stays as it is.', 'dazont-ecom' ),
+					'picHD'     => __( 'HD — enlarge this photograph to 2048 pixels, nothing else changed (about one cent). It arrives among the new pictures; this one stays as it is.', 'dazont-ecom' ),
 					'rfStart'   => __( 'Reframe photographs', 'dazont-ecom' ),
 					'rfAll'     => __( 'All / none', 'dazont-ecom' ),
 					'rfShape'   => __( 'Shape', 'dazont-ecom' ),
@@ -5679,33 +5815,15 @@ Answer with STRICT JSON and nothing else: "
 				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
 				'stepElse'   => __( 'Photographs from elsewhere', 'dazont-ecom' ),
 				'noRecipes'  => __( 'No image prompt writes here yet. Add one under Settings → Product content → Prompts.', 'dazont-ecom' ),
-				// THE WALL under the gallery: each picture made for the product,
-				// from the moment it is ordered to the moment it is decided.
-				'brickWall'    => __( 'Made with AI — not on the shop yet', 'dazont-ecom' ),
-				'brickLegend'  => __( '＋ add to the gallery · ★ make it the main image · ✕ throw away for good (it was never on the shop) · ⤢ see it full size', 'dazont-ecom' ),
-				/* translators: %s: what the picture shows, e.g. "whole jacket, front three-quarter view" */
-				'brickView'    => __( 'Framing: %s', 'dazont-ecom' ),
-				'brickForMain' => __( 'Made for the main image', 'dazont-ecom' ),
-				'brickAdd'     => __( 'Add to the gallery', 'dazont-ecom' ),
-				'brickMain'    => __( 'Make it the main image (the current one moves to the front of the gallery)', 'dazont-ecom' ),
-				'brickThrow'   => __( 'Throw away for good — it leaves this product and does not come back', 'dazont-ecom' ),
-				/* translators: %s: seconds since the picture was ordered */
-				'brickMaking'  => __( 'Being made · %s s', 'dazont-ecom' ),
-				'brickOrdering'=> __( 'Ordering…', 'dazont-ecom' ),
-				'brickQueued'  => __( 'Next in line', 'dazont-ecom' ),
-				/* translators: %s: why the picture was not made */
-				'brickFailed'  => __( 'Not made: %s', 'dazont-ecom' ),
-				'brickDismiss' => __( 'Dismiss this message', 'dazont-ecom' ),
-				'brickArrived' => __( 'A new picture is in. Nothing goes on the shop until you press ＋ or ★.', 'dazont-ecom' ),
-				/* translators: %s: the error of the last attempt to reach the server */
-				'brickLost'    => __( 'The server could not be reached to collect it (%s). It is kept on the product: reload the page to find it.', 'dazont-ecom' ),
-				'brickAdded'   => __( 'Added to the gallery.', 'dazont-ecom' ),
-				'brickMainDone'=> __( 'It is the main image now; the previous one is first in the gallery.', 'dazont-ecom' ),
-				'brickThrown'  => __( 'Thrown away for good.', 'dazont-ecom' ),
-				'ordered'      => __( 'Ordered. The picture appears under the product gallery when it is made — about a minute with GPT Image, fifteen seconds with Nano Banana.', 'dazont-ecom' ),
-				/* translators: %s: how many pictures were ordered */
-				'orderedN'     => __( '%s pictures ordered. They are made one after another — each one told what the previous ones show — and appear under the product gallery.', 'dazont-ecom' ),
 				'oneModel'     => __( 'Model', 'dazont-ecom' ),
+				// ✦ AND HD ON A PICTURE: what each does, on its button.
+				'picRemake'    => __( '✦ Remake this picture better — same framing, cleaner. The new picture arrives in the strip of new pictures; this one stays as it is.', 'dazont-ecom' ),
+				'picHD'        => __( 'HD — enlarge this picture to 2048 pixels, nothing else changed (about one cent). It arrives in the strip of new pictures; this one stays as it is.', 'dazont-ecom' ),
+				'remaking'     => __( 'Remaking the picture — it arrives among the new pictures below (about a minute with GPT Image, fifteen seconds with Nano Banana).', 'dazont-ecom' ),
+				'enlarging'    => __( 'Enlarging the picture — it arrives among the new pictures below.', 'dazont-ecom' ),
+				'remade'       => __( 'Remade: the new picture is among the new pictures below.', 'dazont-ecom' ),
+				'enlarged'     => __( 'Enlarged: the new picture is among the new pictures below.', 'dazont-ecom' ),
+				'jobGone'      => __( 'This picture was collected in another tab: open the popup again to see it.', 'dazont-ecom' ),
 				'oneGallery' => __( 'Gallery images', 'dazont-ecom' ),
 				'imgAll'     => __( 'Every photograph of the product', 'dazont-ecom' ),
 				'noShots'    => __( 'No photograph on this product yet — add the main image to the product and save it, or paste one below.', 'dazont-ecom' ),
@@ -6810,40 +6928,6 @@ Answer with STRICT JSON and nothing else: "
 		] );
 	}
 
-	/** The button planted in WooCommerce's own Variations panel. */
-	public function variations_button(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			return;
-		}
-		// How much of this product is still showing the parent's photograph,
-		// answered where the variations are — not after opening anything.
-		$pid     = (int) get_the_ID();
-		$product = $pid && function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
-		$all     = 0;
-		$with    = 0;
-		if ( $product && $product->is_type( 'variable' ) ) {
-			$children = (array) $product->get_children();
-			if ( $children ) {
-				_prime_post_caches( $children, false, true );
-			}
-			foreach ( $children as $vid ) {
-				$all++;
-				if ( get_post_thumbnail_id( (int) $vid ) ) {
-					$with++;
-				}
-			}
-		}
-		printf(
-			'<div class="dze-varbar"><button type="button" class="button dze-var-open">%1$s</button>'
-				. '<span class="dze-varcount%2$s">%3$s</span>'
-				. '<span class="description">%4$s</span></div>',
-			esc_html__( '✦ Variation images', 'dazont-ecom' ),
-			esc_attr( ( $all && $with < $all ) ? ' is-short' : '' ),
-			esc_html( self::variation_count_text( $with, $all ) ),
-			esc_html__( 'Pick one from the library, paste one, or generate one.', 'dazont-ecom' )
-		);
-	}
-
 	/** "3/18 variations with an image", said the same way wherever it is said. */
 	public static function variation_count_text( int $with, int $all ): string {
 		if ( ! $all ) {
@@ -7466,20 +7550,34 @@ Answer with STRICT JSON and nothing else: "
 		$code = (int) wp_remote_retrieve_response_code( $res );
 		$body = json_decode( wp_remote_retrieve_body( $res ), true );
 		$url  = ( is_array( $body ) ? $body : [] )['images'][0]['url'] ?? '';
-		// What this call is actually billed. fal answers with the number of
-		// billable units it charged for; when it does, that number is the
-		// truth and nothing here has to guess how many images a request became.
-		// A job from before the model was a choice was nano-banana-2's.
-		$key   = isset( self::image_models()[ (string) ( $job['model'] ?? '' ) ] ) ? (string) $job['model'] : 'nano-banana-2';
-		$made  = max( 1, count( (array) ( ( is_array( $body ) ? $body : [] )['images'] ?? [] ) ) );
-		if ( 'image' === self::image_models()[ $key ]['per'] ) {
-			$units = (float) wp_remote_retrieve_header( $res, 'x-fal-billable-units' );
-			$units = max( $units, (float) $made, 1.0 );
-			self::$last_cost = round( $units * self::fal_image_cost( 0, $key ), 4 );
+		// AN ENLARGEMENT ANSWERS WITH ONE IMAGE, not a list.
+		if ( '' === (string) $url ) {
+			$url = ( is_array( $body ) ? $body : [] )['image']['url'] ?? '';
+		}
+		if ( self::UPSCALER === (string) ( $job['model'] ?? '' ) ) {
+			// BILLED BY THE MEGAPIXEL IT RETURNS — read from the answer, the
+			// order's own estimate when the answer does not say.
+			$ow  = (int) ( ( is_array( $body ) ? $body : [] )['image']['width'] ?? 0 );
+			$oh  = (int) ( ( is_array( $body ) ? $body : [] )['image']['height'] ?? 0 );
+			$mp  = ( $ow && $oh ) ? $ow * $oh / 1000000 : (float) ( $job['mp'] ?? 2 );
+			$key = self::UPSCALER;
+			self::$last_cost = round( self::UPSCALE_PER_MP * max( 0.1, $mp ), 4 );
 		} else {
-			// BILLED BY TOKEN OR BY MEGAPIXEL: fal's unit is not a picture, so
-			// it is not multiplied by a picture's price — the estimate is.
-			self::$last_cost = round( $made * self::fal_image_cost( (int) ( $job['refs'] ?? -1 ), $key ), 4 );
+			// What this call is actually billed. fal answers with the number of
+			// billable units it charged for; when it does, that number is the
+			// truth and nothing here has to guess how many images a request became.
+			// A job from before the model was a choice was nano-banana-2's.
+			$key   = isset( self::image_models()[ (string) ( $job['model'] ?? '' ) ] ) ? (string) $job['model'] : 'nano-banana-2';
+			$made  = max( 1, count( (array) ( ( is_array( $body ) ? $body : [] )['images'] ?? [] ) ) );
+			if ( 'image' === self::image_models()[ $key ]['per'] ) {
+				$units = (float) wp_remote_retrieve_header( $res, 'x-fal-billable-units' );
+				$units = max( $units, (float) $made, 1.0 );
+				self::$last_cost = round( $units * self::fal_image_cost( 0, $key ), 4 );
+			} else {
+				// BILLED BY TOKEN OR BY MEGAPIXEL: fal's unit is not a picture, so
+				// it is not multiplied by a picture's price — the estimate is.
+				self::$last_cost = round( $made * self::fal_image_cost( (int) ( $job['refs'] ?? -1 ), $key ), 4 );
+			}
 		}
 		if ( class_exists( 'DZE_Ai_Usage' ) ) {
 			// AN ANSWER THAT HELD NO PICTURE WAS STILL PAID FOR.
@@ -7568,7 +7666,7 @@ Answer with STRICT JSON and nothing else: "
 				'id'     => (string) $id,
 				'target' => (string) ( $j['target'] ?? 'gallery' ),
 				'recipe' => (string) ( $j['recipe'] ?? '' ),
-				'model'  => (string) ( self::image_models()[ $model ]['label'] ?? $model ),
+				'model'  => (string) ( self::image_models()[ $model ]['label'] ?? ( self::UPSCALER === $model ? self::upscaler_label() : $model ) ),
 				'key'    => $model,
 				'secs'   => max( 0, time() - (int) ( $j['t'] ?? time() ) ),
 			];

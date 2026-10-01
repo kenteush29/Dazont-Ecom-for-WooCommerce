@@ -887,9 +887,10 @@ trait DZE_Content_Ajax {
 		}
 		DZE_Ai_Usage::finished( 'product_img' );
 		self::charge_product( $pid, self::last_image_cost() );
-		// Its framing, in words, for the next order (describe_view()).
+		// Its framing, in words, for the next order (describe_view()). An
+		// enlargement keeps its original's: there is nothing new to describe.
 		DZE_Ai_Usage::unit( 'img_view' );
-		$view = self::describe_view( $url, (string) get_the_title( $pid ) );
+		$view = 'enlarge' === (string) ( $job['tool'] ?? '' ) ? '' : self::describe_view( $url, (string) get_the_title( $pid ) );
 		DZE_Ai_Usage::unit();
 		DZE_Ai_Usage::about();
 		$model = (string) ( $job['model'] ?? '' );
@@ -908,7 +909,7 @@ trait DZE_Content_Ajax {
 			'url'    => $url,
 			'target' => (string) ( $job['target'] ?? 'gallery' ),
 			'recipe' => (string) ( $job['recipe'] ?? '' ),
-			'model'  => (string) ( self::image_models()[ $model ]['label'] ?? $model ),
+			'model'  => (string) ( self::image_models()[ $model ]['label'] ?? ( self::UPSCALER === $model ? self::upscaler_label() : $model ) ),
 			'key'    => $model,
 			'view'   => $view,
 			'secs'   => $secs,
@@ -918,12 +919,167 @@ trait DZE_Content_Ajax {
 
 	public function ajax_image(): void {
 		$this->guard();
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- guard() checks the nonce.
+		// ORDER AND COME BACK, as the product page's press does: the toolbox,
+		// the bulk screen and the ✦ on a picture ask for it, and the picture
+		// is then collected in short calls (ajax_job) — never a request held
+		// open past the proxy's 60 seconds. Only for a picture headed for the
+		// waiting list: one filed straight onto the product is still made
+		// while the request waits, as before.
+		$dze_model = isset( $_POST['model'] ) ? trim( (string) wp_unslash( $_POST['model'] ) ) : '';
+		self::$model_override = isset( self::image_models()[ $dze_model ] ) ? $dze_model : '';
+		self::$submit_only    = ! empty( $_POST['async'] ) && empty( $_POST['dry'] )
+			&& 'defer' === sanitize_key( (string) wp_unslash( $_POST['mode'] ?? '' ) ) && ! empty( $_POST['stash'] );
+		// phpcs:enable
 		try {
 			$made = $this->shoot( (array) $_POST ); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput -- guard() checks the nonce; every field is sanitised where it is read, inside shoot().
 		} catch ( \Throwable $e ) {
+			self::$submit_only    = false;
+			self::$model_override = '';
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
+		self::$submit_only    = false;
+		self::$model_override = '';
+		if ( ! empty( $made['job'] ) ) {
+			$made['spend'] = self::product_spend( isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0 ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		}
 		wp_send_json_success( $made );
+	}
+
+	/**
+	 * HD: ONE PICTURE, MORE PIXELS, NOTHING ELSE CHANGED.
+	 *
+	 * « Certaines images en pièce jointe pourraient facilement être ajoutées
+	 * sur la fiche produit avec une retouche, un agrandissement… » — supplier
+	 * detail shots 800 pixels wide. SeedVR2 at fal (UPSCALE_PER_MP a
+	 * megapixel) brings the long side to UPSCALE_LONG. Ordered and collected
+	 * like any picture (ajax_job): the enlargement joins the waiting list beside
+	 * its original, which is left exactly as it was.
+	 *
+	 * The picture is one of three things — a generated one waiting (src_url), a
+	 * photograph of this product (src_att), one pasted in (src_paste) — and an
+	 * enlargement keeps what its original was: a real photograph stays one
+	 * (a source for later pictures), a generated one stays generated.
+	 */
+	public function ajax_enlarge(): void {
+		$this->guard();
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- guard() checks the nonce.
+		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$url   = isset( $_POST['src_url'] ) ? esc_url_raw( (string) wp_unslash( $_POST['src_url'] ) ) : '';
+		$att   = isset( $_POST['src_att'] ) ? absint( $_POST['src_att'] ) : 0;
+		$paste = isset( $_POST['src_paste'] ) ? (string) wp_unslash( $_POST['src_paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- a data URI, read by read_data_uris().
+		// phpcs:enable
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
+		}
+		if ( '' === self::fal_key() ) {
+			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) ] );
+		}
+		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
+			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
+		}
+		$recipe = '';
+		$bytes  = '';
+		$image  = '';
+		try {
+			if ( '' !== $url ) {
+				if ( ! self::is_fal_url( $url ) ) {
+					throw new RuntimeException( __( 'Invalid source image.', 'dazont-ecom' ) );
+				}
+				$got   = wp_remote_get( $url, [ 'timeout' => 20 ] );
+				$bytes = is_wp_error( $got ) ? '' : (string) wp_remote_retrieve_body( $got );
+				$image = $url;
+				// A generated picture's enlargement is still a generated picture:
+				// never an empty prompt id, which would make it a real photograph
+				// — a source for every later picture — once it is accepted.
+				$dze_r  = (string) ( self::pending( $pid )['recipes'][ $url ] ?? '' );
+				$recipe = '' !== $dze_r ? $dze_r : 'img_enlarged';
+			} elseif ( $att ) {
+				if ( ! in_array( $att, array_map( 'intval', self::product_image_ids( $pid ) ), true ) ) {
+					throw new RuntimeException( __( 'That photograph is not one of this product\'s.', 'dazont-ecom' ) );
+				}
+				$file  = (string) get_attached_file( $att );
+				$bytes = ( '' !== $file && file_exists( $file ) ) ? (string) file_get_contents( $file ) : ''; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local file.
+				$image = $this->fal_source_data_uri( $att, 'full' );
+				$recipe = (string) get_post_meta( $att, self::META_RECIPE, true );
+			} elseif ( '' !== $paste ) {
+				$dze_got = self::read_data_uris( [ $paste ], 1, self::MAX_PAYLOAD );
+				if ( ! $dze_got ) {
+					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+				}
+				$image = (string) $dze_got[0];
+				$bytes = (string) base64_decode( (string) substr( $image, (int) strpos( $image, ',' ) + 1 ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- reading a pasted image's size.
+			} else {
+				throw new RuntimeException( __( 'Pick the picture to enlarge.', 'dazont-ecom' ) );
+			}
+			$size = '' !== $bytes ? @getimagesizefromstring( $bytes ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$w    = (int) ( $size[0] ?? 0 );
+			$h    = (int) ( $size[1] ?? 0 );
+			if ( ! $w || ! $h ) {
+				throw new RuntimeException( __( 'That picture could not be read.', 'dazont-ecom' ) );
+			}
+			$factor = self::enlarge_factor( $w, $h );
+			if ( $factor <= 0 ) {
+				/* translators: 1: width, 2: height */
+				throw new RuntimeException( sprintf( __( 'It is already %1$d × %2$d pixels: enlarging it gains nothing.', 'dazont-ecom' ), $w, $h ) );
+			}
+			if ( class_exists( 'DZE_Ai_Usage' ) ) {
+				$stop = DZE_Ai_Usage::fal_blocked( $pid );
+				if ( '' !== $stop ) {
+					throw new RuntimeException( $stop );
+				}
+				DZE_Ai_Usage::fal_attempt( $pid );
+			}
+			$resp = wp_remote_post( self::FAL_QUEUE . self::UPSCALE_ENDPOINT, [
+				'timeout' => 30,
+				'headers' => [ 'Authorization' => 'Key ' . self::fal_key(), 'content-type' => 'application/json' ],
+				'body'    => wp_json_encode( [
+					'image_url'      => $image,
+					'upscale_mode'   => 'factor',
+					'upscale_factor' => $factor,
+					'output_format'  => 'jpg',
+				] ),
+			] );
+			if ( is_wp_error( $resp ) ) {
+				DZE_Health::log( 'fal', 'POST ' . self::FAL_QUEUE . self::UPSCALE_ENDPOINT, 'network — ' . $resp->get_error_message() );
+				throw new RuntimeException( $resp->get_error_message() );
+			}
+			$code = (int) wp_remote_retrieve_response_code( $resp );
+			$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+			if ( $code < 200 || $code >= 300 || empty( $body['request_id'] ) || empty( $body['status_url'] ) ) {
+				$msg = self::fal_said( $code, $body );
+				DZE_Health::log( 'fal', 'POST ' . self::FAL_QUEUE . self::UPSCALE_ENDPOINT, 'refused — ' . $msg );
+				/* translators: %s: what fal said */
+				throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( $msg, 0, 300 ) ) );
+			}
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		$ow  = (int) round( $w * $factor );
+		$oh  = (int) round( $h * $factor );
+		$job = [
+			'id'       => (string) $body['request_id'],
+			'status'   => (string) $body['status_url'],
+			'response' => (string) ( $body['response_url'] ?? '' ),
+			'model'    => self::UPSCALER,
+			'refs'     => 0,
+			'asked'    => sprintf( '[enlarged ×%s — %d × %d → %d × %d, nothing else changed]', $factor, $w, $h, $ow, $oh ),
+			't0'       => microtime( true ),
+			'target'   => 'gallery',
+			'recipe'   => $recipe,
+			'stash'    => 1,
+			'tool'     => 'enlarge',
+			'mp'       => round( $ow * $oh / 1000000, 2 ),
+			'by'       => get_current_user_id(),
+		];
+		self::job_add( $pid, $job );
+		wp_send_json_success( [
+			'job'   => $job['id'],
+			'model' => self::upscaler_label(),
+			'key'   => self::UPSCALER,
+			'size'  => [ $ow, $oh ],
+			'spend' => self::product_spend( $pid ),
+		] );
 	}
 
 	/**
@@ -980,6 +1136,14 @@ trait DZE_Content_Ajax {
 		$mode   = isset( $in['mode'] ) ? sanitize_key( wp_unslash( $in['mode'] ) ) : '';
 		$custom = isset( $in['custom_prompt'] ) ? sanitize_textarea_field( wp_unslash( $in['custom_prompt'] ) ) : '';
 		$src    = isset( $in['src_url'] ) ? esc_url_raw( wp_unslash( $in['src_url'] ) ) : '';
+		// THE PICTURE BEING REMADE when it is not a generated one: a photograph
+		// of this product (src_att) or one pasted in (src_paste) — « l'option de
+		// remake image doit être dispo aussi sur les images copié collées
+		// externes ». Read as an image, never as an address.
+		$src_att   = isset( $in['src_att'] ) ? absint( $in['src_att'] ) : 0;
+		$src_paste = isset( $in['src_paste'] ) ? (string) wp_unslash( $in['src_paste'] ) : '';
+		// ✦ REMAKE BETTER: the shop's remake prompt, on that one picture.
+		$remake    = ! empty( $in['remake'] );
 		// ONE PHOTOGRAPH OF THE PRODUCT, PICKED ON THE SCREEN. It says two
 		// things at once, which is why it replaced a checkbox: this one is
 		// image 1, and the product is the subject. It never reached this
@@ -1037,6 +1201,9 @@ trait DZE_Content_Ajax {
 		if ( ! empty( $in['no_template'] ) && '' !== $custom ) {
 			$tpl = null;
 		}
+		if ( $remake ) {
+			$tpl = self::remake_template();
+		}
 		if ( ! $tpl && '' === $custom ) {
 			throw new RuntimeException( __( 'No image template configured.', 'dazont-ecom' ) );
 		}
@@ -1064,6 +1231,26 @@ trait DZE_Content_Ajax {
 		// Source image: an earlier AI result (live edit) or the featured image.
 		if ( '' !== $src && ! self::is_fal_url( $src ) ) {
 			throw new RuntimeException( __( 'Invalid source image.', 'dazont-ecom' ) );
+		}
+		// What the screen shows of it: a data URI is no thumbnail.
+		$src_thumb = $src;
+		if ( '' === $src && $src_att ) {
+			// Only ever a photograph of THIS product.
+			if ( ! in_array( $src_att, array_map( 'intval', self::product_image_ids( $pid ) ), true ) ) {
+				throw new RuntimeException( __( 'That photograph is not one of this product\'s.', 'dazont-ecom' ) );
+			}
+			$src       = $this->fal_source_data_uri( $src_att, 'full' );
+			$src_thumb = (string) wp_get_attachment_image_url( $src_att, 'thumbnail' );
+		} elseif ( '' === $src && '' !== $src_paste ) {
+			$dze_got = self::read_data_uris( [ $src_paste ], 1, self::MAX_PAYLOAD );
+			if ( ! $dze_got ) {
+				throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+			}
+			$src       = (string) $dze_got[0];
+			$src_thumb = '';
+		}
+		if ( $remake && '' === $src ) {
+			throw new RuntimeException( __( 'Pick the picture to remake.', 'dazont-ecom' ) );
 		}
 		// The scene: the fixed support or background this shop always shoots on.
 		// A one-off edit of an image that already exists ("make the strap red")
@@ -1239,7 +1426,7 @@ trait DZE_Content_Ajax {
 				// is the only lane where the answer is allowed to look like its
 				// source, which is why it stands apart from everything below.
 				$sources[] = $src;
-				$labels[]  = [ 'what' => __( 'The picture being retouched', 'dazont-ecom' ), 'thumb' => $src ];
+				$labels[]  = [ 'what' => __( 'The picture being retouched', 'dazont-ecom' ), 'thumb' => $src_thumb ];
 			} else {
 				// EVERYTHING THAT TRAVELS IS A PHOTOGRAPH OF THIS PRODUCT.
 				//
@@ -1318,7 +1505,11 @@ trait DZE_Content_Ajax {
 			// PICKED PHOTOGRAPHS TRAVEL ALONE: the screen says « only these »,
 			// and other colours added behind them were a second answer the
 			// owner never saw.
-			if ( ! $src_ids && ! $only_pasted && '' === $v_value && $tpl && self::wants_variants( self::registry_row( (string) ( $tpl['id'] ?? '' ) ) ) ) {
+			// Nor behind the ONE picture being retouched (✦ on a picture): it
+			// travels alone. And a prompt with no row of its own — the shipped
+			// remake words, when the shop has none — asks for no colours.
+			$dze_row = $tpl ? self::registry_row( (string) ( $tpl['id'] ?? '' ) ) : null;
+			if ( '' === $src && ! $src_ids && ! $only_pasted && '' === $v_value && is_array( $dze_row ) && self::wants_variants( $dze_row ) ) {
 				foreach ( $this->variant_images( $pid, $product_ids ) as $uri ) {
 					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
 						break;

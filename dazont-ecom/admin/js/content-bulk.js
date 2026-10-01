@@ -782,8 +782,69 @@
 		var first = jobsFor(id)[0];
 		return first ? String(first.tpl) : '0';
 	}
+	// AN IMAGE IS ORDERED, THEN COLLECTED — the product page's answer to « HTTP
+	// 504 error » (content.js): the order leaves in seconds and the picture is
+	// asked after in short calls. Same answer as the old single call; a
+	// picture filed straight onto the product (no review) is still made while
+	// the request waits, as before.
+	function pollJob(post, job) {
+		var d = $.Deferred(), misses = 0;
+		(function look() {
+			window.setTimeout(function () {
+				$.post(cfg.ajaxUrl, { action: 'dze_content_job', nonce: cfg.nonce, post: post, job: job })
+					.done(function (q) {
+						var x = (q && q.data) || {};
+						if (q && q.success && x.running) { misses = 0; look(); return; }
+						if (q && q.success && x.done) { d.resolve({ success: true, data: x }); return; }
+						if (x.gone && !x.error) { d.resolve({ success: false, data: { message: i18n.jobGone || i18n.error } }); return; }
+						d.resolve(q);
+					})
+					.fail(function (xhr) { if (++misses < 20) { look(); } else { d.reject(xhr); } });
+			}, misses ? 5000 : 3000);
+		}());
+		return d.promise();
+	}
+	function shootAsync(req) {
+		var d = $.Deferred();
+		$.post(cfg.ajaxUrl, $.extend({}, req, { async: 1 }))
+			.done(function (r) {
+				if (!r || !r.success || !r.data || !r.data.job) { d.resolve(r); return; }
+				pollJob(req.post, r.data.job).then(d.resolve, d.reject);
+			})
+			.fail(function (x) { d.reject(x); });
+		return d.promise();
+	}
+	// ✦ AND HD ON ONE PICTURE OF A PRODUCT'S PANEL — a photograph of it, one
+	// pasted in, one just made. What they make joins that product's strip; the
+	// picture clicked is left as it was.
+	function pictureJob(id, kind, src, $where) {
+		var hd = 'hd' === kind;
+		var req = hd
+			? { action: 'dze_content_enlarge', nonce: cfg.nonce, post: id }
+			: { action: 'dze_content_image', nonce: cfg.nonce, post: id, mode: 'defer', stash: 1, remake: 1, target: 'gallery' };
+		if (src.url) { req.src_url = src.url; } else if (src.att) { req.src_att = src.att; } else if (src.paste) { req.src_paste = src.paste; }
+		var $st = previewCell(id).find('.dze-cb-panelstate').first().removeClass('is-ko').text(hd ? i18n.enlarging : i18n.remaking);
+		if ($where) { $where.addClass('is-busy'); }
+		return shootAsync(req).then(function (r) {
+			if ($where) { $where.removeClass('is-busy'); }
+			if (!r || !r.success) {
+				$st.addClass('is-ko').text(reason((r && r.data && r.data.message) || i18n.error));
+				return;
+			}
+			$st.text(hd ? i18n.enlarged : i18n.remade);
+			addShot(id, r.data.url, undefined, r.data.target);
+			var b = bucket(id);
+			b.shotRecipe = b.shotRecipe || {};
+			if (r.data.recipe) { b.shotRecipe[r.data.url] = r.data.recipe; }
+			renderShots(id);
+		}, function (x) {
+			if ($where) { $where.removeClass('is-busy'); }
+			$st.addClass('is-ko').text(reason(x));
+		});
+	}
 	function oneImage(id, review, tpl, scene, attempt) {
-		return $.post(cfg.ajaxUrl, imageRequest(id, review, tpl, scene, attempt))
+		// Each told the framings already made for this product (aware).
+		return shootAsync($.extend(imageRequest(id, review, tpl, scene, attempt), { aware: 1 }))
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
@@ -994,6 +1055,10 @@
 				max: parseInt(cfg.maxPasted, 10) || 12,
 				maxBody: parseInt(cfg.maxBody, 10) || 9437184,
 				start: pastedOf(id),
+				actions: [
+					{ cls: 'dze-pb-make', label: '✦', title: i18n.picRemake, run: function (uri, $t) { pictureJob(id, 'remake', { paste: uri }, $t); } },
+					{ cls: 'dze-pb-hd', label: 'HD', title: i18n.picHD, run: function (uri, $t) { pictureJob(id, 'hd', { paste: uri }, $t); } }
+				],
 				// The picker offers what the box holds: a photograph added
 				// after the panel was drawn has to appear in it, or the only
 				// way to say "this one is the subject" is not on the screen.
@@ -1286,7 +1351,10 @@
 						$('<button type="button" class="dze-cb-shotpos"></button>')
 							.attr('title', i18n.shotPos).text(destLabel(cur)),
 						$('<button type="button" class="dze-cb-shotredo">↻</button>')
-							.attr('title', name ? sprintf(i18n.shotRedoOne, name) : i18n.shotRedo)
+							.attr('title', name ? sprintf(i18n.shotRedoOne, name) : i18n.shotRedo),
+						// ✦ and HD on THIS picture: a new one arrives beside it.
+						$('<button type="button" class="dze-cb-shotmake">✦</button>').attr('title', i18n.picRemake || ''),
+						$('<button type="button" class="dze-cb-shothd">HD</button>').attr('title', i18n.picHD || '')
 					),
 					$('<input type="hidden" class="dze-cb-shotdest" />').val(cur),
 					// THE SAME CROSS THE TOOLBOX HAS. This screen could only
@@ -1299,6 +1367,13 @@
 				)
 		);
 	}
+	$(document).on('click', '.dze-cb-shots .dze-cb-shotmake, .dze-cb-shots .dze-cb-shothd', function (e) {
+		e.stopPropagation();
+		var $card = $(this).closest('.dze-cb-shot');
+		var id = parseInt($(this).closest('[data-id]').data('id'), 10) || 0;
+		if (!id) { return; }
+		pictureJob(id, $(this).hasClass('dze-cb-shothd') ? 'hd' : 'remake', { url: String($card.data('url') || '') }, $card);
+	});
 	// One image thrown away: off the screen and out of the product's waiting
 	// list, through the same endpoint the toolbox uses.
 	$(document).on('click', '.dze-cb-shotdrop', function (e) {
@@ -1410,7 +1485,7 @@
 		var tpl = tplOfShot(id, url);
 		if (null === tpl) { tpl = tplForTarget(id, dest); }
 		var $st = $card.closest('.dze-cb-shots').find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
-		$.post(cfg.ajaxUrl, imageRequest(id, true, tpl, undefined, 0, dest))
+		shootAsync($.extend(imageRequest(id, true, tpl, undefined, 0, dest), { aware: 1 }))
 			.done(function (r) {
 				if (!r || !r.success) {
 					$btn.prop('disabled', false); $card.removeClass('is-busy');
@@ -1492,6 +1567,7 @@
 		}
 		window.dzePhotos.render($slot, b.current.images || [], {
 			post: id,
+			remake: true,
 			after: function () {
 				b.current = null;
 				loadCurrent(id).then(function () { renderCurrentImages(id); });
@@ -1499,6 +1575,11 @@
 		});
 	}
 
+	// ✦ / HD on a photograph of a product of this list.
+	if (window.dzePhotos) {
+		window.dzePhotos.on('remake', function (im, post, $t) { if (post && im.id && previewCell(post).length) { pictureJob(post, 'remake', { att: im.id }, $t); } });
+		window.dzePhotos.on('enlarge', function (im, post, $t) { if (post && im.id && previewCell(post).length) { pictureJob(post, 'hd', { att: im.id }, $t); } });
+	}
 	$(document).on('click', '.dze-cb-nowretry', function () {
 		var id = $(this).closest('.dze-cb-preview').data('id');
 		var b = bucket(id);
@@ -1676,7 +1757,7 @@
 		if (tpl === undefined) { tpl = (jobsFor(id)[0] || {}).tpl; }
 		if (tpl === undefined) { tpl = '0'; }
 		tpl = String(tpl);
-		$.post(cfg.ajaxUrl, imageRequest(id, true, tpl))
+		shootAsync($.extend(imageRequest(id, true, tpl), { aware: 1 }))
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success) {

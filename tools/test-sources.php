@@ -1497,7 +1497,7 @@ $dze_js  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/cont
 $dze_jsb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
 $dze_aj  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
 ok( 'la boite a outils compte les photographies du produit, collees et scene comprises',
-	false !== strpos( $dze_js, 'cost += k * perImage(refsFor(job.scene, job.target));' ) && false !== strpos( $dze_aj, "'sources' => count( self::product_source_ids( \$pid ) )," ), true );
+	false !== strpos( $dze_js, 'cost += k * perImage(refsFor(job.scene, job.target), cxPrice());' ) && false !== strpos( $dze_aj, "'sources' => count( self::product_source_ids( \$pid ) )," ), true );
 ok( 'l ecran de masse aussi, produit par produit',      false !== strpos( $dze_jsb, 'perImage(refsOf(id, j))' ), true );
 ok( 'et la phrase nomme le modele',                     false !== strpos( $dze_js, 'i18n.willCostWith' ) && false !== strpos( $dze_jsb, 'i18n.willCostWith' ), true );
 // « This press: 1 photographs with $0.24 · about GPT Image 2.5 Sunburst » : le
@@ -1637,17 +1637,104 @@ $dze_js = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/conte
 $dze_jsb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
 ok( 'la page demande des nouvelles par un appel enregistre', false !== strpos( $dze_cs, "add_action( 'wp_ajax_dze_content_job', [ \$this, 'ajax_job' ] );" ), true );
 ok( 'le bouton Generate commande, avec la memoire des cadrages et le modele choisi', [ false !== strpos( $dze_js, 'order.async = 1;' ), false !== strpos( $dze_js, 'order.aware = 1;' ), false !== strpos( $dze_js, "order.model = \$('#dze-one-model').val() || '';" ) ], [ true, true, true ] );
-ok( 'une image a la fois, chacune prevenue de la precedente', false !== strpos( $dze_js, 'if (wall.busy || Object.keys(wall.jobs).length || !wall.queue.length) { return; }' ), true );
+ok( 'une image a la fois, chacune prevenue de la precedente — popup et ecran de masse', [ false !== strpos( $dze_js, 'return shootAsync($.extend(imageRequest(tpl, scene), { aware: 1, model: cxModel() }))' ), false !== strpos( $dze_jsb, 'return shootAsync($.extend(imageRequest(id, review, tpl, scene, attempt), { aware: 1 }))' ) ], [ true, true ] );
 ok( 'la page demande des nouvelles, jamais la requete ne reste ouverte', false !== strpos( $dze_js, "action: 'dze_content_job'" ), true );
-ok( '✕ ne part jamais avec une liste vide (vide = tout jeter)', [ false !== strpos( $dze_js, "if (!url || \$card.hasClass('is-busy')) { return; }\n\t\t\$card.addClass('is-busy');\n\t\t\$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ] })" ) ], [ true ] );
+ok( '✕ ne part jamais avec une liste vide (vide = tout jeter) — popup et ecran de masse', [ false !== strpos( $dze_js, "$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ] });" ), false !== strpos( $dze_jsb, "$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id, shots: [ url ] });" ) ], [ true, true ] );
 ok( 'le panneau relit le serveur a chaque ouverture, et ne refait plus sa bande d images', [ false !== strpos( $dze_js, "\t\tres.current = null;\n\t\toneBuild();" ), false !== strpos( $dze_js, "if ('image' !== mode) { oneRestore(mode, fid); }" ) ], [ true, true ] );
 ok( 'les trois ↻ retirent l image qu ils remplacent', [ substr_count( $dze_js, 'THE ONE IT REPLACES LEAVES THE WAITING LIST TOO' ), substr_count( $dze_jsb, 'THE ONE IT REPLACES LEAVES THE WAITING LIST TOO' ), false !== strpos( $dze_js, 'var dzeOld = vars.made[varGroup($row)];' ) ], [ 1, 1, true ] );
-ok( 'une photo placee ne se compte pas deux fois', false !== strpos( $dze_js, "action: 'dze_content_logged', nonce: cfg.nonce, post: PID, unqueue: 1 });" ), true );
 $dze_cl = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-cleanup.php' );
 ok( 'les deux nouvelles metas sont declarees au nettoyage', [ false !== strpos( $dze_cl, "'_dze_img_jobs'" ), false !== strpos( $dze_cl, "'_dze_view'" ) ], [ true, true ] );
 $GLOBALS['fal_say']['status'] = 'COMPLETED';
 $GLOBALS['fal_say']['result'] = '{"images":[{"url":"https://fal.media/x.jpg"}]}';
 $GLOBALS['dze_meta'] = [];
+
+// =====================================================================
+// 4.506.0 — UNE SEULE POPUP, ✦ REFAIRE EN MIEUX ET HD SUR CHAQUE IMAGE
+// =====================================================================
+// « Doit être présent sur les images du module generate content seulement.
+// On peut enlever les intégrations individuelles de chaque champ inutile, qui
+// surcharge l'UI. Il faut juste la popup principale de generate content, sur
+// les pages produits individuelles et celle sur l'écran bulk. L'option de
+// remake image doit être dispo aussi sur les images copié collées externes. »
+$dze_js  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content.js' );
+$dze_jsb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
+$dze_ph  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' );
+$dze_pb  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/paste-box.js' );
+$dze_cs  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+$dze_aj  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
+ok( 'plus aucun ✦ plante sur les blocs de la fiche', [ false !== strpos( $dze_js, 'function plantButtons(' ), false !== strpos( $dze_js, 'dze-one-plant' ), false !== strpos( $dze_js, 'dze-hub-rest' ) ], [ false, false, false ] );
+ok( 'ni dans le panneau Variations, ni le mur sous la galerie', [ false !== strpos( $dze_cs, "add_action( 'woocommerce_variable_product_before_variations'" ), false !== strpos( $dze_js, 'dze-bricks' ), false !== strpos( $dze_js, 'wallOrder' ) ], [ false, false, false ] );
+ok( 'la popup commande ses images et les recupere, ↻ compris', [ false !== strpos( $dze_js, 'function shootAsync(req)' ), false !== strpos( $dze_js, "shootAsync(\$.extend(imageRequest(tpl, undefined, dest), { aware: 1, model: cxModel() }))" ) ], [ true, true ] );
+ok( 'l ecran de masse aussi, ↻ et « une de plus » compris', [ substr_count( $dze_jsb, 'shootAsync($.extend(imageRequest(' ), false !== strpos( $dze_jsb, 'function pollJob(post, job)' ) ], [ 3, true ] );
+ok( 'le serveur ne commande sans attendre que pour la liste d attente', false !== strpos( $dze_aj, "&& 'defer' === sanitize_key( (string) wp_unslash( \$_POST['mode'] ?? '' ) ) && ! empty( \$_POST['stash'] );" ), true );
+ok( 'le modele se choisit a cote de Launch, et le cout le suit', [ false !== strpos( $dze_js, '<select id="dze-cx-model">' ), false !== strpos( $dze_js, "\$(document).on('change', '#dze-cx-model', drawWillSpend);" ) ], [ true, true ] );
+ok( '✦ et HD sur les nouvelles images, popup et masse', [ substr_count( $dze_js, 'dze-cb-shotmake' ), substr_count( $dze_jsb, 'dze-cb-shotmake' ), substr_count( $dze_js, 'dze-cb-shothd' ), substr_count( $dze_jsb, 'dze-cb-shothd' ) ], [ 2, 2, 3, 3 ] );
+ok( 'sur les photos du produit, popup et masse', [ substr_count( $dze_js, 'remake: true,' ), substr_count( $dze_jsb, 'remake: true,' ), false !== strpos( $dze_ph, "(opts.remake ? \$('<span class=\"dze-nowacts\"></span>')" ) ], [ 1, 1, true ] );
+ok( 'et sur les photos collees, popup et masse', [ substr_count( $dze_js, "{ cls: 'dze-pb-make', label: '✦'" ), substr_count( $dze_jsb, "{ cls: 'dze-pb-make', label: '✦'" ), false !== strpos( $dze_pb, "\$box.on('click', '.dze-pb-act', function (e) {" ) ], [ 1, 1, true ] );
+ok( 'chaque ecran qui ecoute une photo est prevenu', [ false !== strpos( $dze_ph, 'on: function (name, fn) { (handlers[name] = handlers[name] || []).push(fn); }' ), false !== strpos( $dze_ph, "emit('ai', " ) ], [ true, true ] );
+ok( 'la popup reprend les images encore en cours a sa reouverture', substr_count( $dze_js, 'resumeJobs(cur.jobs);' ), 2 );
+// LE PROMPT « REMAKE » : une ligne comme les autres, jamais une recette.
+ok( 'une destination « remake » parmi celles d une image', isset( DZE_Content::output_options( 'image' )['remake'] ), true );
+$GLOBALS['opts']['dze_content_settings'] = [ 'registry' => [
+	[ 'id' => 'img_a', 'name' => 'A', 'type' => 'image', 'prompt' => 'make A', 'output' => 'gallery', 'enabled' => 1, 'valid' => 1 ],
+	[ 'id' => 'img_mine', 'name' => 'Mine', 'type' => 'image', 'prompt' => 'MY REMAKE WORDS', 'output' => 'remake', 'enabled' => 1, 'valid' => 1 ],
+] ];
+$dze_rc = new ReflectionProperty( 'DZE_Content', 'registry_cache' );
+$dze_rc->setAccessible( true );
+$dze_rc->setValue( null, null );
+ok( 'le prompt remake n est jamais une recette', array_map( static fn( $t ) => $t['id'], DZE_Content::image_templates() ), [ 'img_a' ] );
+ok( '✦ envoie les mots de la boutique, vers la liste d attente', [ DZE_Content::remake_template()['prompt'], DZE_Content::remake_template()['id'], DZE_Content::remake_template()['target'] ], [ 'MY REMAKE WORDS', 'img_mine', 'gallery' ] );
+$GLOBALS['opts']['dze_content_settings'] = [ 'fal_key' => 'fake-fal-key', 'registry' => [ [ 'id' => 'img_a', 'name' => 'A', 'type' => 'image', 'prompt' => 'make A', 'output' => 'gallery', 'enabled' => 1, 'valid' => 1 ] ] ];
+$dze_rc->setValue( null, null );
+ok( 'sans ligne remake, les mots livres — jamais rien', [ DZE_Content::remake_template()['id'], DZE_Content::remake_template()['prompt'] === DZE_Content::default_remake_prompt() ], [ 'img_remake_better', true ] );
+ok( 'la ligne livree n a pas de decor : l image refaite garde le sien', [ DZE_Content::remake_row_default()['output'], DZE_Content::remake_row_default()['scene'] ], [ 'remake', '' ] );
+ok( 'elle rejoint les prompts une fois, a l admin', [ false !== strpos( $dze_cs, "add_action( 'admin_init',     [ \$this, 'seed_remake_recipe' ] );" ), false !== strpos( $dze_cs, "\$s['remake_seeded']  = 1;" ) ], [ true, true ] );
+$dze_rc->setValue( null, null );
+// ✦ SUR UNE PHOTO COLLEE : elle seule est envoyee, avec les mots du remake.
+$GLOBALS['dze_meta'] = [];
+$GLOBALS['tr']       = [];
+$GLOBALS['fal_sent'] = [];
+$GLOBALS['fal_say']  = [
+	'code'   => 200,
+	'body'   => '{"request_id":"rm-1","status_url":"https://queue.fal.run/x/requests/rm-1/status","response_url":"https://queue.fal.run/x/requests/rm-1"}',
+	'status' => 'IN_PROGRESS',
+	'result' => '{"images":[{"url":"https://v3b.fal.media/files/b/x/rm.jpg"}]}',
+	'units'  => '1',
+];
+$dze_png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+DZE_Content::$submit_only = true;
+try {
+	$dze_made = DZE_Content::instance()->shoot( [ 'post' => 77, 'mode' => 'defer', 'stash' => 1, 'remake' => 1, 'src_paste' => $dze_png, 'target' => 'gallery' ] );
+} catch ( Throwable $e ) {
+	$dze_made = [ 'error' => $e->getMessage() ];
+}
+DZE_Content::$submit_only = false;
+$dze_sent = json_decode( (string) ( end( $GLOBALS['fal_sent'] )['body'] ?? '{}' ), true );
+ok( '✦ sur une photo collee : commandee, rangee comme travail', [ $dze_made['job'] ?? ( $dze_made['error'] ?? '?' ), $dze_made['recipe'] ?? '' ], [ 'rm-1', 'img_remake_better' ] );
+ok( 'elle seule part, et c est elle qu on retouche', [ count( (array) ( $dze_sent['image_urls'] ?? [] ) ), ( $dze_sent['image_urls'][0] ?? '' ) === $dze_png ], [ 1, true ] );
+ok( 'avec les mots du remake', false !== strpos( (string) ( $dze_sent['prompt'] ?? '' ), 'Remake this exact photograph better' ), true );
+DZE_Content::$submit_only = true;
+try {
+	DZE_Content::instance()->shoot( [ 'post' => 77, 'mode' => 'defer', 'stash' => 1, 'remake' => 1 ] );
+	$dze_err = '';
+} catch ( Throwable $e ) {
+	$dze_err = $e->getMessage();
+}
+DZE_Content::$submit_only = false;
+ok( '✦ sans image a refaire : dit, rien commande', $dze_err, 'Pick the picture to remake.' );
+ok( 'une photo du produit est lue comme image, et seulement une des siennes', [ false !== strpos( $dze_aj, "if ( ! in_array( \$src_att, array_map( 'intval', self::product_image_ids( \$pid ) ), true ) ) {" ), false !== strpos( $dze_aj, "\$src       = \$this->fal_source_data_uri( \$src_att, 'full' );" ) ], [ true, true ] );
+// HD : 2048 pixels, de ×1,5 a ×4, rien quand c est deja assez grand.
+ok( 'HD amene le grand cote a 2048', [ DZE_Content::enlarge_factor( 800, 532 ), DZE_Content::enlarge_factor( 1600, 900 ), DZE_Content::enlarge_factor( 300, 300 ), DZE_Content::enlarge_factor( 2048, 1000 ), DZE_Content::enlarge_factor( 0, 0 ) ], [ 2.56, 1.5, 4.0, 0.0, 0.0 ] );
+$GLOBALS['fal_say']['result'] = '{"image":{"url":"https://v3b.fal.media/files/b/x/hd.jpg","width":2048,"height":1362}}';
+$GLOBALS['fal_say']['status'] = 'COMPLETED';
+$dze_hd = DZE_Content::fal_fetch( [ 'id' => 'hd-1', 'status' => 'https://queue.fal.run/x/requests/hd-1/status', 'response' => 'https://queue.fal.run/x/requests/hd-1', 'model' => DZE_Content::UPSCALER, 'refs' => 0, 'mp' => 2.8 ], 77, '[enlarged]', microtime( true ) );
+ok( 'un agrandissement repond d une seule image, payee au megapixel', [ $dze_hd, DZE_Content::last_image_cost() ], [ 'https://v3b.fal.media/files/b/x/hd.jpg', round( 0.0025 * 2048 * 1362 / 1000000, 4 ) ] );
+ok( 'et ne se decrit pas : il garde le cadrage de son original', false !== strpos( $dze_aj, "\$view = 'enlarge' === (string) ( \$job['tool'] ?? '' ) ? '' : self::describe_view(" ), true );
+ok( 'une image generee agrandie reste generee', false !== strpos( $dze_aj, "\$recipe = '' !== \$dze_r ? \$dze_r : 'img_enlarged';" ), true );
+$GLOBALS['fal_say']['status'] = 'COMPLETED';
+$GLOBALS['fal_say']['result'] = '{"images":[{"url":"https://fal.media/x.jpg"}]}';
+$GLOBALS['dze_meta'] = [];
+unset( $GLOBALS['opts']['dze_content_settings'] );
 
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
