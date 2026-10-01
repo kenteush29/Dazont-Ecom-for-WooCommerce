@@ -18,9 +18,10 @@
 	var srcs = [];
 
 	function esc(s) { return $('<i></i>').text(s == null ? '' : s).html(); }
+	// %2$s is the second argument wherever it stands (see content.js).
 	function sprintf(str) {
 		var args = Array.prototype.slice.call(arguments, 1), i = 0;
-		return String(str).replace(/%\d\$s|%s/g, function () { return args[i++]; });
+		return String(str).replace(/%(\d+)\$s|%s/g, function (m, n) { return n ? args[parseInt(n, 10) - 1] : args[i++]; });
 	}
 	function reason(x) {
 		if (typeof x === 'string' && x) { return x; }

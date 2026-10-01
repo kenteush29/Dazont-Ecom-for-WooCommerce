@@ -374,6 +374,29 @@ fait" (4.499.0):
     (this host). Everything after line ~1020, `fal_generate()` included,
     had never run here while the file said "0 wrong". Only the three
     log-dump checks are skipped now.
+  - THE PRICE LINE COUNTS WHAT IS SENT (4.504.2). « This press: 1 photographs
+    with $0.24 · about GPT Image 2.5 Sunburst (OpenAI) », on a product with
+    two photographs:
+    - the screens' `sprintf` filled `%1$s %3$s %2$s` in order of appearance.
+      Every JS `sprintf` reads the position (`%2$s` is the second argument),
+      as translate-screen.js always did;
+    - the product panel priced the model's ceiling (16 photographs) until the
+      product answered, then never drew itself again. It now counts as the
+      server does (`oneRefs()`):
+      - photographs picked by hand, never cut;
+      - otherwise the product's own up to `sourceCap`, or 3 for a main or a
+        variation image (`MAIN_SOURCES`);
+      - none under « only these »;
+      - plus the pasted ones.
+
+      It is redrawn when the product answers, and on every pick and paste.
+      The toolbox (`refsFor(scene, target)`) and the bulk screen (`refsOf`)
+      apply the same cap for a main image.
+    - The « so far » tip (`spend_tip()`) sent the owner to « Settings →
+      Product content, next to the fal.ai key ». The key and the model are on
+      Settings → General → fal.ai (image generation), with their OWN Save
+      button; the fal ceilings below have another. A model saved with the
+      wrong button is not saved.
 - Every fal/Anthropic call records usage in `DZE_Ai_Usage` and respects the
   monthly budget guard.
 
