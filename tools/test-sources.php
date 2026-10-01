@@ -1017,18 +1017,21 @@ unset( $GLOBALS['dze_meta'][71], $GLOBALS['dze_meta'][72], $GLOBALS['dze_meta'][
 // milieu, et la suite annoncait « 0 wrong » sur des portes qui navaient jamais
 // tourne — le pire des deux mondes. La partie qui a besoin dun second
 // processus est annoncee comme sautee, le reste du fichier continue.
+// SEULES LES VERIFICATIONS QUI ONT BESOIN D UN SECOND PROCESSUS SONT SAUTEES.
+// Le fichier s arretait ici tout entier : sur cet hebergeur, tout ce qui suit
+// — fal_generate() compris — n avait jamais tourne, et le compte final disait
+// « 0 wrong » de portes jamais essayees.
 if ( ! function_exists( 'shell_exec' ) ) {
-	echo "  (saute : shell_exec est desactive sur cet hebergeur)\n";
-	printf( "\n%d checks, %d wrong\n", $ran, $fails );
-	exit( $fails ? 1 : 0 );
+	echo "  (saute : shell_exec est desactive sur cet hebergeur — les trois verifications du journal seulement)\n";
+} else {
+	$dze_log = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __FILE__ ) . ' ' . escapeshellarg( $dir ) . ' --dump-log 2>/dev/null' );
+	ok( 'the Done tab has the same column',
+		substr_count( $dze_log, 'class="dze-objid-th"' ), 1 );
+	ok( 'right after what it names',
+		(bool) preg_match( '/What<\/th>\s*<th class="dze-objid-th">ID</s', $dze_log ), true );
+	ok( 'with a cell under it carrying the row\'s own id',
+		(bool) preg_match( '/<tr data-id="(\d+)">[\s\S]*?<\/td>\s*<td class="dze-objid-td"><code[^>]*>\1</', $dze_log ), true );
 }
-$dze_log = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __FILE__ ) . ' ' . escapeshellarg( $dir ) . ' --dump-log 2>/dev/null' );
-ok( 'the Done tab has the same column',
-	substr_count( $dze_log, 'class="dze-objid-th"' ), 1 );
-ok( 'right after what it names',
-	(bool) preg_match( '/What<\/th>\s*<th class="dze-objid-th">ID</s', $dze_log ), true );
-ok( 'with a cell under it carrying the row\'s own id',
-	(bool) preg_match( '/<tr data-id="(\d+)">[\s\S]*?<\/td>\s*<td class="dze-objid-td"><code[^>]*>\1</', $dze_log ), true );
 
 echo "\nTHE LIST HAS A CEILING, AND THE SCREEN SAYS SO\n";
 // "Ici il faut limiter à x produits. Calcules toi même la capacité limite. Il
@@ -1403,5 +1406,80 @@ if ( defined( 'DZE_FAL_API_KEY' ) ) {
 		false !== strpos( $dze_keyf, 'define DZE_FAL_API_KEY' ), false );
 }
 
+echo "\nLE MODELE D IMAGES EST UN CHOIX, ET CHACUN EST DEMANDE A SA FACON\n";
+// « Ajoute-moi l'API GPT pour tester la génération d'images par leur API. Ou
+// sinon le choix du modèle par FAL. Je continue d'avoir trop de slop sur les
+// produits assez techniques. » fal porte aussi GPT Image d'OpenAI : une clé,
+// une file, un registre — le modèle est un réglage, jamais un second chemin.
+$dze_keep_img = $GLOBALS['opts']['dze_content_settings'] ?? null;
+$dze_shoot = static function ( string $model, array $refs, string $ratio ) {
+	$GLOBALS['opts']['dze_content_settings'] = array_merge( (array) ( $GLOBALS['opts']['dze_content_settings'] ?? [] ), [ 'img_model' => $model ] );
+	$GLOBALS['fal_sent'] = [];
+	// Le plafond horaire est celui des essais d au-dessus : chaque essai ici
+	// part d une heure neuve, ce n est pas lui qu on eprouve.
+	$GLOBALS['tr'] = [];
+	$GLOBALS['fal_say']  = [
+		'code'   => 200,
+		'body'   => '{"request_id":"req-9","status_url":"https://queue.fal.run/x/requests/req-9/status","response_url":"https://queue.fal.run/x/requests/req-9"}',
+		'status' => 'COMPLETED',
+		'result' => '{"images":[{"url":"https://fal.media/m.jpg"}]}',
+		'units'  => '1234',
+	];
+	try {
+		$url = (string) DZE_Content::instance()->fal_generate( 'Shoot it.', $refs, $ratio, 0 );
+	} catch ( Throwable $e ) {
+		$url = 'THREW: ' . $e->getMessage();
+	}
+	$sent = $GLOBALS['fal_sent'][0] ?? [];
+	return [ 'url' => $url, 'to' => (string) ( $sent['url'] ?? '' ), 'body' => (array) json_decode( (string) ( $sent['body'] ?? '' ), true ) ];
+};
+$dze_spent = static function ( string $model ): array {
+	foreach ( DZE_Ai_Usage::model_report() as $r ) {
+		if ( $model === $r['model'] ) { return $r; }
+	}
+	return [];
+};
+$dze_refs = array_map( static fn( $i ) => 'https://fal.media/ref' . $i . '.jpg', range( 1, 12 ) );
+// LE DEFAUT NE CHANGE RIEN : Nano Banana 2, demande comme avant.
+$GLOBALS['opts']['dze_content_settings'] = [];
+ok( 'sans choix, c est Nano Banana 2', DZE_Content::image_model_key(), 'nano-banana-2' );
+$r = $dze_shoot( 'nano-banana-2', array_slice( $dze_refs, 0, 2 ), '4:5' );
+ok( 'il part a la porte de retouche de Nano Banana 2', $r['to'], 'https://queue.fal.run/fal-ai/nano-banana-2/edit' );
+ok( 'avec son cadre en rapport',                    [ $r['body']['aspect_ratio'] ?? '', isset( $r['body']['image_size'] ) ], [ '4:5', false ] );
+// GPT IMAGE 2.5 SUNBURST : la precision, demandee en image_size et en qualite haute.
+$r = $dze_shoot( 'gpt-image-2.5-sunburst', array_slice( $dze_refs, 0, 3 ), '4:5' );
+ok( 'GPT Image 2.5 Sunburst part chez OpenAI, par fal', $r['to'], 'https://queue.fal.run/openai/gpt-image-2.5/sunburst/edit' );
+ok( 'son cadre est une taille, 4:5 en largeur et hauteur', $r['body']['image_size'] ?? null, [ 'width' => 1024, 'height' => 1280 ] );
+ok( 'sans aspect_ratio qu il ne connait pas',       isset( $r['body']['aspect_ratio'] ), false );
+ok( 'en qualite haute, en JPEG',                     [ $r['body']['quality'] ?? '', $r['body']['output_format'] ?? '' ], [ 'high', 'jpeg' ] );
+ok( 'avec les photographies du produit',             count( (array) ( $r['body']['image_urls'] ?? [] ) ), 3 );
+ok( 'et l image revient',                            $r['url'], 'https://fal.media/m.jpg' );
+// FACTURE AU TOKEN : l unite de fal n est pas une image, l estimation compte.
+ok( 'il est compte sous son nom',                    ( $dze_spent( 'gpt-image-2.5-sunburst' )['calls'] ?? 0 ), 1 );
+ok( 'au prix estime avec les photographies envoyees, pas 1234 unites',
+	round( (float) ( $dze_spent( 'gpt-image-2.5-sunburst' )['cost'] ?? 0 ), 4 ), round( 0.05 + 0.012 * 3, 4 ) );
+// SANS PHOTOGRAPHIE : la porte texte vers image du meme modele.
+$r = $dze_shoot( 'gpt-image-2.5-flare', [], '16:9' );
+ok( 'sans photographie, la porte qui ecrit depuis les mots', $r['to'], 'https://queue.fal.run/openai/gpt-image-2.5/flare/text-to-image' );
+ok( 'avec le nom de taille de fal',                  $r['body']['image_size'] ?? '', 'landscape_16_9' );
+ok( 'et sans image_urls vide',                       isset( $r['body']['image_urls'] ), false );
+// FLUX.2 PRO : neuf references au plus.
+$r = $dze_shoot( 'flux-2-pro', $dze_refs, '1:1' );
+ok( 'FLUX.2 Pro ne recoit que les neuf photographies qu il lit, la principale d abord',
+	[ count( (array) ( $r['body']['image_urls'] ?? [] ) ), $r['body']['image_urls'][0] ?? '' ], [ 9, 'https://fal.media/ref1.jpg' ] );
+ok( 'en carre HD',                                   $r['body']['image_size'] ?? '', 'square_hd' );
+// NANO BANANA PRO : le rapport, et sa resolution.
+$r = $dze_shoot( 'nano-banana-pro', array_slice( $dze_refs, 0, 2 ), '3:2' );
+ok( 'Nano Banana Pro garde le rapport, en 1K',       [ $r['to'], $r['body']['aspect_ratio'] ?? '', $r['body']['resolution'] ?? '' ], [ 'https://queue.fal.run/fal-ai/nano-banana-pro/edit', '3:2', '1K' ] );
+// UN MODELE INCONNU N EST PAS UNE PANNE : le defaut.
+$GLOBALS['opts']['dze_content_settings'] = [ 'img_model' => 'midjourney' ];
+ok( 'un reglage inconnu retombe sur le defaut',       DZE_Content::image_model_key(), 'nano-banana-2' );
+// LE PRIX ANNONCE AVANT UN ENVOI SUIT LE MODELE.
+$GLOBALS['opts']['dze_content_settings'] = [ 'img_model' => 'gpt-image-2.5-sunburst', 'img_sources' => 4 ];
+ok( 'le prix annonce suit le modele et les photographies envoyees', DZE_Content::fal_image_cost(), round( 0.05 + 0.012 * 4, 4 ) );
+$GLOBALS['opts']['dze_content_settings'] = [ 'fal_image_cost' => 0.09 ];
+ok( 'et le prix saisi pour Nano Banana 2 reste le sien', DZE_Content::fal_image_cost(), 0.09 );
+ok( 'sans s appliquer aux autres',                    DZE_Content::fal_image_cost( 0, 'nano-banana-pro' ), 0.15 );
+if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

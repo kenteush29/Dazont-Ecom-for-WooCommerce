@@ -350,6 +350,30 @@ fait" (4.499.0):
   the write) + a read-back check. Never let registry()/read paths persist.
 - fal.ai sources: local files go as base64 data URIs; only fal's own CDN
   hosts are accepted as remote sources (`DZE_Content::is_fal_url`).
+- **THE IMAGE MODEL IS A CHOICE, FROM ONE CATALOGUE** (`DZE_Content::image_models()`,
+  4.504.0). « Ajoute-moi l'API GPT pour tester […] Ou sinon le choix du
+  modèle par FAL. Je continue d'avoir trop de slop sur les produits assez
+  techniques. »
+  - fal carries OpenAI's GPT Image (2.5 Flare / Sunburst) billed on the same
+    account, so GPT is reached THROUGH fal. One key, one queue, one register:
+    never a second provider path beside `fal_generate()`.
+  - Each model declares:
+    - its `edit` and `fresh` (text-to-image) endpoints;
+    - how a frame is asked: `aspect_ratio`, or `image_size` (fal's names, or
+      a width and a height for 4:5, 2:3 and 3:2 — `frame_for()`);
+    - its extras (`quality: high`, `resolution: 1K`);
+    - how many photographs it reads (`refs`; FLUX.2 Pro reads 9);
+    - its price, `per: image` or `per: estimate`.
+  - A per-token or per-megapixel model is NOT priced as fal's
+    `x-fal-billable-units` × an image's price: that unit is not a picture.
+    It is the estimate `price + per_ref × photographs sent`, kept high.
+  - The shop's price override applies to Nano Banana 2, the default, alone.
+  - A job keeps its `model` and `refs`, so a picture collected after the
+    setting changed is billed to the model that made it.
+  - `tools/test-sources.php` stopped dead where `shell_exec` is disabled
+    (this host). Everything after line ~1020, `fal_generate()` included,
+    had never run here while the file said "0 wrong". Only the three
+    log-dump checks are skipped now.
 - Every fal/Anthropic call records usage in `DZE_Ai_Usage` and respects the
   monthly budget guard.
 
