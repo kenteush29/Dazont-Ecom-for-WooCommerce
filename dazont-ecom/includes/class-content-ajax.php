@@ -1497,6 +1497,9 @@ trait DZE_Content_Ajax {
 			'edit'    => (string) ( get_edit_post_link( $pid, 'raw' ) ?: '' ),
 			'view'    => (string) ( $product->get_permalink() ?: '' ),
 			'cost'    => self::product_cost( $product ),
+			// THE PRODUCT'S OWN PHOTOGRAPHS THAT TRAVEL WITH EACH IMAGE, so the
+			// bill before the press counts what this product really sends.
+			'sources' => count( self::product_source_ids( $pid ) ),
 			'pending' => self::pending( $pid ),
 			// What this product has already cost in images.
 			'spend'   => self::product_spend( $pid ),

@@ -143,6 +143,30 @@ final class DZE_Content {
 		];
 	}
 
+	/**
+	 * WHAT A SCREEN NEEDS TO STATE THE BILL BEFORE THE PRESS: the model in
+	 * force, named, and its price as a base plus each photograph sent.
+	 *
+	 * « J'ai changé pour Sunburst, la data affichée est fausse. » The line said
+	 * « 2 photographs · about $0.16 » — Nano Banana 2's price, from one figure
+	 * for the whole page. The model had not been saved, and the line could not
+	 * say so; and even saved, one figure for every product counted ten
+	 * photographs where this jacket has two. The line now names the model and
+	 * counts the photographs this press will actually send.
+	 *
+	 * @return array{model:string,base:float,perRef:float,cap:int}
+	 */
+	public static function image_price_cfg(): array {
+		$key = self::image_model_key();
+		$m   = self::image_models()[ $key ];
+		return [
+			'model'  => (string) $m['label'],
+			'base'   => self::fal_image_cost( 0, $key ),
+			'perRef' => (float) $m['per_ref'],
+			'cap'    => (int) $m['refs'],
+		];
+	}
+
 	/** The model this shop makes its photographs with: the setting, or the default. */
 	public static function image_model_key(): string {
 		$k = (string) ( self::get_settings()['img_model'] ?? '' );
@@ -4339,6 +4363,7 @@ Answer with STRICT JSON and nothing else: "
 				// hour: the screen states the bill before the press, and names
 				// the ceiling the run would hit.
 				'imageCost' => self::fal_image_cost(),
+				'imagePrice'=> self::image_price_cfg(),
 				'falPostCap'=> class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::fal_post_cap() : 0,
 				'maxPasted' => self::MAX_PASTED,
 				'maxBody'   => self::MAX_BODY,
@@ -4449,6 +4474,8 @@ Answer with STRICT JSON and nothing else: "
 					'generateN' => __( 'Generate (%s)', 'dazont-ecom' ),
 					/* translators: 1: number of photographs, 2: amount in dollars */
 					'willCost'  => __( 'This press: %1$s photographs · about %2$s', 'dazont-ecom' ),
+					/* translators: 1: how many photographs, 2: what they cost, 3: the image model */
+					'willCostWith' => __( 'This press: %1$s photographs with %3$s · about %2$s', 'dazont-ecom' ),
 					/* translators: %s: number of photographs */
 					'willMake'  => __( '%s photographs', 'dazont-ecom' ),
 					/* translators: 1: the ceiling per product, 2: how many are over it */
@@ -4952,7 +4979,7 @@ Answer with STRICT JSON and nothing else: "
 					<th style="width:260px;" title="<?php esc_attr_e( '○ nothing generated yet, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
-					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
+					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>" data-sources="<?php echo (int) count( self::product_source_ids( (int) $p['id'] ) ); ?>">
 						<td class="dze-cb-pickcell"><input type="checkbox" class="dze-cb-pick" value="<?php echo (int) $p['id']; ?>" /></td>
 						<td class="dze-cb-thumb">
 							<?php if ( $p['full'] ) : ?><a href="<?php echo esc_url( $p['full'] ); ?>" target="_blank" rel="noopener"><?php endif; ?>
@@ -5194,6 +5221,7 @@ Answer with STRICT JSON and nothing else: "
 			// What an image costs and how many one product may have in an hour,
 			// so the button can state the bill before it is pressed.
 			'imageCost'  => self::fal_image_cost(),
+			'imagePrice' => self::image_price_cfg(),
 			'falPostCap' => class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::fal_post_cap() : 0,
 			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
@@ -5374,6 +5402,8 @@ Answer with STRICT JSON and nothing else: "
 				// product has already cost: two different questions.
 				/* translators: 1: number of photographs, 2: amount in dollars */
 				'willCost'   => __( 'This press: %1$s photographs · about %2$s', 'dazont-ecom' ),
+				/* translators: 1: how many photographs, 2: what they cost, 3: the image model */
+				'willCostWith' => __( 'This press: %1$s photographs with %3$s · about %2$s', 'dazont-ecom' ),
 				/* translators: %s: number of photographs */
 				'willMake'   => __( '%s photographs', 'dazont-ecom' ),
 				/* translators: 1: the ceiling per product, 2: how many are over it */

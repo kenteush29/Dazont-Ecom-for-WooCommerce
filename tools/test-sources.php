@@ -1480,6 +1480,22 @@ ok( 'le prix annonce suit le modele et les photographies envoyees', DZE_Content:
 $GLOBALS['opts']['dze_content_settings'] = [ 'fal_image_cost' => 0.09 ];
 ok( 'et le prix saisi pour Nano Banana 2 reste le sien', DZE_Content::fal_image_cost(), 0.09 );
 ok( 'sans s appliquer aux autres',                    DZE_Content::fal_image_cost( 0, 'nano-banana-pro' ), 0.15 );
+// LE PRIX ANNONCE NOMME LE MODELE ET COMPTE LES PHOTOGRAPHIES ENVOYEES.
+// « J'ai changé pour Sunburst, la data affichée est fausse » : la ligne disait
+// le prix de Nano Banana 2 pour toute la page, sans dire quel modele tournait.
+$GLOBALS['opts']['dze_content_settings'] = [ 'img_model' => 'gpt-image-2.5-sunburst', 'img_sources' => 10 ];
+$dze_pc = DZE_Content::image_price_cfg();
+ok( 'l ecran recoit le modele en vigueur, nomme',     $dze_pc['model'], 'GPT Image 2.5 Sunburst (OpenAI)' );
+ok( 'et son prix en base plus chaque photographie',    [ $dze_pc['base'], $dze_pc['perRef'], $dze_pc['cap'] ], [ 0.05, 0.012, 16 ] );
+$GLOBALS['opts']['dze_content_settings'] = [];
+ok( 'Nano Banana 2 n a pas de prix par photographie',  [ DZE_Content::image_price_cfg()['base'], DZE_Content::image_price_cfg()['perRef'] ], [ 0.08, 0.0 ] );
+$dze_js  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content.js' );
+$dze_jsb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
+$dze_aj  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
+ok( 'la boite a outils compte les photographies du produit, collees et scene comprises',
+	false !== strpos( $dze_js, 'cost += k * perImage(refsFor(job.scene));' ) && false !== strpos( $dze_aj, "'sources' => count( self::product_source_ids( \$pid ) )," ), true );
+ok( 'l ecran de masse aussi, produit par produit',      false !== strpos( $dze_jsb, 'perImage(refsOf(id, j))' ), true );
+ok( 'et la phrase nomme le modele',                     false !== strpos( $dze_js, 'i18n.willCostWith' ) && false !== strpos( $dze_jsb, 'i18n.willCostWith' ), true );
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

@@ -824,19 +824,46 @@
 	// WHAT THIS PRESS IS ABOUT TO SPEND, before it is pressed. The photographs
 	// block is rows, not ticks: three rows at four attempts is twelve calls to
 	// fal for this one product, and the button said "Generate".
+	// WHAT ONE PICTURE COSTS WITH THE MODEL IN FORCE, for the photographs it is
+	// sent. « J'ai changé pour Sunburst, la data affichée est fausse » — one
+	// figure for the whole page could neither follow the model nor count what
+	// a product really sends: Nano Banana is billed per image, GPT Image and
+	// FLUX also bill every photograph they are handed.
+	function perImage(refs) {
+		var p = cfg.imagePrice || null;
+		if (!p) { return parseFloat(cfg.imageCost || 0) || 0; }
+		var cap = parseInt(p.cap, 10) || 0;
+		var n = Math.max(0, cap > 0 ? Math.min(cap, refs) : refs);
+		return (parseFloat(p.base) || 0) + (parseFloat(p.perRef) || 0) * n;
+	}
+	// The photographs one image of THIS product is sent: its own, what was
+	// pasted for the run, and the scene when the row has one.
+	function refsFor(scene) {
+		var own = (res.current && res.current.sources !== undefined) ? (parseInt(res.current.sources, 10) || 0) : (parseInt((cfg.imagePrice || {}).cap, 10) || 0);
+		var pasted = cxPaste ? cxPaste.list().length : 0;
+		return own + pasted + ((scene !== undefined && scene >= 0) ? 1 : 0);
+	}
+	function willSay(n, cost) {
+		if (!cost) { return sprintf(i18n.willMake, n); }
+		var money = '$' + cost.toFixed(2);
+		return (cfg.imagePrice && cfg.imagePrice.model && i18n.willCostWith)
+			? sprintf(i18n.willCostWith, n, money, cfg.imagePrice.model)
+			: sprintf(i18n.willCost, n, money);
+	}
 	function drawWillSpend() {
 		var $out = $('#dze-cx-willspend');
 		if (!$out.length) { return; }
-		var n = 0;
+		var n = 0, cost = 0;
 		// The same two conditions the press itself reads, and the same rows.
 		if ($('#dze-cx-doimg').is(':checked') && cfg.templates.length) {
-			tplJobs().forEach(function (job) { n += Math.max(1, job.n); });
+			tplJobs().forEach(function (job) {
+				var k = Math.max(1, job.n);
+				n    += k;
+				cost += k * perImage(refsFor(job.scene));
+			});
 		}
 		if (!n) { $out.text('').hide(); return; }
-		var price = parseFloat(cfg.imageCost || 0) || 0;
-		var said = price
-			? sprintf(i18n.willCost, n, '$' + (n * price).toFixed(2))
-			: sprintf(i18n.willMake, n);
+		var said = willSay(n, cost);
 		var cap = parseInt(cfg.falPostCap, 10) || 0;
 		if (cap > 0 && n > cap) { said += ' \u00b7 ' + sprintf(i18n.overCap, cap, n - cap); }
 		$out.show().text(said);
@@ -852,6 +879,7 @@
 			.then(function (r) {
 				if (r && r.success) {
 					res.current = r.data;
+					drawWillSpend();
 					return res.current;
 				}
 				// A refusal is not "this product has no photographs": it is a
@@ -2053,10 +2081,7 @@
 		if (!$out.length) { return; }
 		var n = ('image' === one.mode) ? Math.max(1, parseInt($('#dze-one-n').val(), 10) || 1) : 0;
 		if (!n) { $out.text('').hide(); return; }
-		var price = parseFloat(cfg.imageCost || 0) || 0;
-		var said = price
-			? sprintf(i18n.willCost, n, '$' + (n * price).toFixed(2))
-			: sprintf(i18n.willMake, n);
+		var said = willSay(n, n * perImage(refsFor(-1)));
 		var cap = parseInt(cfg.falPostCap, 10) || 0;
 		if (cap > 0 && n > cap) { said += ' \u00b7 ' + sprintf(i18n.overCap, cap, n - cap); }
 		$out.show().text(said);
