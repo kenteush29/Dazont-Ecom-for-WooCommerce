@@ -787,6 +787,16 @@ fait" (4.499.0):
       photographs show… never by turning the product round to a side, a back
       or an inside that they do not show ». Told only « framed differently »,
       GPT Image drew the back of a jacket shown from the front.
+    - **↻ MAKES ITS OWN FRAMING AGAIN** (4.507.0, « Ces images relancées
+      sont particulièrement sujettes au slop »). The picture being redone is
+      still waiting, so its own framing used to sit in the « do not make
+      again » list. The second attempt was told to avoid exactly what it
+      was asked for, and had to find yet another framing, which on a product
+      shown from one side means inventing. Both ↻ (toolbox, bulk) now send
+      `redo` = the replaced picture's address. `made_lines( $pid, $recipe,
+      $redo )` leaves it out of the list and names its framing as the one to
+      make again (« THE PHOTOGRAPH THIS ONE REPLACES was framed: … »). A
+      redo of a picture without a line reads it first.
   - **ONE POPUP** (4.506.0). « On peut enlever les intégrations individuelles
     de chaque champ inutile, qui surcharge l'UI. Il faut juste la popup
     principale de generate content, sur les pages produits individuelles et
@@ -867,6 +877,24 @@ fait" (4.499.0):
     picture they replace.
   - **Counts.** `attach_file()` logs itself, so screens never send counts to
     `dze_content_logged`.
+- **EVERY AI PICTURE CARRIES ITS « i »** (4.507.0, « au clic, un text doit
+  apparaître pour dire quel prompt a été utilisé, et quel modèle d'ia, et
+  quel prix »). `DZE_Ai_Card` (includes/class-ai-card.php).
+  - **Written where the price is first known.** `fal_fetch()` puts the
+    model, the cost and the words sent (`$asked`); every picture of every
+    screen passes there once. The caller adds the prompt that made it
+    (`recipe`, name kept as it was that day), the `tool` (generate, remake,
+    enlarge) and what a ✦ or an HD started from (`base`).
+  - **Never on the product.** A product's meta is read whole on every visit
+    to its page. A waiting card is a non-autoloaded option `dze_aic_<md5>`
+    with an index (45 days, 600 at most). Filed, it moves to the attachment
+    (`_dze_ai_card`, slashed) in `sideload_seo()`; thrown away, it goes in
+    `settle_shots()`.
+  - **Drawn by photos.js** (`dzePhotos.aiButton`, one card for every
+    screen). It appears on the strips (`ai` in `dze_content_current`), the
+    waiting pictures, the tries, WooCommerce's Product image and gallery
+    boxes (`galleryAi`), and as a field in the media library.
+  - Pictures from before 4.507.0 say what they kept: the prompt's name.
 - **NO PICTURE THE MODEL MADE IS EVER A REFERENCE FOR THE NEXT ONE.** « Le
   slop commence à partir de la 2e image générée. La première est mieux en
   général. » Two lanes fed the model its own output back:

@@ -1002,6 +1002,12 @@
 	// on the picture itself. The destination used to be said twice, once as a
 	// caption and once as a dropdown right under it, on a thumbnail too small
 	// to judge the photograph.
+	// THE « i » OF A PICTURE A MODEL MADE (photos.js draws it and answers it):
+	// which prompt, which model, what price. A <span> inside a picture that is
+	// itself a button.
+	function aiMark(url, asSpan) {
+		return (window.dzePhotos && window.dzePhotos.aiButton) ? window.dzePhotos.aiButton(PID, url, 0, asSpan) : '';
+	}
 	function shotCard(url, cur) {
 		var tpl  = res.shotTpl[url];
 		var name = (cfg.templates[parseInt(tpl, 10)] || {}).name || '';
@@ -1011,6 +1017,7 @@
 				.attr('data-url', url)
 				.append(
 					$('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''),
+					aiMark(url),
 					$('<span class="dze-cb-shotbar"></span>').append(
 						$('<button type="button" class="dze-cb-shotpos"></button>')
 							.attr('title', i18n.shotPos).text(destLabel(cur)),
@@ -1136,7 +1143,9 @@
 		if (null === tpl) { tpl = tplForTarget(dest); }
 		var $st = $('#dze-cx-shots .dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
 		$card.addClass('is-busy');
-		shootAsync($.extend(imageRequest(tpl, undefined, dest), { aware: 1, model: cxModel() }))
+		// redo: the picture it replaces — its framing is the one asked for
+		// again, no longer one of the framings to avoid (made_lines()).
+		shootAsync($.extend(imageRequest(tpl, undefined, dest), { aware: 1, model: cxModel(), redo: String(url || '') }))
 			.done(function (r) {
 				if (!r || !r.success) {
 					$btn.prop('disabled', false); $card.removeClass('is-busy');
@@ -2589,7 +2598,7 @@
 	}
 	function varTryHtml(url) {
 		return '<div class="dze-var-try" data-url="' + esc(url) + '">' +
-			'<span class="dze-var-tryimg"><img src="' + esc(url) + '" data-full="' + esc(url) + '" alt="" /></span>' +
+			'<span class="dze-var-tryimg"><img src="' + esc(url) + '" data-full="' + esc(url) + '" alt="" />' + $('<div></div>').append(aiMark(url)).html() + '</span>' +
 			'<span class="dze-var-tryacts">' +
 				'<button type="button" class="button button-small button-primary dze-var-keep">' + esc(i18n.oneApply) + '</button> ' +
 				// The same ↻ as every other generated image: this one again,
@@ -2996,6 +3005,7 @@
 						$('<img />').attr('src', u).attr('data-full', u).attr('alt', ''),
 						$('<span class="dze-one-trynum"></span>').text(i + 1),
 						$('<span class="dze-one-trytick">✓</span>'),
+						aiMark(u, true),
 						// Same ↻ as everywhere else: this attempt again, with the
 						// same instructions, in its place. It was the one surface
 						// where a bad attempt could only be unticked and left to

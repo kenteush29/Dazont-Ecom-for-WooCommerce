@@ -1261,6 +1261,8 @@
 				.attr('data-url', url)
 				.append(
 					$('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''),
+					// THE « i »: which prompt, which model, what price (photos.js).
+					(window.dzePhotos && window.dzePhotos.aiButton) ? window.dzePhotos.aiButton(id, url) : '',
 					$('<span class="dze-cb-shotbar"></span>').append(
 						$('<button type="button" class="dze-cb-shotpos"></button>')
 							.attr('title', i18n.shotPos).text(destLabel(cur)),
@@ -1399,7 +1401,9 @@
 		var tpl = tplOfShot(id, url);
 		if (null === tpl) { tpl = tplForTarget(id, dest); }
 		var $st = $card.closest('.dze-cb-shots').find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
-		shootAsync($.extend(imageRequest(id, true, tpl, undefined, 0, dest), { aware: 1 }))
+		// redo: the picture it replaces — its framing is the one asked for
+		// again, no longer one of the framings to avoid (made_lines()).
+		shootAsync($.extend(imageRequest(id, true, tpl, undefined, 0, dest), { aware: 1, redo: String(url || '') }))
 			.done(function (r) {
 				if (!r || !r.success) {
 					$btn.prop('disabled', false); $card.removeClass('is-busy');
