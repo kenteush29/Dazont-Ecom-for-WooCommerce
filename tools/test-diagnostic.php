@@ -2352,5 +2352,15 @@ ok( 'et plus celui des deux listes',
 ok( 'le menu est toujours bati sur les deux',
 	false !== strpos( $dze_src, "cat_index( array_merge( \$split['todo'], \$split['done'] ) )" ), true );
 
+echo "\nUNE LISTE REJUGEE NE DEPEND PAS DE LA LANGUE DE L ADMINISTRATION\n";
+// « Cet écran est vide, il n'y a rien. » La requête qui relisait les produits
+// de la liste laissait WPML la filtrer dans la langue de l'administration :
+// en français, elle n'en rendait aucun, et les 647 passaient pour supprimés.
+$dze_src_d = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-diagnostic.php' );
+$dze_split = preg_match( '/private static function split\(.*?\n\t\}/s', $dze_src_d, $dze_sm ) ? $dze_sm[0] : '';
+ok( 'les produits de la liste sont relus sans filtre de requete', false !== strpos( $dze_split, "'suppress_filters'       => true," ), true );
+ok( 'et juges dans la langue de la lecture',
+	false !== strpos( $dze_split, "do_action( 'wpml_switch_language', \$lang );" ) && false !== strpos( $dze_split, "do_action( 'wpml_switch_language', '' !== \$back ? \$back : null );" ), true );
+ok( 'une liste vide gardee avant ce correctif n est pas resservie', false !== strpos( $dze_split, "md5( 'v2|'" ), true );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
