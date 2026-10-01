@@ -291,6 +291,24 @@
 	function hasOwn(id) { return !!(own[String(id)] && own[String(id)].length); }
 	function jobsFor(id) { return hasOwn(id) ? own[String(id)] : tplJobs(); }
 	// How many photographs an order asks for on one product.
+	// WHAT ONE PICTURE COSTS WITH THE MODEL IN FORCE, for the photographs it is
+	// sent — the model's base, plus each photograph for the ones fal bills by
+	// token or by megapixel.
+	function perImage(refs) {
+		var p = cfg.imagePrice || null;
+		if (!p) { return parseFloat(cfg.imageCost || 0) || 0; }
+		var cap = parseInt(p.cap, 10) || 0;
+		var n = Math.max(0, cap > 0 ? Math.min(cap, refs) : refs);
+		return (parseFloat(p.base) || 0) + (parseFloat(p.perRef) || 0) * n;
+	}
+	// The photographs one image of this product is sent: the ones its row
+	// picked, or all of its own, and the scene when the job has one.
+	function refsOf(id, j) {
+		var own = parseInt($row(id).attr('data-sources'), 10);
+		if (isNaN(own)) { own = parseInt((cfg.imagePrice || {}).cap, 10) || 0; }
+		var picked = (j && j.photos && 'all' !== j.photos && j.photos.length !== undefined) ? j.photos.length : own;
+		return picked + ((j && j.scene !== undefined && parseInt(j.scene, 10) >= 0) ? 1 : 0);
+	}
 	function imgCount(id) {
 		var n = 0;
 		jobsFor(id).forEach(function (j) { n += Math.max(1, parseInt(j.n, 10) || 1); });
@@ -340,17 +358,23 @@
 		// not one order times a count, because a product carrying its own order
 		// asks for a different number of photographs from its neighbour.
 		var on = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled');
-		var total = 0, most = 0;
+		var total = 0, most = 0, cost = 0;
 		ids.forEach(function (id) {
 			var per = on ? imgCount(id) : 0;
 			total += per;
 			if (per > most) { most = per; }
+			if (on) {
+				jobsFor(id).forEach(function (j) {
+					cost += Math.max(1, parseInt(j.n, 10) || 1) * perImage(refsOf(id, j));
+				});
+			}
 		});
 		if (!total) { $out.text('').hide(); return; }
-		var price = parseFloat(cfg.imageCost || 0) || 0;
-		var said = price
-			? sprintf(i18n.willCost, total, '$' + (total * price).toFixed(2))
-			: sprintf(i18n.willMake, total);
+		var said = !cost
+			? sprintf(i18n.willMake, total)
+			: ((cfg.imagePrice && cfg.imagePrice.model && i18n.willCostWith)
+				? sprintf(i18n.willCostWith, total, '$' + cost.toFixed(2), cfg.imagePrice.model)
+				: sprintf(i18n.willCost, total, '$' + cost.toFixed(2)));
 		// THE CEILING IS PART OF THE SENTENCE. Asking for twelve photographs of
 		// a product whose hourly ceiling is ten is a run that stops two short on
 		// every line — said here, before the press, rather than as a refusal
