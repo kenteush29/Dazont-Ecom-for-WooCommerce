@@ -783,6 +783,10 @@ fait" (4.499.0):
       at the next order of its prompt (8 at most), and its line kept.
     - Never the pictures themselves (rule above). The wall's queue runs one
       order at a time, so each one knows the last.
+    - HOW TO DIFFER is said too (4.505.1): « by coming closer to a part the
+      photographs show… never by turning the product round to a side, a back
+      or an inside that they do not show ». Told only « framed differently »,
+      GPT Image drew the back of a jacket shown from the front.
   - **THE WALL** (`#dze-bricks`, under `#product_images_container`) shows
     waiting pictures, jobs being made, queued orders and failures. All of it
     is read from the server (`dze_content_current` → `pending`, `jobs`).

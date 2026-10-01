@@ -7678,7 +7678,11 @@ Answer with STRICT JSON and nothing else: "
 		}
 		return "\n\nALREADY MADE FOR THIS PRODUCT — photographs that exist already, described in words (they are not sent):\n- "
 			. implode( "\n- ", $views )
-			. "\nDo not make any of them again: this photograph is framed differently. Only the framing changes — what the product looks like still comes from the photographs you are given, and nothing they do not show is added.";
+			// HOW TO DIFFER, AND HOW NOT TO. Told only « framed differently »,
+			// GPT Image turned the jacket round and drew a back no photograph
+			// shows (01/10/2026, Kryptek Mandrake). Coming closer to what the
+			// photographs show is the one way to differ that invents nothing.
+			. "\nDo not make any of them again: this photograph is framed differently — by coming closer to a part the photographs show, or by a slight change of angle over it. Never by turning the product round to a side, a back or an inside that they do not show. What the product looks like still comes from the photographs you are given, and nothing they do not show is added.";
 	}
 
 	/** The job a product is still owed, if any. */

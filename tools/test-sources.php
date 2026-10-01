@@ -1601,6 +1601,7 @@ ok( 'une image en attente sans cadrage est lue avant la commande, et la ligne ga
 DZE_Content::made_lines( 77, 'r1' );
 ok( 'une seule fois : la ligne gardee sert aux suivantes', count( $GLOBALS['mai_vision'] ), 1 );
 ok( 'pas celle d un autre prompt', DZE_Content::made_lines( 77, 'r2' ), '' );
+ok( 'et la seule facon de differer est de se rapprocher de ce qui est montre, jamais de tourner le produit', [ false !== strpos( $dze_ml, 'by coming closer to a part the photographs show' ), false !== strpos( $dze_ml, 'Never by turning the product round' ) ], [ true, true ] );
 $dze_aj = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
 ok( 'seulement quand la fiche le demande, apres les notes', false !== strpos( $dze_aj, "if ( ! empty( \$in['aware'] ) ) {\n\t\t\t\t\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ) );" ), true );
 ok( 'et aucune image faite ne repart vers le modele', false !== strpos( $dze_aj, '$avoid = 0;' ), true );
