@@ -1226,6 +1226,16 @@ final class DZE_Translate {
 		self::kick_drain( $vite && $attente <= 0 ? 5 : max( 60, $attente ) );
 	}
 
+	/**
+	 * UN PASSAGE, S'IL Y A DE QUOI FAIRE — appelé chaque minute par la tâche
+	 * automatique, dans le cron de WordPress (DZE_Automation::tick()).
+	 */
+	public static function drain_if_work(): void {
+		if ( self::has_work() ) {
+			self::drain();
+		}
+	}
+
 	/** Y a-t-il de quoi faire : une file, ou un lot encore dehors ? */
 	private static function has_work(): bool {
 		if ( self::asked() ) {

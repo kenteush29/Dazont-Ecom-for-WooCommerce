@@ -1052,7 +1052,12 @@ fait" (4.499.0):
       - a tick is booked BEFORE working, when there is work;
       - publishing gets 60 % of the budget, so sending is never starved;
       - the automation's minute task kicks the drain whenever the queue holds
-        work, full or not.
+        work, full or not;
+      - and since 4.503.1 that minute task RUNS a step itself
+        (`drain_if_work()`, in WP-Cron). Action Scheduler is shared: on
+        1 October an image-resizing plugin held its only runner for minutes,
+        with the translation step and fifteen WooCommerce lookups queued
+        behind it. The tick lock still lets only one step run.
     - **`relink_sweep()` changes:**
       - It runs once per language per step (`$sweep_later`), and only when
         the object written can be a link target (`link_target()`: a product

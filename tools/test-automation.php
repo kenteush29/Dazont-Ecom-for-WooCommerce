@@ -550,6 +550,9 @@ class DZE_Wpml {
  * every question the pass asks it is recorded.
  */
 class DZE_Translate {
+	/** Les passages de la file lances par la tache de chaque minute. */
+	public static int $drains = 0;
+	public static function drain_if_work(): void { self::$drains++; }
 	/** Ce qu une case cochee dans la liste de WordPress a mis en tete de file. */
 	public static array $asked = [];
 	public static array $unasked = [];
@@ -3008,5 +3011,13 @@ ok( 'what stands in the way is still said', false !== strpos( $dze_st, 'monthly 
 unset( $GLOBALS['opts']['dze_auto_state'] );
 fresh( $ON );
 
+echo "\nLA FILE DE TRADUCTION AVANCE A CHAQUE MINUTE, DANS LE CRON DE WORDPRESS\n";
+// Un lot de redimensionnement d images a tenu l unique executeur d Action
+// Scheduler de longues minutes : le passage de traduction attendait derriere.
+DZE_Translate::$drains = 0;
+DZE_Automation::tick();
+ok( 'la tache de chaque minute fait avancer la file',  DZE_Translate::$drains, 1 );
+DZE_Automation::tick( 'translate', true );
+ok( 'mais pas un bouton presse a la main',             DZE_Translate::$drains, 1 );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
