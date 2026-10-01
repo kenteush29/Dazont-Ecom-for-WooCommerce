@@ -1016,6 +1016,51 @@ fait" (4.499.0):
       is deleted.
     - A batch line that comes back `canceled` or `expired` is requeued
       uncounted; what Anthropic had already answered is kept.
+  - **« WITHOUT REVIEW » NEVER PASSES THROUGH « TO REVIEW »** (4.503.0).
+    « Option activée, publish without review, pourtant, beaucoup arrivent dans
+    la case review. Je ne comprends pas. »
+    - The bug, in three parts:
+      - **Everything was staged in « To review ».** Every landing was stored
+        in `_dze_tr_wait`, and "without review" only added a `land` mark.
+        200 products landing at 07:31 filled the box for over an hour.
+      - **Publishing was slow.** About 3 products a minute, mostly because
+        `accept()` ran `relink_sweep()` for every language of every object.
+      - **A dying tick left orphans.** 18 died in a week, all started by
+        Action Scheduler's async loopback and none by WP-Cron. `publish()`
+        took the language out of the queue BEFORE writing, so a death left
+        it in review for good. No tick was booked either: a 10 h 44 stall
+        overnight.
+    - What lands without review now waits in **`META_PUB` (`_dze_tr_pub`)**,
+      the same record under its own key. `land()` decides each language: it
+      must be asked without review, never cancelled on the way, and back
+      whole. Anything else goes to `META_WAIT` with a `why`, which the list
+      prints. The review list, its badges and the automation's pause read
+      `META_WAIT` only.
+    - **`publish()` claims, writes, then removes.** `entry['claim']` counts
+      the starts. A claim found again means a dead tick: it is replayed once,
+      and after `PUB_TRIES` starts the language moves to review, saying so.
+      An `accept()` error and a silent skip also move it to review with the
+      reason. Cancelling a landed language, or emptying the queue, does the
+      same.
+    - **`pub_sweep()` is the safety net.** An object holding `META_PUB` that
+      no queue entry marks goes to review. Every other object is recognised
+      by its ref, without opening its texts.
+    - Landings from before 4.503.0 are migrated once (`OPT_PUB_MOVED`), and
+      lazily, object by object, in `publish_some()`.
+    - **The tick is made to survive:**
+      - `ignore_user_abort( true )`;
+      - a tick is booked BEFORE working, when there is work;
+      - publishing gets 60 % of the budget, so sending is never starved;
+      - the automation's minute task kicks the drain whenever the queue holds
+        work, full or not.
+    - **`relink_sweep()` changes:**
+      - It runs once per language per step (`$sweep_later`), and only when
+        the object written can be a link target (`link_target()`: a product
+        category, a post, a page). A product is not one.
+      - It reads `tt.term_id` through a JOIN. WPML's `element_id` is a
+        `term_taxonomy_id`, so it was reading the wrong categories: 26 of the
+        71 "French" ones really were. Fixed, it found 67 to 94 descriptions
+        per language still pointing at English pages.
   - **Only one tick runs at a time, through MySQL `GET_LOCK`**, never through a
     transient that is read and then written. The lock is taken whole or not at
     all, and MySQL gives it back when the process dies.
