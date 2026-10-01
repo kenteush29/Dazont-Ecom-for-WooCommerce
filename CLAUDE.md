@@ -858,6 +858,11 @@ fait" (4.499.0):
     supprimer. Inutile. »). Every product runs the rows at the top of the
     page (`jobsFor()` returns `tplJobs()`). What differs for one product is
     said by the photographs picked on its panel.
+    - **Removing a feature means grepping its names out of the CODE**
+      (4.506.4, « Bouton Look ▾ sur page bulk cassé »). `syncOldMainRow()`
+      still read `own`, so every panel opening threw a ReferenceError.
+      `node --check` and `bun build` cannot see an undeclared name.
+      test-sources.php now fails if any name of the removed order is read.
   - **Regenerate.** The three ↻ (toolbox, bulk, variations) now clear the
     picture they replace.
   - **Counts.** `attach_file()` logs itself, so screens never send counts to

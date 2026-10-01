@@ -1829,6 +1829,12 @@ ok( 'le modele se choisit en haut de l ecran de masse', [ false !== strpos( $dze
 ok( 'il part avec chaque image du lancement, ✦ compris', [ false !== strpos( $dze_jsb, "template: tpl, model: cbModel() };" ), false !== strpos( $dze_jsb, "remake: 1, target: 'gallery', model: cbModel() };" ) ], [ true, true ] );
 ok( 'le cout annonce le suit', [ false !== strpos( $dze_jsb, 'perImage(refsOf(id, j), cbPrice())' ), false !== strpos( $dze_jsb, "\$(document).on('change', '#dze-cb-model', function () { drawPicked(); });" ) ], [ true, true ] );
 ok( 'et ce navigateur s en souvient', [ false !== strpos( $dze_jsb, "m.bulkModel = \$('#dze-cb-model').val() || '';" ), false !== strpos( $dze_jsb, "\$('#dze-cb-model').val(m.bulkModel);" ) ], [ true, true ] );
+// 4.506.4 — « Bouton Look ▾ sur page bulk cassé » : syncOldMainRow() lisait encore
+// `own`, supprimé avec la commande par produit. ReferenceError à chaque ouverture
+// d'un panneau. Aucun nom de cette commande ne doit plus être lu, hors commentaires.
+$dze_code = preg_replace( '~^\s*//.*$~m', '', $dze_jsb );
+ok( 'aucun nom de la commande par produit n est encore lu', [ false !== strpos( $dze_code, 'own ||' ), false !== strpos( $dze_code, 'kept[id]' ), (bool) preg_match( '~\\b(hasOwn|markOwn|ownState|buildOwn|shotsSaid)\\(~', $dze_code ), (bool) preg_match( '~(?<![\\w.$])own\\[~', $dze_code ) ], [ false, false, false, false ] );
+ok( 'le panneau Look ne depend plus que des lignes du lancement', false !== strpos( $dze_jsb, "function syncOldMainRow() {\n\t\t// Any row of the run that writes a main image raises it" ), true );
 ok( 'la popup aussi se souvient du dernier modele', [ false !== strpos( $dze_js, "model: cxModel()\n\t\t};" ), false !== strpos( $dze_js, "modelOptions(au.model)" ) ], [ true, true ] );
 
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
