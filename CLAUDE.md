@@ -845,6 +845,19 @@ fait" (4.499.0):
         come back as a « real » photograph.
   - **The model is checked as typed.** `$model_override` is compared with
     the catalogue keys as typed: `sanitize_key` eats the dot of « 2.5 ».
+  - **THE MODEL IS PICKED ON THE SCREEN, NEVER IN THE SETTINGS** (4.506.3).
+    « On va quand même pas changer de modèle dans les paramètres à chaque
+    fois si ? Très désagréable. »
+    - Beside Launch in the toolbox (`#dze-cx-model`), and at the top of the
+      bulk screen under the prompt rows (`#dze-cb-model`).
+    - Each is remembered per browser: `m.auto.model` and `m.bulkModel`.
+    - Each goes with every image ordered, ✦ included, and the bill before
+      the press follows it (`cxPrice()`, `cbPrice()`).
+    - The shop's setting is only the default.
+  - **NO ORDER OF A PRODUCT'S OWN ON THE BULK SCREEN** (4.506.3, « A
+    supprimer. Inutile. »). Every product runs the rows at the top of the
+    page (`jobsFor()` returns `tplJobs()`). What differs for one product is
+    said by the photographs picked on its panel.
   - **Regenerate.** The three ↻ (toolbox, bulk, variations) now clear the
     picture they replace.
   - **Counts.** `attach_file()` logs itself, so screens never send counts to

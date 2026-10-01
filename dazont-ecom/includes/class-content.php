@@ -4676,6 +4676,9 @@ Answer with STRICT JSON and nothing else: "
 				// the ceiling the run would hit.
 				'imageCost' => self::fal_image_cost(),
 				'imagePrice'=> self::image_price_cfg(),
+				// The models the run can be made with, priced: the bill before the
+				// press follows the one picked at the top of the page.
+				'imageModels' => self::image_models_cfg(),
 				// A main or a variation image is remade from three of the
 				// product's photographs, not all of them: the bill says so.
 				'mainCap'   => self::MAIN_SOURCES,
@@ -4847,20 +4850,6 @@ Answer with STRICT JSON and nothing else: "
 					'noteTitle' => __( 'Notes about this product', 'dazont-ecom' ),
 					'noteHelp'  => __( 'Sent with the images this run makes, and with nothing after it. What the photographs cannot show, or what came back wrong last time. It is not saved.', 'dazont-ecom' ),
 					'notePh'    => __( 'e.g. black ripstop fabric, matte hardware, red logo on the chest', 'dazont-ecom' ),
-					// THE RUN'S ORDER, OR THIS PRODUCT'S OWN. "Avoir une option
-					// bulk, mais aussi avoir la possibilité, si on veut, de
-					// régler par produit." Five photographs is right for a
-					// product with none and one is enough for the one beside
-					// it, and the run had a single answer for the whole list.
-					'ownTitle'   => __( 'Images for this product', 'dazont-ecom' ),
-					'ownFollows' => __( 'follows the run', 'dazont-ecom' ),
-					'ownUse'     => __( 'Give this product its own order', 'dazont-ecom' ),
-					'ownHelp'    => __( 'It starts from the order set at the top of the page; change it and this product alone runs it. It is not saved: a reload puts the product back on the run\'s order.', 'dazont-ecom' ),
-					'ownOne'     => __( '1 photograph', 'dazont-ecom' ),
-					/* translators: %s: how many photographs an order asks for */
-					'ownN'       => __( '%s photographs', 'dazont-ecom' ),
-					/* translators: %s: "1 photograph" or "3 photographs" */
-					'ownMark'    => __( 'Its own order · %s', 'dazont-ecom' ),
 					// The two words the row's one button wears, and the two
 					// headings of the panel it opens. In PHP, like every other
 					// status word: hard-coded in the JavaScript they were
@@ -5228,6 +5217,19 @@ Answer with STRICT JSON and nothing else: "
 									<option value="0"><?php esc_html_e( 'is removed and deleted from the site', 'dazont-ecom' ); ?></option>
 								</select>
 							</label>
+							<!-- THE MODEL OF THIS RUN, picked here. « On va quand même
+							     pas changer de modèle dans les paramètres à chaque
+							     fois si ? Très désagréable. » The shop's model is the
+							     one selected; this browser remembers the last pick. -->
+							<p class="dze-cb-modelline">
+								<label class="dze-qm-bglabel"><span><?php esc_html_e( 'Model', 'dazont-ecom' ); ?></span>
+									<select id="dze-cb-model">
+										<?php foreach ( self::image_models_cfg() as $dze_m ) : ?>
+											<option value="<?php echo esc_attr( (string) $dze_m['key'] ); ?>" <?php selected( ! empty( $dze_m['own'] ) ); ?>><?php echo esc_html( (string) $dze_m['model'] ); ?></option>
+										<?php endforeach; ?>
+									</select>
+								</label>
+							</p>
 						</div>
 					<?php else : ?>
 						<p class="description"><?php esc_html_e( 'No validated image prompt yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></p>
