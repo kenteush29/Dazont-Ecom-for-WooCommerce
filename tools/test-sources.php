@@ -1688,7 +1688,7 @@ $GLOBALS['opts']['dze_content_settings'] = [ 'fal_key' => 'fake-fal-key', 'regis
 $dze_rc->setValue( null, null );
 ok( 'sans ligne remake, les mots livres — jamais rien', [ DZE_Content::remake_template()['id'], DZE_Content::remake_template()['prompt'] === DZE_Content::default_remake_prompt() ], [ 'img_remake_better', true ] );
 ok( 'la ligne livree n a pas de decor : l image refaite garde le sien', [ DZE_Content::remake_row_default()['output'], DZE_Content::remake_row_default()['scene'] ], [ 'remake', '' ] );
-ok( 'elle rejoint les prompts une fois, a l admin', [ false !== strpos( $dze_cs, "add_action( 'admin_init',     [ \$this, 'seed_remake_recipe' ] );" ), false !== strpos( $dze_cs, "\$s['remake_seeded']  = 1;" ) ], [ true, true ] );
+ok( 'elle rejoint les prompts une fois, a l admin', [ false !== strpos( $dze_cs, "add_action( 'admin_init',     [ \$this, 'seed_remake_recipe' ] );" ), false !== strpos( $dze_cs, "\$s['remake_seeded'] = 2;" ) ], [ true, true ] );
 $dze_rc->setValue( null, null );
 // ✦ SUR UNE PHOTO COLLEE : elle seule est envoyee, avec les mots du remake.
 $GLOBALS['dze_meta'] = [];
@@ -1711,8 +1711,8 @@ try {
 DZE_Content::$submit_only = false;
 $dze_sent = json_decode( (string) ( end( $GLOBALS['fal_sent'] )['body'] ?? '{}' ), true );
 ok( '✦ sur une photo collee : commandee, rangee comme travail', [ $dze_made['job'] ?? ( $dze_made['error'] ?? '?' ), $dze_made['recipe'] ?? '' ], [ 'rm-1', 'img_remake_better' ] );
-ok( 'elle seule part, et c est elle qu on retouche', [ count( (array) ( $dze_sent['image_urls'] ?? [] ) ), ( $dze_sent['image_urls'][0] ?? '' ) === $dze_png ], [ 1, true ] );
-ok( 'avec les mots du remake', false !== strpos( (string) ( $dze_sent['prompt'] ?? '' ), 'Remake this exact photograph better' ), true );
+ok( 'sans photo principale, elle part seule, et c est elle qu on retouche', [ count( (array) ( $dze_sent['image_urls'] ?? [] ) ), ( $dze_sent['image_urls'][0] ?? '' ) === $dze_png ], [ 1, true ] );
+ok( 'avec les mots du remake', false !== strpos( (string) ( $dze_sent['prompt'] ?? '' ), 'Remake the picture as a better photograph of this product' ), true );
 DZE_Content::$submit_only = true;
 try {
 	DZE_Content::instance()->shoot( [ 'post' => 77, 'mode' => 'defer', 'stash' => 1, 'remake' => 1 ] );
@@ -1722,6 +1722,57 @@ try {
 }
 DZE_Content::$submit_only = false;
 ok( '✦ sans image a refaire : dit, rien commande', $dze_err, 'Pick the picture to remake.' );
+// LA PHOTO PRINCIPALE MENE. « Sur ce produit on est sur un camo kryptek
+// mandrake, or je n'ai que des images d'autres camo sous la main pour les
+// détails. Il faut je pense envoyer dans tous les cas l'image 1 principale comme
+// référence. » Un vrai fichier pour la photo principale (501) du produit 77.
+if ( ! function_exists( 'image_get_intermediate_size' ) ) { function image_get_intermediate_size( ...$a ) { return false; } }
+if ( ! function_exists( 'get_attached_file' ) ) { function get_attached_file( $id ) { return (string) ( $GLOBALS['att_files'][ (int) $id ] ?? '' ); } }
+if ( ! function_exists( 'get_post_mime_type' ) ) { function get_post_mime_type( $id ) { return 'image/png'; } }
+if ( ! function_exists( 'trailingslashit' ) ) { function trailingslashit( $p ) { return rtrim( (string) $p, '/' ) . '/'; } }
+if ( ! function_exists( 'wp_get_upload_dir' ) ) { function wp_get_upload_dir() { return [ 'basedir' => sys_get_temp_dir() ]; } }
+$dze_mainfile = tempnam( sys_get_temp_dir(), 'dzemain' );
+file_put_contents( $dze_mainfile, base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' ) );
+$GLOBALS['att_files'][501] = $dze_mainfile;
+$GLOBALS['thumbs'][77]     = 501;
+$GLOBALS['fal_sent']       = [];
+$GLOBALS['tr']             = [];
+$GLOBALS['fal_say']['body'] = '{"request_id":"rm-2","status_url":"https://queue.fal.run/x/requests/rm-2/status","response_url":"https://queue.fal.run/x/requests/rm-2"}';
+DZE_Content::$submit_only = true;
+try {
+	$dze_made = DZE_Content::instance()->shoot( [ 'post' => 77, 'mode' => 'defer', 'stash' => 1, 'remake' => 1, 'src_paste' => $dze_png, 'target' => 'gallery' ] );
+} catch ( Throwable $e ) {
+	$dze_made = [ 'error' => $e->getMessage() ];
+}
+DZE_Content::$submit_only = false;
+$dze_sent = json_decode( (string) ( end( $GLOBALS['fal_sent'] )['body'] ?? '{}' ), true );
+$dze_urls = (array) ( $dze_sent['image_urls'] ?? [] );
+ok( '✦ envoie la photo principale d abord, puis l image a refaire', [ $dze_made['job'] ?? ( $dze_made['error'] ?? '?' ), count( $dze_urls ), 0 === strpos( (string) ( $dze_urls[0] ?? '' ), 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk' ), ( $dze_urls[1] ?? '' ) === $dze_png ], [ 'rm-2', 2, true, true ] );
+ok( 'et dit ce qu est chacune : le produit, puis l image a refaire', [ false !== strpos( (string) ( $dze_sent['prompt'] ?? '' ), 'Image 1 is the product itself, as this shop sells it' ), false !== strpos( (string) ( $dze_sent['prompt'] ?? '' ), 'Image 1 is the picture to work on' ) ], [ true, false ] );
+ok( 'la photo principale refaite elle-meme part seule', false !== strpos( $dze_aj, 'if ( $remake && $dze_main > 0 && $dze_main !== $src_att ) {' ), true );
+unset( $GLOBALS['thumbs'][77], $GLOBALS['att_files'][501] );
+@unlink( $dze_mainfile );
+// LES MOTS LIVRES EN 4.506.0, JAMAIS TOUCHES, SONT MIS A JOUR ; CEUX DU PROPRIETAIRE JAMAIS.
+$dze_v1 = ( new ReflectionMethod( 'DZE_Content', 'remake_prompt_v1' ) );
+$dze_v1->setAccessible( true );
+$dze_seed = static function ( string $words, $flag ) use ( $dze_rc ) {
+	$GLOBALS['opts']['dze_content_settings'] = [ 'remake_seeded' => $flag, 'registry' => [
+		[ 'id' => 'img_remake_better', 'name' => 'Remake better', 'type' => 'image', 'prompt' => $words, 'output' => 'remake', 'enabled' => 1, 'valid' => 1 ],
+	] ];
+	$dze_rc->setValue( null, null );
+	DZE_Content::instance()->seed_remake_recipe();
+	$dze_rc->setValue( null, null );
+	return [ DZE_Content::registry()[0]['prompt'] ?? '', (int) ( $GLOBALS['opts']['dze_content_settings']['remake_seeded'] ?? 0 ) ];
+};
+ok( 'les mots livres jamais touches sont mis a jour', $dze_seed( $dze_v1->invoke( null ), 1 ), [ DZE_Content::default_remake_prompt(), 2 ] );
+ok( 'les mots du proprietaire ne bougent pas', $dze_seed( 'MES MOTS A MOI', 1 ), [ 'MES MOTS A MOI', 2 ] );
+$GLOBALS['opts']['dze_content_settings'] = [ 'remake_seeded' => 1, 'registry' => [] ];
+$dze_rc->setValue( null, null );
+DZE_Content::instance()->seed_remake_recipe();
+$dze_rc->setValue( null, null );
+ok( 'une ligne supprimee par le proprietaire ne revient pas', [ count( array_filter( DZE_Content::registry(), static fn( $r ) => 'remake' === ( $r['output'] ?? '' ) ) ), (int) $GLOBALS['opts']['dze_content_settings']['remake_seeded'] ], [ 0, 2 ] );
+unset( $GLOBALS['opts']['dze_content_settings'] );
+$dze_rc->setValue( null, null );
 ok( 'une photo du produit est lue comme image, et seulement une des siennes', [ false !== strpos( $dze_aj, "if ( ! in_array( \$src_att, array_map( 'intval', self::product_image_ids( \$pid ) ), true ) ) {" ), false !== strpos( $dze_aj, "\$src       = \$this->fal_source_data_uri( \$src_att, 'full' );" ) ], [ true, true ] );
 // HD : 2048 pixels, de ×1,5 a ×4, rien quand c est deja assez grand.
 ok( 'HD amene le grand cote a 2048', [ DZE_Content::enlarge_factor( 800, 532 ), DZE_Content::enlarge_factor( 1600, 900 ), DZE_Content::enlarge_factor( 300, 300 ), DZE_Content::enlarge_factor( 2048, 1000 ), DZE_Content::enlarge_factor( 0, 0 ) ], [ 2.56, 1.5, 4.0, 0.0, 0.0 ] );

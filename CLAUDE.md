@@ -811,10 +811,18 @@ fait" (4.499.0):
     - Both produce a NEW waiting picture; the original is never touched.
     - **✦** is `shoot()` with `remake=1` and one of `src_url` (fal),
       `src_att` (an attachment of THIS product) or `src_paste` (a data URI).
-      The picture travels alone (edit lane, no scene, no other colours).
+      The picture is sent with NO scene and NO other colours.
+      THE PRODUCT LEADS (4.506.1): the main photograph is image 1 (what the
+      product looks like) and the picture to remake is image 2 (framing,
+      construction), said by the photo note `remake`. « Je n'ai que des
+      images d'autres camo sous la main pour les détails » — a detail
+      shot on A-Tacs, remade alone, came back A-Tacs on a Kryptek page.
+      The main photograph remade itself goes alone (note `edit`).
       The words are the registry row with output `remake`, seeded once by
       `seed_remake_recipe()` and editable like any prompt, or else the
-      shipped `default_remake_prompt()`.
+      shipped `default_remake_prompt()`. The 4.506.0 words (« patterns stay
+      as in the photograph ») are replaced only where the owner never
+      changed them (`seed_remake_recipe()`, flag 2).
     - The remake row is NEVER in `image_templates()`: it is not a recipe.
     - **HD** is `ajax_enlarge`: SeedVR2 (`UPSCALER`, JPEG in and out,
       $0.0025/MP), long side to 2048 (`enlarge_factor()`, ×1.5 to ×4, 0 when
