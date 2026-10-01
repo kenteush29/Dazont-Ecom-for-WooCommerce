@@ -291,7 +291,13 @@
 		return $b;
 	}
 	var aiFor = null;
-	function aiScroll() { aiClose(); }
+	// Any scroll closes the card — except its own: the full prompt scrolls
+	// inside it, and reading it must not shut it.
+	function aiScroll(ev) {
+		var t = ev && ev.target;
+		if (t && t.nodeType === 1 && $(t).closest('.dze-ai-pop').length) { return; }
+		aiClose();
+	}
 	function aiClose() {
 		$('.dze-ai-pop').remove();
 		$(document).off('.dzeai');
