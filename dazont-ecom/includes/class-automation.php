@@ -2056,6 +2056,17 @@ final class DZE_Automation {
 	 * @return array{queued:int,task:string,reason:string}
 	 */
 	public static function tick( string $only = '', bool $forced = false ): array {
+		// LA FILE DE TRADUCTION AVANCE À CHAQUE MINUTE, ICI, dans le cron de
+		// WordPress — pas seulement par Action Scheduler, que d'autres
+		// extensions saturent. Sur Kula, le 1er octobre, un lot de
+		// redimensionnement d'images a tenu son unique exécuteur de longues
+		// minutes : le passage de traduction attendait derrière, avec quinze
+		// mises à jour de WooCommerce. Le verrou du passage empêche d'en faire
+		// tourner deux ; une file vide ne coûte qu'une lecture.
+		if ( '' === $only && ! $forced && class_exists( 'DZE_Translate' ) && method_exists( 'DZE_Translate', 'drain_if_work' )
+			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'translate' ) ) ) {
+			DZE_Translate::drain_if_work();
+		}
 		$ids    = '' !== $only ? [ $only ] : array_keys( self::tasks() );
 		$reason = 'none';
 		$done   = null;
