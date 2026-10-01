@@ -51,21 +51,128 @@ final class DZE_Content {
 	 * for is then not LOST: it is collected on the next run for that product,
 	 * for nothing, because it was already paid for.
 	 */
-	private const FAL_QUEUE = 'https://queue.fal.run/fal-ai/nano-banana-2/edit';
+	private const FAL_QUEUE = 'https://queue.fal.run/';
 
 	/**
-	 * L'AUTRE PORTE DU MÊME MODÈLE : écrire une image à partir de rien.
+	 * THE MODELS THAT MAKE THE PHOTOGRAPHS — one list, read by the setting,
+	 * by the request and by the bill.
 	 *
-	 * « Image lab exige une image entrante. Règles ça. Ça devrait être libre. »
+	 * « Ajoute-moi l'API GPT pour tester la génération d'images par leur API.
+	 * Ou sinon le choix du modèle par FAL. Je continue d'avoir trop de slop
+	 * sur les produits assez techniques. » fal carries OpenAI's GPT Image as
+	 * well, billed on the same account: one key, one queue, one register. The
+	 * model is a choice, never a second way of asking.
 	 *
-	 * L'atelier refusait de travailler sans photographie de départ, et ce
-	 * n'était pas une règle du plugin : `/edit` est l'endpoint de RETOUCHE, il
-	 * n'existe que pour transformer des images qu'on lui donne et refuse une
-	 * requête sans `image_urls`. Le même modèle a une porte texte → image, à
-	 * l'adresse sans suffixe, et c'est celle-là qu'il faut pousser quand la
-	 * boutique n'apporte rien : le prompt seul décide alors de la photographie.
+	 * Each model says:
+	 *  - its two doors. `edit` reworks the photographs it is handed and
+	 *    refuses a request without `image_urls`; `fresh` writes a picture from
+	 *    the words alone — « Image lab exige une image entrante. Règles ça. Ça
+	 *    devrait être libre. »
+	 *  - how a frame is asked: `aspect_ratio` (« 4:5 ») or `image_size`
+	 *    (« portrait_4_3 », or a width and a height).
+	 *  - what else it needs, and how many photographs it reads at most.
+	 *  - what one picture costs. Per image for what fal bills per image; an
+	 *    estimate for what it bills by token or by megapixel, kept on the high
+	 *    side — the photographs sent are billed too (`per_ref`), and the
+	 *    monthly budget would rather stop early than late.
+	 *
+	 * @return array<string,array{label:string,edit:string,fresh:string,frame:string,extra:array,refs:int,price:float,per_ref:float,per:string,note:string}>
 	 */
-	private const FAL_QUEUE_FRESH = 'https://queue.fal.run/fal-ai/nano-banana-2';
+	public static function image_models(): array {
+		return [
+			'nano-banana-2'          => [
+				'label'   => 'Nano Banana 2 (Google)',
+				'edit'    => 'fal-ai/nano-banana-2/edit',
+				'fresh'   => 'fal-ai/nano-banana-2',
+				'frame'   => 'aspect_ratio',
+				'extra'   => [],
+				'refs'    => 14,
+				'price'   => 0.08,
+				'per_ref' => 0.0,
+				'per'     => 'image',
+				'note'    => __( 'Quick and cheap — the default.', 'dazont-ecom' ),
+			],
+			'nano-banana-pro'        => [
+				'label'   => 'Nano Banana Pro (Google)',
+				'edit'    => 'fal-ai/nano-banana-pro/edit',
+				'fresh'   => 'fal-ai/nano-banana-pro',
+				'frame'   => 'aspect_ratio',
+				'extra'   => [ 'resolution' => '1K' ],
+				'refs'    => 14,
+				'price'   => 0.15,
+				'per_ref' => 0.0,
+				'per'     => 'image',
+				'note'    => __( 'Google\'s larger model: closer to the photographs on fine parts and printed text, at twice the price.', 'dazont-ecom' ),
+			],
+			'gpt-image-2.5-sunburst' => [
+				'label'   => 'GPT Image 2.5 Sunburst (OpenAI)',
+				'edit'    => 'openai/gpt-image-2.5/sunburst/edit',
+				'fresh'   => 'openai/gpt-image-2.5/sunburst/text-to-image',
+				'frame'   => 'image_size',
+				'extra'   => [ 'quality' => 'high' ],
+				'refs'    => 16,
+				'price'   => 0.05,
+				'per_ref' => 0.012,
+				'per'     => 'estimate',
+				'note'    => __( 'OpenAI\'s precision model: extra fidelity on intricate detail — straps, buckles, stitching, hardware — and slower.', 'dazont-ecom' ),
+			],
+			'gpt-image-2.5-flare'    => [
+				'label'   => 'GPT Image 2.5 Flare (OpenAI)',
+				'edit'    => 'openai/gpt-image-2.5/flare/edit',
+				'fresh'   => 'openai/gpt-image-2.5/flare/text-to-image',
+				'frame'   => 'image_size',
+				'extra'   => [ 'quality' => 'high' ],
+				'refs'    => 16,
+				'price'   => 0.05,
+				'per_ref' => 0.012,
+				'per'     => 'estimate',
+				'note'    => __( 'OpenAI\'s everyday model: natural light and textures, quicker than Sunburst, same price.', 'dazont-ecom' ),
+			],
+			'flux-2-pro'             => [
+				'label'   => 'FLUX.2 Pro (Black Forest Labs)',
+				'edit'    => 'fal-ai/flux-2-pro/edit',
+				'fresh'   => 'fal-ai/flux-2-pro',
+				'frame'   => 'image_size',
+				'extra'   => [],
+				'refs'    => 9,
+				'price'   => 0.03,
+				'per_ref' => 0.015,
+				'per'     => 'estimate',
+				'note'    => __( 'Made for product shots from several references; billed by the megapixel, the photographs sent included.', 'dazont-ecom' ),
+			],
+		];
+	}
+
+	/** The model this shop makes its photographs with: the setting, or the default. */
+	public static function image_model_key(): string {
+		$k = (string) ( self::get_settings()['img_model'] ?? '' );
+		return isset( self::image_models()[ $k ] ) ? $k : 'nano-banana-2';
+	}
+
+	/**
+	 * HOW A FRAME IS ASKED OF THIS MODEL. The shop speaks in ratios; the
+	 * models that take an `image_size` are given its name when fal has one,
+	 * and a width and a height when it has none (4:5, 2:3, 3:2).
+	 */
+	private static function frame_for( array $model, string $ratio ): array {
+		$ratio = '' !== $ratio ? $ratio : 'auto';
+		if ( 'aspect_ratio' === (string) ( $model['frame'] ?? '' ) ) {
+			return [ 'aspect_ratio' => $ratio ];
+		}
+		$sizes = [
+			'auto' => 'auto',
+			'1:1'  => 'square_hd',
+			'4:3'  => 'landscape_4_3',
+			'3:4'  => 'portrait_4_3',
+			'16:9' => 'landscape_16_9',
+			'9:16' => 'portrait_16_9',
+			'4:5'  => [ 'width' => 1024, 'height' => 1280 ],
+			'5:4'  => [ 'width' => 1280, 'height' => 1024 ],
+			'2:3'  => [ 'width' => 1024, 'height' => 1536 ],
+			'3:2'  => [ 'width' => 1536, 'height' => 1024 ],
+		];
+		return [ 'image_size' => $sizes[ $ratio ] ?? 'auto' ];
+	}
 
 	/**
 	 * How long the shop waits for one picture before leaving it to be
@@ -986,12 +1093,26 @@ EOT;
 	public const META_SPEND = '_dze_img_spend';
 	public const META_IMGS  = '_dze_img_shots';
 
-	public static function fal_image_cost(): float {
-		$c = (float) ( self::get_settings()['fal_image_cost'] ?? 0 );
-		// The shipped figure is what nano-banana-2 bills per image today. It is
-		// a default, not a reading: what a shop is charged is on its own
-		// invoice, and the field beside this is where that goes.
-		return $c > 0 ? $c : 0.08;
+	/**
+	 * WHAT ONE PICTURE COSTS, with the model that makes it.
+	 *
+	 * @param int    $refs  The photographs sent with it; -1 for as many as the
+	 *                      shop sends (what a screen announces before a run).
+	 * @param string $model A model of image_models(); '' for the one chosen.
+	 */
+	public static function fal_image_cost( int $refs = -1, string $model = '' ): float {
+		$all = self::image_models();
+		$key = isset( $all[ $model ] ) ? $model : self::image_model_key();
+		$m   = $all[ $key ];
+		if ( 'nano-banana-2' === $key ) {
+			// The shipped figure is what nano-banana-2 bills per image today. It
+			// is a default, not a reading: what a shop is charged is on its own
+			// invoice, and the field beside this is where that goes.
+			$c = (float) ( self::get_settings()['fal_image_cost'] ?? 0 );
+			return $c > 0 ? $c : (float) $m['price'];
+		}
+		$n = $refs >= 0 ? $refs : self::source_cap();
+		return round( (float) $m['price'] + (float) $m['per_ref'] * min( $n, (int) $m['refs'] ), 4 );
 	}
 
 	/**
@@ -2276,6 +2397,10 @@ Answer with STRICT JSON and nothing else: "
 			$c = (float) $in['fal_image_cost'];
 			$out['fal_image_cost'] = $c > 0 ? round( $c, 4 ) : 0.0;
 		}
+		if ( array_key_exists( 'img_model', $in ) ) {
+			$m = (string) $in['img_model'];
+			$out['img_model'] = isset( self::image_models()[ $m ] ) ? $m : 'nano-banana-2';
+		}
 		if ( array_key_exists( 'img_sources', $in ) ) {
 			$out['img_sources'] = max( 1, min( self::MAX_SOURCES, (int) $in['img_sources'] ) );
 		}
@@ -2556,6 +2681,25 @@ Answer with STRICT JSON and nothing else: "
 				</td>
 			</tr>
 			<tr>
+				<th scope="row"><label for="dze-img-model"><?php esc_html_e( 'Image model', 'dazont-ecom' ); ?></label></th>
+				<td>
+					<select id="dze-img-model" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[img_model]">
+						<?php foreach ( self::image_models() as $dze_mk => $dze_m ) : ?>
+							<option value="<?php echo esc_attr( $dze_mk ); ?>" <?php selected( self::image_model_key(), $dze_mk ); ?>><?php
+								/* translators: 1: a model, 2: what one picture costs */
+								echo esc_html( sprintf( __( '%1$s — about $%2$s an image', 'dazont-ecom' ), $dze_m['label'], number_format_i18n( self::fal_image_cost( -1, $dze_mk ), 3 ) ) );
+							?></option>
+						<?php endforeach; ?>
+					</select>
+					<ul class="description" style="margin:6px 0 0 18px;list-style:disc;">
+						<?php foreach ( self::image_models() as $dze_m ) : ?>
+							<li><strong><?php echo esc_html( $dze_m['label'] ); ?></strong> — <?php echo esc_html( $dze_m['note'] ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+					<p class="description"><?php esc_html_e( 'Every model runs on your fal.ai account and key. Change it, make a few photographs of the same product, and compare: every screen that makes a picture uses the model chosen here, and the usage log names the model that made each one. Prices are fal\'s published ones, estimated with the photographs sent; the exact figure is on your fal.ai invoice.', 'dazont-ecom' ); ?></p>
+				</td>
+			</tr>
+			<tr>
 				<th scope="row"><label for="dze-img-sources"><?php esc_html_e( 'Photographs sent per image', 'dazont-ecom' ); ?></label></th>
 				<td>
 					<input type="number" id="dze-img-sources" step="1" min="1" max="<?php echo (int) self::MAX_SOURCES; ?>" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[img_sources]" value="<?php echo (int) self::source_cap(); ?>" style="width:80px;" />
@@ -2566,12 +2710,12 @@ Answer with STRICT JSON and nothing else: "
 				</td>
 			</tr>
 			<tr>
-				<th scope="row"><label for="dze-fal-cost"><?php esc_html_e( 'fal.ai price per image (USD)', 'dazont-ecom' ); ?></label></th>
+				<th scope="row"><label for="dze-fal-cost"><?php esc_html_e( 'Nano Banana 2 price per image (USD)', 'dazont-ecom' ); ?></label></th>
 				<td>
 					<input type="number" id="dze-fal-cost" step="0.001" min="0" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[fal_image_cost]" value="<?php echo esc_attr( self::fal_image_cost() ); ?>" style="width:110px;" />
 					<p class="description">
 						<?php esc_html_e( 'The one figure this plugin cannot read: what a unit costs is on your fal.ai invoice, not in its answers. How MANY units a call is billed comes from fal itself when it says so, and is counted as one image when it does not — so the count is exact and only the price is yours to give.', 'dazont-ecom' ); ?>
-						<?php esc_html_e( 'It drives the AI usage graph, the monthly budget, and the running total shown beside every button that makes an image.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'It drives the AI usage graph, the monthly budget, and the running total shown beside every button that makes an image. It is Nano Banana 2\'s, billed per image; the other models are counted at fal\'s published prices.', 'dazont-ecom' ); ?>
 					</p>
 				</td>
 			</tr>
@@ -6946,21 +7090,27 @@ Answer with STRICT JSON and nothing else: "
 		// base64 they would be megabytes of noise beside the words that
 		// actually decide the picture. This is where an invented detail is
 		// hunted down: read what was asked, look at what came back.
+		// THE MODEL CHOSEN IN THE SETTINGS, asked the way it understands, with
+		// as many photographs as it reads — the main one first, as they come.
+		$dze_key    = self::image_model_key();
+		$dze_model  = self::image_models()[ $dze_key ];
+		$image_urls = array_slice( array_values( $image_urls ), 0, (int) $dze_model['refs'] );
 		$dze_asked = $prompt . sprintf(
-			"\n\n[%d photograph(s) sent%s · aspect ratio %s]",
+			"\n\n[%d photograph(s) sent%s · aspect ratio %s · %s]",
 			count( $image_urls ),
 			'' !== $made_of ? ' — ' . $made_of : '',
-			$ratio
+			$ratio,
+			$dze_model['label']
 		);
 		$dze_t0    = microtime( true );
-		$fail = function ( string $why, float $cost = 0.0 ) use ( $dze_asked, $dze_t0 ): void {
+		$fail = function ( string $why, float $cost = 0.0 ) use ( $dze_asked, $dze_t0, $dze_key ): void {
 			// ONE PLACE WRITES DOWN A FAILURE, so no path can forget the flag,
 			// the reason or the trace — and the reason is what turns "half of
 			// them fail" into something a person can act on.
-			DZE_Health::log( 'fal', 'POST ' . self::FAL_QUEUE, $why );
+			DZE_Health::log( 'fal', 'POST ' . self::FAL_QUEUE . $dze_key, $why );
 			if ( class_exists( 'DZE_Ai_Usage' ) ) {
-				DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', $cost, true, $why );
-				DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, 'ERROR — ' . $why, microtime( true ) - $dze_t0 );
+				DZE_Ai_Usage::record( 'fal', 0, 0, $dze_key, $cost, true, $why );
+				DZE_Ai_Usage::trace( 'fal', $dze_key, $dze_asked, 'ERROR — ' . $why, microtime( true ) - $dze_t0 );
 			}
 		};
 
@@ -6973,16 +7123,15 @@ Answer with STRICT JSON and nothing else: "
 		$dze_body  = [
 			'prompt'        => $prompt,
 			'num_images'    => 1,
-			'aspect_ratio'  => $ratio,
 			// Photographs, on a shop: JPEG. A PNG product image is three to
 			// five times the weight for no visible gain and slows the page
 			// down for every visitor.
 			'output_format' => 'jpeg',
-		];
+		] + self::frame_for( $dze_model, $ratio ) + (array) $dze_model['extra'];
 		if ( ! $dze_fresh ) {
 			$dze_body['image_urls'] = array_values( $image_urls );
 		}
-		$resp = wp_remote_post( $dze_fresh ? self::FAL_QUEUE_FRESH : self::FAL_QUEUE, [
+		$resp = wp_remote_post( self::FAL_QUEUE . ( $dze_fresh ? $dze_model['fresh'] : $dze_model['edit'] ), [
 			// The submit is a short call: it answers with an id, not a picture.
 			'timeout' => 30,
 			'headers' => [ 'Authorization' => 'Key ' . self::fal_key(), 'content-type' => 'application/json' ],
@@ -7013,6 +7162,10 @@ Answer with STRICT JSON and nothing else: "
 			'id'       => (string) ( $body['request_id'] ?? '' ),
 			'status'   => (string) ( $body['status_url'] ?? '' ),
 			'response' => (string) ( $body['response_url'] ?? '' ),
+			// WHO MADE IT, AND FROM HOW MANY PHOTOGRAPHS: collected on a later
+			// run, after the setting has changed, it is still billed as asked.
+			'model'    => $dze_key,
+			'refs'     => count( $image_urls ),
 		];
 		if ( '' === $job['id'] || '' === $job['status'] ) {
 			$msg = __( 'fal accepted nothing: no request id in the answer.', 'dazont-ecom' );
@@ -7026,7 +7179,7 @@ Answer with STRICT JSON and nothing else: "
 		// The picture is not lost and must not be ordered again: the job is
 		// kept on the product and collected before anything else is asked for.
 		self::fal_pending_set( $pid, $job );
-		$fail( 'abandoned — ' . $job['id'], self::fal_image_cost() );
+		$fail( 'abandoned — ' . $job['id'], self::fal_image_cost( count( $image_urls ), $dze_key ) );
 		throw new RuntimeException( __( 'fal is still working on this one. It is paid for and kept: the next run on this product collects it instead of ordering another.', 'dazont-ecom' ) );
 	}
 
@@ -7103,17 +7256,26 @@ Answer with STRICT JSON and nothing else: "
 		// What this call is actually billed. fal answers with the number of
 		// billable units it charged for; when it does, that number is the
 		// truth and nothing here has to guess how many images a request became.
-		$units = (float) wp_remote_retrieve_header( $res, 'x-fal-billable-units' );
-		$units = max( $units, (float) count( (array) ( ( is_array( $body ) ? $body : [] )['images'] ?? [] ) ), 1.0 );
-		self::$last_cost = round( $units * self::fal_image_cost(), 4 );
+		// A job from before the model was a choice was nano-banana-2's.
+		$key   = isset( self::image_models()[ (string) ( $job['model'] ?? '' ) ] ) ? (string) $job['model'] : 'nano-banana-2';
+		$made  = max( 1, count( (array) ( ( is_array( $body ) ? $body : [] )['images'] ?? [] ) ) );
+		if ( 'image' === self::image_models()[ $key ]['per'] ) {
+			$units = (float) wp_remote_retrieve_header( $res, 'x-fal-billable-units' );
+			$units = max( $units, (float) $made, 1.0 );
+			self::$last_cost = round( $units * self::fal_image_cost( 0, $key ), 4 );
+		} else {
+			// BILLED BY TOKEN OR BY MEGAPIXEL: fal's unit is not a picture, so
+			// it is not multiplied by a picture's price — the estimate is.
+			self::$last_cost = round( $made * self::fal_image_cost( (int) ( $job['refs'] ?? -1 ), $key ), 4 );
+		}
 		if ( class_exists( 'DZE_Ai_Usage' ) ) {
 			// AN ANSWER THAT HELD NO PICTURE WAS STILL PAID FOR.
-			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::$last_cost, ! $url, $url ? '' : 'noimage — fal answered and billed, and there was no picture in it' );
+			DZE_Ai_Usage::record( 'fal', 0, 0, $key, self::$last_cost, ! $url, $url ? '' : 'noimage — fal answered and billed, and there was no picture in it' );
 			if ( $url ) {
 				DZE_Ai_Usage::fal_made( $pid );
 			}
 		}
-		DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $asked, $url ? (string) $url : 'ERROR — no image in the answer', microtime( true ) - $t0 );
+		DZE_Ai_Usage::trace( 'fal', $key, $asked, $url ? (string) $url : 'ERROR — no image in the answer', microtime( true ) - $t0 );
 		// Collected: the product owes nothing to fal any more.
 		self::fal_pending_clear( $pid );
 		if ( ! $url ) {

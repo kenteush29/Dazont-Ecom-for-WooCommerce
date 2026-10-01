@@ -183,7 +183,7 @@ ok( 'and the provider is reached from exactly one place',
 // Ça devrait être libre. » `/edit` refuse une requete sans image_urls : sans
 // photographie de depart, c est l adresse sans suffixe qu il faut pousser.
 ok( 'la porte texte vers image existe',
-	false !== strpos( $src, "queue.fal.run/fal-ai/nano-banana-2'" ), true );
+	false !== strpos( $src, "'fresh'   => 'fal-ai/nano-banana-2'," ) && false !== strpos( $src, "( \$dze_fresh ? \$dze_model['fresh'] : \$dze_model['edit'] )" ), true );
 // ET LE CHAMP VIDE NE PART PAS AVEC : un image_urls vide envoye a une porte
 // qui ne l attend pas est un refus de plus.
 ok( 'et un image_urls vide n est jamais envoye',
