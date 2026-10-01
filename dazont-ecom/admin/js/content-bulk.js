@@ -40,6 +40,10 @@
 		}
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
+		// The model this browser last ran with, while the shop still offers it.
+		if (m.bulkModel && $('#dze-cb-model option').filter(function () { return this.value === m.bulkModel; }).length) {
+			$('#dze-cb-model').val(m.bulkModel);
+		}
 		// WHAT IS REMEMBERED IS THE ORDER, NOT ITS BACKGROUND. The scene and
 		// the destination are the prompt's own, read from it every time a row
 		// is drawn. Remembering the ones a row happened to carry is what put a
@@ -60,13 +64,16 @@
 		m.bulkFields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
+		m.bulkModel = $('#dze-cb-model').val() || '';
 		m.tpls = tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n, photos: j.photos }; });
 		saveMem(m);
 	}
 	// The run's own rows, and no others: the same row lives on a product's
 	// panel now, and what is typed there is that product's business — storing
 	// it as the run's would change what every other product does.
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-scene, #dze-cb-tplrows .dze-tpl-n, #dze-cb-tplrows .dze-tpl-target, #dze-cb-tplrows .dze-tpl-photos, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn', persist);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-scene, #dze-cb-tplrows .dze-tpl-n, #dze-cb-tplrows .dze-tpl-target, #dze-cb-tplrows .dze-tpl-photos, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn, #dze-cb-model', persist);
+	// The bill before the press follows the model picked.
+	$(document).on('change', '#dze-cb-model', function () { drawPicked(); });
 
 	// Every block says what is ticked out of what it holds: "2 / 6" answers
 	// "did I forget something?" without opening anything.
@@ -237,23 +244,8 @@
 		syncRows($wrap);
 		rowsChanged($wrap);
 	});
-	// A change to the rows of a product's own order changes THAT product's
-	// order and nothing else; a change to the run's is remembered as the run's.
-	$(document).on('change', '.dze-cb-ownrows .dze-cb-tpl, .dze-cb-ownrows .dze-tpl-scene, .dze-cb-ownrows .dze-tpl-n, .dze-cb-ownrows .dze-tpl-target, .dze-cb-ownrows .dze-tpl-photos', function () {
-		rowsChanged($(this).closest('.dze-tplrows'));
-	});
 	function rowsChanged($wrap) {
-		if ('dze-cb-tplrows' === $wrap.attr('id')) { persist(); return; }
-		var id = $wrap.closest('.dze-cb-preview').data('id');
-		if (!id) { return; }
-		own[String(id)] = jobsIn($wrap);
-		markOwn(id);
-		ownState(id);
-		// The order has just changed, and one of its rows may now be writing a
-		// main image — the question about today's belongs to the run, wherever
-		// the order that raises it lives.
-		syncOldMainRow();
-		drawPicked();
+		if ('dze-cb-tplrows' === $wrap.attr('id')) { persist(); }
 	}
 	// The rows as orders, one entry each, duplicates dropped the same way.
 	function jobsIn($wrap) {
@@ -274,29 +266,25 @@
 	}
 	function tplJobs() { return jobsIn($('#dze-cb-tplrows')); }
 
-	// THE RUN'S ORDER, AND A PRODUCT'S OWN.
-	//
-	// "Avoir une option bulk, mais aussi avoir la possibilité, si on veut, de
-	// régler par produit. Donc l'idée n'est pas de toujours utiliser le réglage
-	// individuel mais de l'avoir sous la main si besoin." Five photographs is
-	// the right order for a product with two, and one is enough for the one
-	// beside it — and the run had a single answer for the whole list.
-	//
-	// A product's own order lives here and nowhere else: the bucket is deleted
-	// by every run (`resetRow`), so an order kept in it would be thrown away by
-	// the very press it was set for, exactly like the note. It is not stored
-	// either — an order remembered after a reload and visible nowhere is a
-	// standing instruction, which this plugin does not have — and while it
-	// stands the product's own line says so.
-	var own = {};
-	function hasOwn(id) { return !!(own[String(id)] && own[String(id)].length); }
-	function jobsFor(id) { return hasOwn(id) ? own[String(id)] : tplJobs(); }
+	// EVERY PRODUCT RUNS THE ORDER SET AT THE TOP OF THE PAGE. A product of
+	// its own order was offered on each panel and removed (« A supprimer.
+	// Inutile. »): the photographs picked on a panel already say what differs
+	// for that product.
+	function jobsFor() { return tplJobs(); }
 	// How many photographs an order asks for on one product.
 	// WHAT ONE PICTURE COSTS WITH THE MODEL IN FORCE, for the photographs it is
 	// sent — the model's base, plus each photograph for the ones fal bills by
 	// token or by megapixel.
-	function perImage(refs) {
-		var p = cfg.imagePrice || null;
+	// THE MODEL OF THIS RUN: the one picked at the top of the page, or the
+	// shop's. Sent with every image the run orders, ✦ included.
+	function cbModel() { return $('#dze-cb-model').val() || ''; }
+	function cbPrice() {
+		var k = cbModel(), hit = null;
+		(cfg.imageModels || []).forEach(function (m) { if (m.key === k) { hit = m; } });
+		return hit || cfg.imagePrice || null;
+	}
+	function perImage(refs, price) {
+		var p = price || cfg.imagePrice || null;
 		if (!p) { return parseFloat(cfg.imageCost || 0) || 0; }
 		var cap = parseInt(p.cap, 10) || 0;
 		var n = Math.max(0, cap > 0 ? Math.min(cap, refs) : refs);
@@ -360,8 +348,8 @@
 		if (!$out.length) { return; }
 		// The same three conditions the press itself reads, so the figure and
 		// the run can never disagree. It is a SUM over the ticked products and
-		// not one order times a count, because a product carrying its own order
-		// asks for a different number of photographs from its neighbour.
+		// not one order times a count, because each product sends its own number
+		// of photographs.
 		var on = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled');
 		var total = 0, most = 0, cost = 0;
 		ids.forEach(function (id) {
@@ -370,7 +358,7 @@
 			if (per > most) { most = per; }
 			if (on) {
 				jobsFor(id).forEach(function (j) {
-					cost += Math.max(1, parseInt(j.n, 10) || 1) * perImage(refsOf(id, j));
+					cost += Math.max(1, parseInt(j.n, 10) || 1) * perImage(refsOf(id, j), cbPrice());
 				});
 			}
 		});
@@ -378,8 +366,8 @@
 		var single = 1 === total;
 		var said = !cost
 			? ((single && i18n.willMakeOne) || sprintf(i18n.willMake, total))
-			: ((cfg.imagePrice && cfg.imagePrice.model && i18n.willCostWith)
-				? sprintf((single && i18n.willCostWithOne) || i18n.willCostWith, total, '$' + cost.toFixed(2), cfg.imagePrice.model)
+			: ((cbPrice() && cbPrice().model && i18n.willCostWith)
+				? sprintf((single && i18n.willCostWithOne) || i18n.willCostWith, total, '$' + cost.toFixed(2), cbPrice().model)
 				: sprintf((single && i18n.willCostOne) || i18n.willCost, total, '$' + cost.toFixed(2)));
 		// THE CEILING IS PART OF THE SENTENCE. Asking for twelve photographs of
 		// a product whose hourly ceiling is ten is a run that stops two short on
@@ -717,7 +705,7 @@
 	// image: one decision per prompt, the same for every product of the list.
 	function imageRequest(id, review, tpl, scene, attempt, target) {
 		var job  = jobFor(id, tpl);
-		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
+		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl, model: cbModel() };
 		// What was handed to THIS product from outside the shop, and to no
 		// other: the box lives on its own panel.
 		var outside = pastedOf(id);
@@ -821,7 +809,7 @@
 		var hd = 'hd' === kind;
 		var req = hd
 			? { action: 'dze_content_enlarge', nonce: cfg.nonce, post: id }
-			: { action: 'dze_content_image', nonce: cfg.nonce, post: id, mode: 'defer', stash: 1, remake: 1, target: 'gallery' };
+			: { action: 'dze_content_image', nonce: cfg.nonce, post: id, mode: 'defer', stash: 1, remake: 1, target: 'gallery', model: cbModel() };
 		if (src.url) { req.src_url = src.url; } else if (src.att) { req.src_att = src.att; } else if (src.paste) { req.src_paste = src.paste; }
 		var $st = previewCell(id).find('.dze-cb-panelstate').first().removeClass('is-ko').text(hd ? i18n.enlarging : i18n.remaking);
 		if ($where) { $where.addClass('is-busy'); }
@@ -1000,22 +988,6 @@
 				'<textarea class="dze-cb-note large-text" rows="2" placeholder="' + esc(i18n.notePh) + '">' +
 					esc(told[id] || '') + '</textarea>' +
 			'</details>' +
-			// THE RUN'S ORDER, OR THIS PRODUCT'S OWN. Unticked, the product
-			// runs what the top of the page says, which is what a bulk screen
-			// is for; ticked, it starts from that same order and is changed
-			// here — one photograph for a product that only needs one, five
-			// for the one that has none. The rows are the run's own rows,
-			// cloned from the same template, so there is one order to learn
-			// and one builder to keep right.
-			'<details class="dze-cx-acc dze-cb-ownwrap">' +
-				'<summary>' + esc(i18n.ownTitle) + ' <span class="dze-cb-ownstate"></span></summary>' +
-				'<label class="dze-cb-ownuse">' +
-					'<input type="checkbox" class="dze-cb-ownon"' + (hasOwn(id) ? ' checked' : '') + ' /> ' +
-					esc(i18n.ownUse) +
-				'</label>' +
-				'<p class="description">' + esc(i18n.ownHelp) + '</p>' +
-				'<div class="dze-cb-ownrows"></div>' +
-			'</details>' +
 			'<div class="dze-cb-shots-slot"></div>' +
 			'<p class="dze-cb-panelbar">' +
 				(Object.keys(b.texts).length
@@ -1072,7 +1044,6 @@
 		}
 		b.built = true;
 		b.builtHolding = holding(id);
-		buildOwn(id);
 		renderShots(id);
 		panelApplyLabel(id);
 		// The gallery as it stands today, right under the new images: the only
@@ -1155,54 +1126,6 @@
 		srcState(id);
 	});
 
-	// The rows of a product's own order, drawn from the run's own grid — the
-	// headings included, so a column added to it tomorrow arrives here with no
-	// second markup to change.
-	function buildOwn(id) {
-		var $slot = previewCell(id).find('.dze-cb-ownrows');
-		if (!$slot.length) { return; }
-		$slot.empty();
-		if (hasOwn(id)) {
-			var $grid = $('#dze-cb-tplrows').closest('.dze-tplgrid').clone();
-			var $wrap = $grid.find('.dze-tplrows').removeAttr('id').empty();
-			own[String(id)].forEach(function (j) { $wrap.append(tplRow(j)); });
-			$slot.append($grid);
-			syncRows($wrap);
-		}
-		ownState(id);
-	}
-	// The drawer says what it holds while it is shut: a panel that has to be
-	// opened to learn whether this product follows the run is a panel that
-	// gets opened on all forty of them.
-	function ownState(id) {
-		previewCell(id).find('.dze-cb-ownstate')
-			.text(hasOwn(id) ? shotsSaid(imgCount(id)) : i18n.ownFollows);
-	}
-	// One photograph is not "1 photographs": both forms live in PHP, like
-	// every other word on this screen.
-	function shotsSaid(n) { return 1 === n ? i18n.ownOne : sprintf(i18n.ownN, n); }
-	// AND THE LINE SAYS SO TOO. An order set on a panel and visible only
-	// inside it is an instruction nobody can see from the list it changes —
-	// the mark is on the row, beside the name, and it survives a run because
-	// the order does.
-	function markOwn(id) {
-		var $cell = $row(id).find('.dze-cb-badges').parent();
-		var $m = $cell.find('.dze-cb-ownmark');
-		if (!hasOwn(id)) { $m.remove(); return; }
-		if (!$m.length) { $m = $('<span class="dze-cb-ownmark"></span>').appendTo($cell); }
-		$m.text(sprintf(i18n.ownMark, shotsSaid(imgCount(id))));
-	}
-	// Ticking it starts from the order the run is set to — the point is to
-	// change one thing about it, not to fill a form in from nothing.
-	$(document).on('change', '.dze-cb-ownon', function () {
-		var id = $(this).closest('.dze-cb-preview').data('id');
-		if (this.checked) { own[String(id)] = tplJobs(); }
-		else { delete own[String(id)]; }
-		buildOwn(id);
-		markOwn(id);
-		syncOldMainRow();
-		drawPicked();
-	});
 
 	// Does this product hold anything waiting for a decision?
 	function holding(id) {

@@ -286,7 +286,9 @@
 			// to carry is how a destination the screen had filled in by itself
 			// came back months later as a decision, sending a customer-snapshot
 			// prompt onto the main image.
-			tpls: tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n }; })
+			tpls: tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n }; }),
+			// The model picked beside Launch, so the next popup opens on it.
+			model: cxModel()
 		};
 		saveMem(m);
 	}
@@ -497,7 +499,7 @@
 						// WHICH MODEL THIS RUN USES — « gpt vs nano banana » on one
 						// product without a trip to the settings.
 						'<label class="dze-qm-bglabel dze-cx-modelwrap"><span>' + esc(i18n.oneModel || '') + '</span>' +
-							'<select id="dze-cx-model">' + modelOptions() + '</select></label>' +
+							'<select id="dze-cx-model">' + modelOptions(au.model) + '</select></label>' +
 						'<span class="description" id="dze-cx-willspend" style="display:none;"></span>' +
 					'</p>' +
 					'<div class="dze-cx-prog" id="dze-cx-prog" style="display:none;">' +
@@ -904,7 +906,7 @@
 		$out.show().text(said);
 	}
 	$(document).on('change', '.dze-cx-f, #dze-cx-doimg, #dze-cx-doprice', runLabel);
-	$(document).on('change', '#dze-cx-model', drawWillSpend);
+	$(document).on('change', '#dze-cx-model', function () { drawWillSpend(); remember(); });
 	// A row added, removed or set to a different number of attempts changes the
 	// bill, and those rows are drawn after the bar.
 	$(document).on('change', '.dze-tpl-n, .dze-cx-tpl', drawWillSpend);
@@ -1322,9 +1324,14 @@
 		});
 	}
 	// THE MODEL THIS RUN USES: the one picked beside Launch, or the shop's.
-	function modelOptions() {
-		return (cfg.imageModels || []).map(function (m) {
-			return '<option value="' + esc(m.key) + '"' + (m.own ? ' selected' : '') + '>' + esc(m.model) + '</option>';
+	// The last model picked in this browser while the shop still offers it,
+	// or the shop's own.
+	function modelOptions(pick) {
+		var list = cfg.imageModels || [];
+		var known = !!pick && list.some(function (m) { return m.key === pick; });
+		return list.map(function (m) {
+			var on = known ? m.key === pick : m.own;
+			return '<option value="' + esc(m.key) + '"' + (on ? ' selected' : '') + '>' + esc(m.model) + '</option>';
 		}).join('');
 	}
 	function cxModel() { return $('#dze-cx-model').val() || ''; }

@@ -1498,7 +1498,7 @@ $dze_jsb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/cont
 $dze_aj  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
 ok( 'la boite a outils compte les photographies du produit, collees et scene comprises',
 	false !== strpos( $dze_js, 'cost += k * perImage(refsFor(job.scene, job.target), cxPrice());' ) && false !== strpos( $dze_aj, "'sources' => count( self::product_source_ids( \$pid ) )," ), true );
-ok( 'l ecran de masse aussi, produit par produit',      false !== strpos( $dze_jsb, 'perImage(refsOf(id, j))' ), true );
+ok( 'l ecran de masse aussi, produit par produit',      false !== strpos( $dze_jsb, 'perImage(refsOf(id, j), cbPrice())' ), true );
 ok( 'et la phrase nomme le modele',                     false !== strpos( $dze_js, 'i18n.willCostWith' ) && false !== strpos( $dze_jsb, 'i18n.willCostWith' ), true );
 // « This press: 1 photographs with $0.24 · about GPT Image 2.5 Sunburst » : le
 // sprintf des ecrans remplissait %1$s %3$s %2$s dans l ordre d apparition, et
@@ -1667,7 +1667,7 @@ ok( 'ni dans le panneau Variations, ni le mur sous la galerie', [ false !== strp
 ok( 'la popup commande ses images et les recupere, ↻ compris', [ false !== strpos( $dze_js, 'function shootAsync(req)' ), false !== strpos( $dze_js, "shootAsync(\$.extend(imageRequest(tpl, undefined, dest), { aware: 1, model: cxModel() }))" ) ], [ true, true ] );
 ok( 'l ecran de masse aussi, ↻ et « une de plus » compris', [ substr_count( $dze_jsb, 'shootAsync($.extend(imageRequest(' ), false !== strpos( $dze_jsb, 'function pollJob(post, job)' ) ], [ 3, true ] );
 ok( 'le serveur ne commande sans attendre que pour la liste d attente', false !== strpos( $dze_aj, "&& 'defer' === sanitize_key( (string) wp_unslash( \$_POST['mode'] ?? '' ) ) && ! empty( \$_POST['stash'] );" ), true );
-ok( 'le modele se choisit a cote de Launch, et le cout le suit', [ false !== strpos( $dze_js, '<select id="dze-cx-model">' ), false !== strpos( $dze_js, "\$(document).on('change', '#dze-cx-model', drawWillSpend);" ) ], [ true, true ] );
+ok( 'le modele se choisit a cote de Launch, et le cout le suit', [ false !== strpos( $dze_js, '<select id="dze-cx-model">' ), false !== strpos( $dze_js, "\$(document).on('change', '#dze-cx-model', function () { drawWillSpend(); remember(); });" ) ], [ true, true ] );
 ok( '✦ et HD sur les nouvelles images, popup et masse', [ substr_count( $dze_js, 'dze-cb-shotmake' ), substr_count( $dze_jsb, 'dze-cb-shotmake' ), substr_count( $dze_js, 'dze-cb-shothd' ), substr_count( $dze_jsb, 'dze-cb-shothd' ) ], [ 2, 2, 3, 3 ] );
 ok( 'sur les photos du produit, popup et masse', [ substr_count( $dze_js, 'remake: true,' ), substr_count( $dze_jsb, 'remake: true,' ), false !== strpos( $dze_ph, "(opts.remake ? \$('<span class=\"dze-nowacts\"></span>')" ) ], [ 1, 1, true ] );
 ok( 'et sur les photos collees, popup et masse', [ substr_count( $dze_js, "{ cls: 'dze-pb-make', label: '✦'" ), substr_count( $dze_jsb, "{ cls: 'dze-pb-make', label: '✦'" ), false !== strpos( $dze_pb, "\$box.on('click', '.dze-pb-act', function (e) {" ) ], [ 1, 1, true ] );
@@ -1816,6 +1816,20 @@ $GLOBALS['fal_say']['status'] = 'COMPLETED';
 $GLOBALS['fal_say']['result'] = '{"images":[{"url":"https://fal.media/x.jpg"}]}';
 $GLOBALS['dze_meta'] = [];
 unset( $GLOBALS['opts']['dze_content_settings'] );
+
+// 4.506.3 — L'ECRAN DE MASSE : PLUS DE COMMANDE PAR PRODUIT, LE MODELE SUR L'ECRAN.
+// « Images for this product follows the run · Give this product its own order
+// […] A supprimer. Inutile. Et pour la génération d'images on va quand même pas
+// changer de modèle dans les paramètres à chaque fois si ? Très désagréable. »
+$dze_jsb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
+$dze_js  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content.js' );
+$dze_cs  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+ok( 'plus de commande propre a un produit sur l ecran de masse', [ false !== strpos( $dze_jsb, 'dze-cb-ownwrap' ), false !== strpos( $dze_jsb, 'hasOwn(' ), false !== strpos( $dze_cs, "'ownMark'" ), false !== strpos( $dze_jsb, 'function jobsFor() { return tplJobs(); }' ) ], [ false, false, false, true ] );
+ok( 'le modele se choisit en haut de l ecran de masse', [ false !== strpos( $dze_cs, '<select id="dze-cb-model">' ), false !== strpos( $dze_cs, "'imageModels' => self::image_models_cfg()," ) ], [ true, true ] );
+ok( 'il part avec chaque image du lancement, ✦ compris', [ false !== strpos( $dze_jsb, "template: tpl, model: cbModel() };" ), false !== strpos( $dze_jsb, "remake: 1, target: 'gallery', model: cbModel() };" ) ], [ true, true ] );
+ok( 'le cout annonce le suit', [ false !== strpos( $dze_jsb, 'perImage(refsOf(id, j), cbPrice())' ), false !== strpos( $dze_jsb, "\$(document).on('change', '#dze-cb-model', function () { drawPicked(); });" ) ], [ true, true ] );
+ok( 'et ce navigateur s en souvient', [ false !== strpos( $dze_jsb, "m.bulkModel = \$('#dze-cb-model').val() || '';" ), false !== strpos( $dze_jsb, "\$('#dze-cb-model').val(m.bulkModel);" ) ], [ true, true ] );
+ok( 'la popup aussi se souvient du dernier modele', [ false !== strpos( $dze_js, "model: cxModel()\n\t\t};" ), false !== strpos( $dze_js, "modelOptions(au.model)" ) ], [ true, true ] );
 
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
