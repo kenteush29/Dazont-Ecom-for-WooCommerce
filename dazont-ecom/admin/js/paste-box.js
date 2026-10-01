@@ -67,7 +67,16 @@
 					$('<span class="dze-pb-tile"></span>').append(
 						$('<img />').attr('src', u).attr('data-full', u).attr('alt', ''),
 						$('<button type="button" class="dze-pb-del"></button>')
-							.attr('title', i18n.remove || '').attr('data-i', i).html('&times;')
+							.attr('title', i18n.remove || '').attr('data-i', i).html('&times;'),
+						// WHAT THE HOST SCREEN OFFERS ON A PASTED PHOTOGRAPH —
+						// ✦ remake it better, HD enlarge it: « l'option de remake
+						// image doit être dispo aussi sur les images copié
+						// collées externes ».
+						(opts.actions || []).map(function (a, k) {
+							return $('<button type="button" class="dze-pb-act"></button>')
+								.addClass(a.cls || '').attr('title', a.title || '')
+								.attr('data-i', i).attr('data-a', k).text(a.label || '');
+						})
 					)
 				);
 			});
@@ -117,6 +126,13 @@
 			var files = Array.prototype.slice.call(this.files || []);
 			this.value = '';
 			files.forEach(readFile);
+		});
+		$box.on('click', '.dze-pb-act', function (e) {
+			e.preventDefault();
+			e.stopPropagation();
+			var a = (opts.actions || [])[parseInt($(this).data('a'), 10)];
+			var uri = list[parseInt($(this).data('i'), 10)];
+			if (a && typeof a.run === 'function' && uri) { a.run(uri, $(this).closest('.dze-pb-tile')); }
 		});
 		$box.on('click', '.dze-pb-del', function (e) {
 			e.preventDefault();

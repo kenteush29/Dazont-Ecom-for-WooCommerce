@@ -787,20 +787,46 @@ fait" (4.499.0):
       photographs show… never by turning the product round to a side, a back
       or an inside that they do not show ». Told only « framed differently »,
       GPT Image drew the back of a jacket shown from the front.
-  - **THE WALL** (`#dze-bricks`, under `#product_images_container`) shows
-    waiting pictures, jobs being made, queued orders and failures. All of it
-    is read from the server (`dze_content_current` → `pending`, `jobs`).
-    - ＋ is `image_attach` to the gallery.
-    - ★ makes it the main image; the old main goes to the front of the
-      gallery.
-    - ✕ is `pending_clear` by URL. NEVER send an empty `shots` list: empty
-      means drop the whole product, bulk work included.
-  - **The popup only orders.**
-    - Model select `#dze-one-model`, fed by `cfg.imageModels`.
-    - `$model_override` is checked against the catalogue keys as typed:
-      `sanitize_key` eats the dot of « 2.5 ».
-    - `openOne` resets `res.current`, because the cached copy brought back
-      thrown-away pictures.
+  - **ONE POPUP** (4.506.0). « On peut enlever les intégrations individuelles
+    de chaque champ inutile, qui surcharge l'UI. Il faut juste la popup
+    principale de generate content, sur les pages produits individuelles et
+    celle sur l'écran bulk. »
+    - **Removed:** `plantButtons()` (the ✦ on each field, the main-image and
+      gallery boxes, the hub's « Write just one block »), the Variations-panel
+      button, the 4.505.0 wall under the gallery, and « Main image with AI ».
+      A row put on the main image does that last one.
+    - **The toolbox orders, then collects.** It uses `shootAsync()` and
+      `pollJob()` (content.js and content-bulk.js) and sends `aware=1` plus
+      the model picked beside Launch (`#dze-cx-model`). It goes on asking
+      after open jobs when reopened (`resumeJobs`).
+    - **`ajax_image` goes async only for `mode=defer` + `stash`.** A picture
+      filed straight onto the product is still made while the request waits.
+    - **The `#dze-one` panel stays in the code** but nothing on the page opens
+      it.
+  - **✦ REMAKE BETTER / HD**, on every picture of the toolbox and of the bulk
+    panel: new pictures (shot cards), the product's photographs (photos.js
+    `remake: true`) and pasted ones (paste-box `actions`). « L'option de
+    remake image doit être dispo aussi sur les images copié collées
+    externes. »
+    - Both produce a NEW waiting picture; the original is never touched.
+    - **✦** is `shoot()` with `remake=1` and one of `src_url` (fal),
+      `src_att` (an attachment of THIS product) or `src_paste` (a data URI).
+      The picture travels alone (edit lane, no scene, no other colours).
+      The words are the registry row with output `remake`, seeded once by
+      `seed_remake_recipe()` and editable like any prompt, or else the
+      shipped `default_remake_prompt()`.
+    - The remake row is NEVER in `image_templates()`: it is not a recipe.
+    - **HD** is `ajax_enlarge`: SeedVR2 (`UPSCALER`, JPEG in and out,
+      $0.0025/MP), long side to 2048 (`enlarge_factor()`, ×1.5 to ×4, 0 when
+      already large).
+      - Recraft crisp was rejected: PNG in, a 4 MB PNG out.
+      - `fal_fetch()` reads `image.url` and bills by output megapixel; an
+        enlargement is not described (same framing as its original).
+      - It keeps its original's nature: an attachment's `_dze_prompt`, or
+        `img_enlarged` for a generated one. A generated picture must never
+        come back as a « real » photograph.
+  - **The model is checked as typed.** `$model_override` is compared with
+    the catalogue keys as typed: `sanitize_key` eats the dot of « 2.5 ».
   - **Regenerate.** The three ↻ (toolbox, bulk, variations) now clear the
     picture they replace.
   - **Counts.** `attach_file()` logs itself, so screens never send counts to

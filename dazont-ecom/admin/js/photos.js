@@ -30,7 +30,16 @@
 		return i18n.error || 'error';
 	}
 
-	function tile(im) {
+	// Every screen that listens to an event is told: the toolbox and the
+	// bulk screen can stand on one page, and the last one to register used to
+	// silence the other.
+	function emit(name) {
+		var args = Array.prototype.slice.call(arguments, 1);
+		(handlers[name] || []).forEach(function (fn) { fn.apply(null, args); });
+	}
+
+	function tile(im, opts) {
+		opts = opts || {};
 		return $('<span class="dze-cb-nowshot"></span>')
 			.toggleClass('is-main', !!im.main)
 			.attr('data-id', im.id)
@@ -48,7 +57,15 @@
 				$('<span class="dze-nowtick">✓</span>'),
 				// Where this photograph's resized version appears: directly
 				// under the original, in its own column.
-				$('<span class="dze-nowafter"></span>')
+				$('<span class="dze-nowafter"></span>'),
+				// ✦ AND HD ON THIS PHOTOGRAPH, when the screen asks for them.
+				// « J'aimerais pouvoir cliquer sur une image pour que l'outil la
+				// regénère en mieux. » What they make arrives among the new
+				// pictures; this photograph is left exactly as it is.
+				(opts.remake ? $('<span class="dze-nowacts"></span>').append(
+					$('<button type="button" class="dze-now-make">✦</button>').attr('title', i18n.picRemake || ''),
+					$('<button type="button" class="dze-now-hd">HD</button>').attr('title', i18n.picHD || '')
+				) : '')
 			);
 	}
 
@@ -75,7 +92,7 @@
 		var $mainCol = $('<div class="dze-nowcol dze-nowcol-main"></div>')
 			.append($('<span class="dze-nowcap"></span>').text(i18n.nowMain));
 		var $g1 = $('<div class="dze-cb-nowgrid"></div>');
-		main.forEach(function (im) { $g1.append(tile(im)); });
+		main.forEach(function (im) { $g1.append(tile(im, opts)); });
 		$mainCol.append($g1);
 		$wrap.append($mainCol);
 
@@ -83,7 +100,7 @@
 			var $restCol = $('<div class="dze-nowcol"></div>')
 				.append($('<span class="dze-nowcap"></span>').text(i18n.nowGallery));
 			var $g2 = $('<div class="dze-cb-nowgrid"></div>');
-			rest.forEach(function (im) { $g2.append(tile(im)); });
+			rest.forEach(function (im) { $g2.append(tile(im, opts)); });
 			$restCol.append($g2);
 			$wrap.append($restCol);
 		}
@@ -94,7 +111,7 @@
 			var $varCol = $('<div class="dze-nowcol"></div>')
 				.append($('<span class="dze-nowcap"></span>').text(i18n.nowVars || ''));
 			var $g3 = $('<div class="dze-cb-nowgrid"></div>');
-			vars.forEach(function (im) { $g3.append(tile(im)); });
+			vars.forEach(function (im) { $g3.append(tile(im, opts)); });
 			$varCol.append($g3);
 			$wrap.append($varCol);
 		}
@@ -135,7 +152,15 @@
 	function box(el) { return $(el).closest('.dze-photos'); }
 
 	$(document).on('click', '.dze-photos .dze-photo-ai', function () {
-		if (typeof handlers.ai === 'function') { handlers.ai(parseInt(box(this).attr('data-post'), 10) || 0); }
+		emit('ai', parseInt(box(this).attr('data-post'), 10) || 0);
+	});
+	// ✦ / HD on one photograph: the screen that drew the strip does the work.
+	$(document).on('click', '.dze-photos .dze-now-make, .dze-photos .dze-now-hd', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		var $t = $(this).closest('.dze-cb-nowshot');
+		var im = { id: parseInt($t.attr('data-id'), 10) || 0, full: $t.find('img').attr('data-full') || '' };
+		emit($(this).hasClass('dze-now-hd') ? 'enlarge' : 'remake', im, parseInt(box(this).attr('data-post'), 10) || 0, $t);
 	});
 	$(document).on('click', '.dze-photos .dze-photo-rf', function () {
 		box(this).addClass('is-picking').find('.dze-rf-tools').show().end()
@@ -248,6 +273,6 @@
 		toggleSec: function ($sec, on) { return window.dzeHub.toggleSec($sec, on); },
 		countSections: function () { return window.dzeHub.count(); },
 		render: render,
-		on: function (name, fn) { handlers[name] = fn; }
+		on: function (name, fn) { (handlers[name] = handlers[name] || []).push(fn); }
 	};
 }(jQuery));
