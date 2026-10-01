@@ -818,6 +818,16 @@ fait" (4.499.0):
       images d'autres camo sous la main pour les détails » — a detail
       shot on A-Tacs, remade alone, came back A-Tacs on a Kryptek page.
       The main photograph remade itself goes alone (note `edit`).
+      WHICH ONE FIRST IS THE MODEL'S (4.506.2, `remake_ref_first` in
+      `image_models()`), measured on an A-Tacs detail remade on the Kryptek page:
+      - Nano edits the FIRST image: given the picture first it changed
+        nothing; given the product first it carried the pattern over.
+      - GPT Image takes the first image as the subject: given the product
+        first it copied the product's photograph; given the picture first
+        it was perfect (framing, pattern, olive zips).
+      The note names both by place: `{product}` and `{picture}`
+      (`remake_note()`). The remake keeps its own shape (`nearest_ratio()`;
+      `auto` gave GPT a square from a 3:2 detail).
       The words are the registry row with output `remake`, seeded once by
       `seed_remake_recipe()` and editable like any prompt, or else the
       shipped `default_remake_prompt()`. The 4.506.0 words (« patterns stay

@@ -1420,8 +1420,11 @@ trait DZE_Content_Ajax {
 			// afterwards it would be a second answer to one question, and the
 			// two disagree.
 			$dze_paste_n = 0;
-			// Whether ✦ sends the product's main photograph ahead of the picture.
-			$dze_remake_ref = false;
+			// Whether ✦ sends the product's main photograph with the picture, and
+			// whether ahead of it; the shape the remake is asked for.
+			$dze_remake_ref   = false;
+			$dze_ref_first    = false;
+			$dze_remake_ratio = '';
 			if ( '' !== $src ) {
 				// Editing one precise image: that image is the subject, on its
 				// own. This is the ↻ on a tile — "make this one again" — and it
@@ -1438,23 +1441,44 @@ trait DZE_Content_Ajax {
 				// looks like — and the picture to remake second — its framing and
 				// its construction (photo note « remake »). The main photograph
 				// remade itself travels alone, as before.
+				$dze_ref_uri = '';
 				if ( $remake && $dze_main > 0 && $dze_main !== $src_att ) {
 					try {
-						$sources[]      = $this->fal_source_data_uri( $dze_main, 'large' );
-						$labels[]       = [
-							'what'  => __( 'The main photograph — this product as it is', 'dazont-ecom' ),
-							'thumb' => $dze_thumb( $dze_main ),
-							'full'  => (string) wp_get_attachment_image_url( $dze_main, 'large' ),
-							'id'    => $dze_main,
-						];
+						$dze_ref_uri    = $this->fal_source_data_uri( $dze_main, 'large' );
 						$dze_remake_ref = true;
 					} catch ( \Throwable $e ) {
 						// No file to read: the picture goes alone, as it did.
 						$dze_remake_ref = false;
 					}
 				}
+				$dze_ref_label = [
+					'what'  => __( 'The main photograph — this product as it is', 'dazont-ecom' ),
+					'thumb' => $dze_thumb( $dze_main ),
+					'full'  => (string) wp_get_attachment_image_url( $dze_main, 'large' ),
+					'id'    => $dze_main,
+				];
+				// WHICH ONE FIRST IS THE MODEL'S: Nano edits the first image it
+				// is given, GPT Image takes the first as the subject
+				// (image_models(): remake_ref_first).
+				$dze_ref_first = $dze_remake_ref && ! empty( self::image_models()[ self::image_model_key() ]['remake_ref_first'] );
+				if ( $dze_ref_first ) {
+					$sources[] = $dze_ref_uri;
+					$labels[]  = $dze_ref_label;
+				}
 				$sources[] = $src;
 				$labels[]  = [ 'what' => __( 'The picture being retouched', 'dazont-ecom' ), 'thumb' => $src_thumb ];
+				if ( $dze_remake_ref && ! $dze_ref_first ) {
+					$sources[] = $dze_ref_uri;
+					$labels[]  = $dze_ref_label;
+				}
+				// ITS OWN SHAPE: a 3:2 detail shot is remade as a 3:2 detail shot.
+				if ( $remake ) {
+					$dze_bytes = 0 === strpos( $src, 'data:' )
+						? (string) base64_decode( (string) substr( $src, (int) strpos( $src, ',' ) + 1 ) ) // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- reading the picture's size.
+						: (string) wp_remote_retrieve_body( wp_remote_get( $src, [ 'timeout' => 15 ] ) );
+					$dze_dim          = '' !== $dze_bytes ? @getimagesizefromstring( $dze_bytes ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					$dze_remake_ratio = is_array( $dze_dim ) ? self::nearest_ratio( (int) $dze_dim[0], (int) $dze_dim[1] ) : '';
+				}
 			} else {
 				// EVERYTHING THAT TRAVELS IS A PHOTOGRAPH OF THIS PRODUCT.
 				//
@@ -1577,7 +1601,7 @@ trait DZE_Content_Ajax {
 			// product that is being photographed afresh.
 			$prompt   .= $dze_remake_ref
 				// What each of the two images IS: the product, the picture to remake.
-				? "\n\n" . self::photo_note( 'remake' )
+				? "\n\n" . ( $dze_ref_first ? self::remake_note( 1, 2 ) : self::remake_note( 2, 1 ) )
 				: self::sources_instruction( $product_count, $scene, $avoid, $variants, '' !== $src, 1 === $product_count && ( ! empty( $in['only_main'] ) || $src_id > 0 ) );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
@@ -1642,7 +1666,7 @@ trait DZE_Content_Ajax {
 					'made'   => $dze_made,
 				];
 			}
-			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto', $pid, $dze_made );
+			$image_url = $this->fal_generate( $prompt, $sources, '' !== $dze_remake_ratio ? $dze_remake_ratio : ( DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto' ), $pid, $dze_made );
 			// empty(): the screens that host shoot() without being DZE_Content
 			// (the gate's DZE_Shoot_Host) have no such property, and ordering is
 			// never theirs to ask.

@@ -90,6 +90,12 @@ final class DZE_Content {
 				'price'   => 0.08,
 				'per_ref' => 0.0,
 				'per'     => 'image',
+				// ✦ REMAKE, measured 01/10/2026 on a detail shot from another camouflage:
+				// Nano edits the FIRST image it is given and changed nothing when that was
+				// the picture to remake; given the product first, it carried its pattern
+				// over. GPT Image is the reverse — product first, it copied the product's
+				// photograph — so the order is the model's.
+				'remake_ref_first' => true,
 				'note'    => __( 'Quick and cheap — the default.', 'dazont-ecom' ),
 			],
 			'nano-banana-pro'        => [
@@ -102,6 +108,7 @@ final class DZE_Content {
 				'price'   => 0.15,
 				'per_ref' => 0.0,
 				'per'     => 'image',
+				'remake_ref_first' => true,
 				'note'    => __( 'Google\'s larger model: closer to the photographs on fine parts and printed text, at twice the price.', 'dazont-ecom' ),
 			],
 			'gpt-image-2.5-sunburst' => [
@@ -1842,8 +1849,11 @@ EOT;
 			// l'image 1 principale comme référence. »
 			'remake'  => [
 				'label'   => __( 'A picture remade with ✦, beside the main photograph', 'dazont-ecom' ),
-				'when'    => __( 'Sent when ✦ remakes a picture: image 1 is the product\'s main photograph, image 2 the picture to remake — a photograph of the product, one already generated, or one pasted from elsewhere (a supplier detail, another colour or camouflage).', 'dazont-ecom' ),
-				'default' => 'Image 1 is the product itself, as this shop sells it: its pattern, its colours and its materials come from image 1 and from nothing else. Image 2 is the picture to remake: keep its framing, its angle, its composition and every construction detail it shows — seams, zips, pullers, pockets, cords, lining, labels. If the product in image 2 has another pattern, colour or material, it becomes exactly the one of image 1. Add nothing that neither image shows.',
+				'when'    => __( 'Sent when ✦ remakes a picture: the product\'s main photograph travels with the picture to remake — a photograph of the product, one already generated, or one pasted from elsewhere (a supplier detail, another colour or camouflage). {product} and {picture} become their places — « Image 1 », « Image 2 » — which depend on the model.', 'dazont-ecom' ),
+				// Said twice over after the first real runs (01/10/2026): a chest-zip
+				// close-up came back as the whole front of the jacket, and a collar
+				// remade in the right camouflage kept the other jacket's coyote zip.
+				'default' => '{picture} is the picture to remake: keep its exact framing — the same crop, the same distance, the same angle, the same parts of the product filling the frame; do not zoom out and do not show more of the product than {picture} shows. Keep every construction detail it shows — seams, zips, pullers, pockets, cords, lining, labels — in its place. {product} is the product itself, as this shop sells it: its pattern, its colours and its materials come from {product} and from nothing else — the fabric, and the zips, pullers and trims wherever {product} shows them. If the product in {picture} has another pattern, colour or material, it becomes exactly the one of {product}. {product} is a reference for what the product looks like, never a framing to copy. Add nothing that neither image shows.',
 			],
 			'colours' => [
 				'label'   => __( 'Photographs of its other colours', 'dazont-ecom' ),
@@ -1876,6 +1886,42 @@ EOT;
 		}
 		$own = trim( (string) ( ( (array) ( self::get_settings()['photo_notes'] ?? [] ) )[ $key ] ?? '' ) );
 		return '' !== $own ? $own : (string) $cat[ $key ]['default'];
+	}
+
+	/**
+	 * The ✦ remake note with its two images named where they travel.
+	 *
+	 * @param int $product Place of the product's main photograph (1 or 2).
+	 * @param int $picture Place of the picture to remake.
+	 */
+	public static function remake_note( int $product, int $picture ): string {
+		return str_replace(
+			[ '{product}', '{picture}' ],
+			[ sprintf( 'Image %d', $product ), sprintf( 'Image %d', $picture ) ],
+			self::photo_note( 'remake' )
+		);
+	}
+
+	/**
+	 * THE SHAPE OF THE PICTURE BEING REMADE, as the nearest one a model is asked
+	 * for: a 3:2 detail shot came back square from GPT Image when the order
+	 * said « auto ». '' when the picture could not be read.
+	 */
+	public static function nearest_ratio( int $w, int $h ): string {
+		if ( $w < 1 || $h < 1 ) {
+			return '';
+		}
+		$best = '';
+		$gap  = INF;
+		foreach ( [ '1:1', '4:5', '5:4', '3:4', '4:3', '2:3', '3:2', '16:9', '9:16' ] as $r ) {
+			[ $a, $b ] = array_map( 'intval', explode( ':', $r ) );
+			$d = abs( log( $w / $h ) - log( $a / $b ) );
+			if ( $d < $gap ) {
+				$gap  = $d;
+				$best = $r;
+			}
+		}
+		return $best;
 	}
 
 	/** {images} in a note, said as the images it is about. */

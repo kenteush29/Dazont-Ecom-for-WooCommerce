@@ -1752,6 +1752,36 @@ ok( 'et dit ce qu est chacune : le produit, puis l image a refaire', [ false !==
 ok( 'la photo principale refaite elle-meme part seule', false !== strpos( $dze_aj, 'if ( $remake && $dze_main > 0 && $dze_main !== $src_att ) {' ), true );
 unset( $GLOBALS['thumbs'][77], $GLOBALS['att_files'][501] );
 @unlink( $dze_mainfile );
+// L'ORDRE EST CELUI DU MODELE. Mesuré le 01/10/2026 sur un détail A-Tacs refait
+// sur la page Kryptek : Nano retouche la PREMIERE image (il faut lui donner le
+// produit d'abord), GPT Image prend la première pour sujet (il faut lui donner
+// l'image à refaire d'abord).
+ok( 'la photo principale en premier pour Nano', [ $dze_made['job'] ?? '?', count( $dze_urls ) ], [ 'rm-2', 2 ] );
+ok( 'et la forme de l image refaite est demandee', ( $dze_sent['aspect_ratio'] ?? '' ), '1:1' );
+$GLOBALS['att_files'][501] = $dze_mainfile = tempnam( sys_get_temp_dir(), 'dzemain' );
+file_put_contents( $dze_mainfile, base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' ) );
+$GLOBALS['thumbs'][77]      = 501;
+$GLOBALS['fal_sent']        = [];
+$GLOBALS['tr']              = [];
+$GLOBALS['fal_say']['body'] = '{"request_id":"rm-3","status_url":"https://queue.fal.run/x/requests/rm-3/status","response_url":"https://queue.fal.run/x/requests/rm-3"}';
+DZE_Content::$submit_only    = true;
+DZE_Content::$model_override = 'gpt-image-2.5-sunburst';
+try {
+	$dze_made = DZE_Content::instance()->shoot( [ 'post' => 77, 'mode' => 'defer', 'stash' => 1, 'remake' => 1, 'src_paste' => $dze_png, 'target' => 'gallery' ] );
+} catch ( Throwable $e ) {
+	$dze_made = [ 'error' => $e->getMessage() ];
+}
+DZE_Content::$submit_only    = false;
+DZE_Content::$model_override = '';
+$dze_sent = json_decode( (string) ( end( $GLOBALS['fal_sent'] )['body'] ?? '{}' ), true );
+$dze_urls = (array) ( $dze_sent['image_urls'] ?? [] );
+ok( 'l image a refaire en premier pour GPT Image, la photo principale ensuite', [ $dze_made['job'] ?? ( $dze_made['error'] ?? '?' ), count( $dze_urls ), ( $dze_urls[0] ?? '' ) === $dze_png, 0 === strpos( (string) ( $dze_urls[1] ?? '' ), 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk' ) ], [ 'rm-3', 2, true, true ] );
+ok( 'et la note nomme chacune a sa place', [ false !== strpos( (string) ( $dze_sent['prompt'] ?? '' ), 'Image 1 is the picture to remake' ), false !== strpos( (string) ( $dze_sent['prompt'] ?? '' ), 'Image 2 is the product itself' ), false !== strpos( (string) ( $dze_sent['prompt'] ?? '' ), '{picture}' ) ], [ true, true, false ] );
+ok( 'GPT recoit la forme en taille d image', ( $dze_sent['image_size'] ?? '' ), 'square_hd' );
+unset( $GLOBALS['thumbs'][77], $GLOBALS['att_files'][501] );
+@unlink( $dze_mainfile );
+ok( 'la forme la plus proche d une image', [ DZE_Content::nearest_ratio( 800, 532 ), DZE_Content::nearest_ratio( 1000, 1000 ), DZE_Content::nearest_ratio( 1080, 1350 ), DZE_Content::nearest_ratio( 1920, 1080 ), DZE_Content::nearest_ratio( 0, 5 ) ], [ '3:2', '1:1', '4:5', '16:9', '' ] );
+ok( 'les deux Nano prennent la reference d abord, pas les autres', array_map( static fn( $m ) => ! empty( $m['remake_ref_first'] ), DZE_Content::image_models() ), [ 'nano-banana-2' => true, 'nano-banana-pro' => true, 'gpt-image-2.5-sunburst' => false, 'gpt-image-2.5-flare' => false, 'flux-2-pro' => false ] );
 // LES MOTS LIVRES EN 4.506.0, JAMAIS TOUCHES, SONT MIS A JOUR ; CEUX DU PROPRIETAIRE JAMAIS.
 $dze_v1 = ( new ReflectionMethod( 'DZE_Content', 'remake_prompt_v1' ) );
 $dze_v1->setAccessible( true );
