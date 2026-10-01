@@ -62,6 +62,9 @@
 				// « J'aimerais pouvoir cliquer sur une image pour que l'outil la
 				// regénère en mieux. » What they make arrives among the new
 				// pictures; this photograph is left exactly as it is.
+				// THE « i » of a photograph a model made or reworked: which
+				// prompt, which model, what price.
+				(im.ai ? aiButton(opts.post || 0, '', im.id) : ''),
 				(opts.remake ? $('<span class="dze-nowacts"></span>').append(
 					$('<button type="button" class="dze-now-make">✦</button>').attr('title', i18n.picRemake || ''),
 					$('<button type="button" class="dze-now-hd">HD</button>').attr('title', i18n.picHD || '')
@@ -267,7 +270,170 @@
 	// every run. A control with one answer is a control to remove: the product
 	// leads, always, and whatever is added is another photograph of it.
 
+	// ---- « i »: which prompt, which model, what price ----
+	//
+	// « tu vas rajouter un petit i pour info sur toutes les images générées
+	// par IA. au clic, un text doit apparaître pour dire quel prompt a été
+	// utilisé, et quel modèle d'ia, et quel prix. » ONE button, drawn by every
+	// screen that shows a picture a model made — a picture waiting is asked
+	// for by its address, a picture filed by its id — and ONE card, read from
+	// the server when it is pressed (DZE_Ai_Card).
+	function aiButton(post, url, att, asSpan) {
+		// Inside a picture that is itself a <button>, a <span> that acts as
+		// one: a button inside a button is not a button anywhere.
+		var $b = asSpan
+			? $('<span class="dze-ai-i" role="button" tabindex="0">i</span>')
+			: $('<button type="button" class="dze-ai-i">i</button>');
+		$b.attr('title', i18n.aiInfo || '');
+		if (post) { $b.attr('data-post', post); }
+		if (url) { $b.attr('data-url', url); }
+		if (att) { $b.attr('data-att', att); }
+		return $b;
+	}
+	var aiFor = null;
+	function aiScroll() { aiClose(); }
+	function aiClose() {
+		$('.dze-ai-pop').remove();
+		$(document).off('.dzeai');
+		document.removeEventListener('scroll', aiScroll, true);
+		aiFor = null;
+	}
+	function aiRow(label, value) {
+		return value
+			? '<div class="dze-ai-row"><span class="dze-ai-lbl">' + esc(label) + '</span><span class="dze-ai-val">' + esc(value) + '</span></div>'
+			: '';
+	}
+	function aiDraw($pop, d) {
+		var made = d.when || '';
+		if (d.refs) { made += (made ? ' · ' : '') + String(i18n.aiRefs || '%d').replace('%d', d.refs); }
+		var name = d.name || '';
+		if ('remake' === d.tool && name) { name = '✦ ' + name; }
+		var html = aiRow(i18n.aiPrompt, name || '—') +
+			aiRow(i18n.aiModel, d.model || (d.known ? '—' : i18n.aiNotKept)) +
+			aiRow(i18n.aiPrice, d.cost || (d.known ? '—' : i18n.aiNotKept)) +
+			aiRow(i18n.aiMade, made) +
+			aiRow(i18n.aiFraming, d.framing || '') +
+			aiRow(i18n.aiFrom, d.from || '');
+		if (!d.known) { html += '<p class="dze-ai-old">' + esc(i18n.aiOld) + '</p>'; }
+		if (d.prompt) {
+			html += '<details class="dze-ai-full"><summary>' + esc(i18n.aiFull) + '</summary>' +
+				'<pre class="dze-ai-words"></pre>' +
+				'<button type="button" class="button-link dze-ai-copy">' + esc(i18n.aiCopy) + '</button></details>';
+		}
+		$pop.find('.dze-ai-body').html(html);
+		// The words as text, never as markup: a prompt is the shop's own and
+		// may hold anything.
+		$pop.find('.dze-ai-words').text(d.prompt || '');
+	}
+	function aiPlace($pop, $b) {
+		var o = $b.offset() || { top: 0, left: 0 };
+		var w = Math.min(380, $(window).width() - 16);
+		$pop.css({
+			width: w,
+			top: o.top + $b.outerHeight() + 6,
+			left: Math.max(8, Math.min(o.left - 8, $(window).scrollLeft() + $(window).width() - w - 8))
+		});
+	}
+	$(document).on('click', '.dze-ai-i', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		var el = this;
+		if (aiFor === el) { aiClose(); return; }
+		aiClose();
+		aiFor = el;
+		var $b = $(el);
+		var post = parseInt($b.attr('data-post') || box(el).attr('data-post') || cfg.post || 0, 10) || 0;
+		var $pop = $('<div class="dze-ai-pop" role="dialog"></div>').append(
+			$('<div class="dze-ai-head"></div>').append(
+				$('<strong></strong>').text(i18n.aiTitle || ''),
+				$('<button type="button" class="dze-ai-x">&times;</button>').attr('aria-label', i18n.close || '')
+			),
+			$('<div class="dze-ai-body"></div>').text(i18n.aiLoading || '…')
+		).appendTo(document.body);
+		aiPlace($pop, $b);
+		$(document).on('mousedown.dzeai', function (ev) {
+			if (!$(ev.target).closest('.dze-ai-pop, .dze-ai-i').length) { aiClose(); }
+		}).on('keydown.dzeai', function (ev) {
+			if ('Escape' === ev.key) { aiClose(); }
+		});
+		// A card left floating over a list that scrolled under it points at
+		// another picture: any scroll closes it.
+		document.addEventListener('scroll', aiScroll, true);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_ai_card', nonce: cfg.nonce, post: post,
+			url: $b.attr('data-url') || '', att: $b.attr('data-att') || 0
+		}).done(function (r) {
+			if (aiFor !== el) { return; }
+			if (!r || !r.success) {
+				$pop.find('.dze-ai-body').html('<p class="dze-ai-old">' + esc((r && r.data && r.data.message) || i18n.error || '') + '</p>');
+				return;
+			}
+			aiDraw($pop, r.data || {});
+			aiPlace($pop, $b);
+		}).fail(function (x) {
+			if (aiFor === el) { $pop.find('.dze-ai-body').html('<p class="dze-ai-old">' + esc(reason(x)) + '</p>'); }
+		});
+	});
+	// Enter or space on the <span> version, as on a button.
+	$(document).on('keydown', 'span.dze-ai-i', function (e) {
+		if ('Enter' === e.key || ' ' === e.key) { e.preventDefault(); $(this).trigger('click'); }
+	});
+	$(document).on('click', '.dze-ai-pop .dze-ai-x', function () { aiClose(); });
+	$(document).on('click', '.dze-ai-pop .dze-ai-copy', function () {
+		var $c = $(this), text = $c.closest('.dze-ai-pop').find('.dze-ai-words').text();
+		var done = function () { $c.text(i18n.aiCopied || ''); };
+		try {
+			navigator.clipboard.writeText(text).then(done, function () {});
+		} catch (err) {
+			var r = document.createRange();
+			r.selectNodeContents($c.closest('.dze-ai-pop').find('.dze-ai-words')[0]);
+			window.getSelection().removeAllRanges();
+			window.getSelection().addRange(r);
+		}
+	});
+
+	// THE PRODUCT'S OWN BOXES — « Product image » and « Product gallery » on
+	// the product's page — carry it too: that is where the pictures are seen
+	// most. Put back whenever WooCommerce redraws them.
+	function decorateBoxes() {
+		var ids = (cfg.galleryAi || []).map(String);
+		$('#product_images_container li.image').each(function () {
+			var $li = $(this), id = String($li.attr('data-attachment_id') || '');
+			if (ids.indexOf(id) >= 0 && !$li.children('.dze-ai-i').length) {
+				$li.append(aiButton(cfg.post || 0, '', id).addClass('dze-ai-i-wc'));
+			}
+		});
+		var thumb = String($('#_thumbnail_id').val() || '');
+		var $host = $('#set-post-thumbnail').has('img').parent();
+		var $has = $host.children('.dze-ai-i');
+		if (ids.indexOf(thumb) >= 0 && $host.length) {
+			if (!$has.length || String($has.attr('data-att')) !== thumb) {
+				$has.remove();
+				$host.addClass('dze-ai-host').append(aiButton(cfg.post || 0, '', thumb).addClass('dze-ai-i-wc'));
+			}
+		} else if ($has.length) {
+			$has.remove();
+		}
+	}
+	$(function () {
+		if (!(cfg.galleryAi || []).length) { return; }
+		decorateBoxes();
+		if (!window.MutationObserver) { return; }
+		var later = null;
+		['product_images_container', 'postimagediv'].forEach(function (id) {
+			var el = document.getElementById(id);
+			if (!el) { return; }
+			new MutationObserver(function () {
+				clearTimeout(later);
+				later = setTimeout(decorateBoxes, 60);
+			}).observe(el, { childList: true, subtree: true });
+		});
+	});
+
 	window.dzePhotos = {
+		// The « i » of a picture a model made, for the screens that draw
+		// pictures of their own (the waiting ones, the tries).
+		aiButton: aiButton,
 		// The blocks live in hub.js now — one machinery for every screen. These
 		// two names stay so nothing that already calls them has to change.
 		toggleSec: function ($sec, on) { return window.dzeHub.toggleSec($sec, on); },

@@ -894,6 +894,13 @@ trait DZE_Content_Ajax {
 		DZE_Ai_Usage::unit();
 		DZE_Ai_Usage::about();
 		$model = (string) ( $job['model'] ?? '' );
+		if ( class_exists( 'DZE_Ai_Card' ) ) {
+			DZE_Ai_Card::put( $pid, $url, [
+				'recipe' => (string) ( $job['recipe'] ?? '' ),
+				'tool'   => '' !== (string) ( $job['tool'] ?? '' ) ? (string) $job['tool'] : 'generate',
+				'base'   => (array) ( $job['base'] ?? [] ),
+			] );
+		}
 		if ( ! empty( $job['stash'] ) ) {
 			self::stash( $pid, [
 				'shot'   => $url,
@@ -1069,6 +1076,9 @@ trait DZE_Content_Ajax {
 			'recipe'   => $recipe,
 			'stash'    => 1,
 			'tool'     => 'enlarge',
+			// What it enlarges, for its card: a picture made here, a photograph
+			// of the product or one pasted in.
+			'base'     => class_exists( 'DZE_Ai_Card' ) ? DZE_Ai_Card::source_of( $pid, $url, $att, '' !== $paste ) : [],
 			'mp'       => round( $ow * $oh / 1000000, 2 ),
 			'by'       => get_current_user_id(),
 		];
@@ -1144,6 +1154,16 @@ trait DZE_Content_Ajax {
 		$src_paste = isset( $in['src_paste'] ) ? (string) wp_unslash( $in['src_paste'] ) : '';
 		// ✦ REMAKE BETTER: the shop's remake prompt, on that one picture.
 		$remake    = ! empty( $in['remake'] );
+		// WHAT IT IS REMADE FROM, for the new picture's card (the « i »).
+		$dze_base  = ( $remake && class_exists( 'DZE_Ai_Card' ) )
+			? DZE_Ai_Card::source_of( $pid, self::is_fal_url( $src ) ? $src : '', $src_att, '' !== $src_paste )
+			: [];
+		// ↻ ON A PICTURE STILL WAITING: the address of the one it replaces. Its
+		// framing is asked for again instead of being forbidden (made_lines()).
+		$dze_redo  = isset( $in['redo'] ) ? esc_url_raw( (string) wp_unslash( $in['redo'] ) ) : '';
+		if ( '' !== $dze_redo && ! self::is_fal_url( $dze_redo ) ) {
+			$dze_redo = '';
+		}
 		// ONE PHOTOGRAPH OF THE PRODUCT, PICKED ON THE SCREEN. It says two
 		// things at once, which is why it replaced a checkbox: this one is
 		// image 1, and the product is the subject. It never reached this
@@ -1620,7 +1640,7 @@ trait DZE_Content_Ajax {
 			// themselves (made_lines() says why), and nothing that chooses
 			// the subject: only framings not to make again.
 			if ( ! empty( $in['aware'] ) ) {
-				$prompt .= self::made_lines( $pid, (string) ( $tpl['id'] ?? '' ) );
+				$prompt .= self::made_lines( $pid, (string) ( $tpl['id'] ?? '' ), $dze_redo );
 			}
 			// NOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS. A hint that
 			// asked the second attempt for "a detail of the material, the
@@ -1676,6 +1696,8 @@ trait DZE_Content_Ajax {
 				$dze_job = self::$submitted + [
 					'target' => $target,
 					'recipe' => (string) ( $tpl['id'] ?? '' ),
+					'tool'   => $remake ? 'remake' : 'generate',
+					'base'   => $dze_base,
 					'stash'  => ! empty( $in['stash'] ) ? 1 : 0,
 					'by'     => get_current_user_id(),
 				];
@@ -1694,6 +1716,15 @@ trait DZE_Content_Ajax {
 			DZE_Ai_Usage::about();
 			DZE_Ai_Usage::finished( 'product_img' );
 			self::charge_product( $pid, self::last_image_cost() );
+			// Its card: fal_fetch() wrote the model, the price and the words;
+			// the prompt that made it and its source are known only here.
+			if ( class_exists( 'DZE_Ai_Card' ) && '' !== (string) $image_url ) {
+				DZE_Ai_Card::put( $pid, (string) $image_url, [
+					'recipe' => (string) ( $tpl['id'] ?? '' ),
+					'tool'   => $remake ? 'remake' : 'generate',
+					'base'   => $dze_base,
+				] );
+			}
 
 			if ( 'defer' === $mode ) {
 				// Toolbox flow: never auto-attach — the result joins the session
@@ -1889,6 +1920,9 @@ trait DZE_Content_Ajax {
 				'w'     => $w,
 				'h'     => $h,
 				'ratio' => self::ratio_label( $w, $h ),
+				// MADE OR REWORKED BY A MODEL: it carries the « i » that says
+				// which prompt, which model and what price (DZE_Ai_Card).
+				'ai'    => class_exists( 'DZE_Ai_Card' ) && DZE_Ai_Card::is_ai( (int) $aid ),
 			];
 		}
 		wp_send_json_success( [
@@ -2183,6 +2217,12 @@ trait DZE_Content_Ajax {
 		$urls = array_values( array_filter( array_map( 'strval', $urls ) ) );
 		if ( ! $pid || ! $urls ) {
 			return 0;
+		}
+		// THEIR CARDS GO WITH THEM. A picture filed has already handed its card
+		// to its attachment (sideload_seo()), so what is left is only ever the
+		// card of a picture thrown away.
+		if ( class_exists( 'DZE_Ai_Card' ) ) {
+			DZE_Ai_Card::drop( $urls );
 		}
 		$waiting = self::pending( $pid );
 		$had     = (array) ( $waiting['shots'] ?? [] );

@@ -379,6 +379,10 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_job', [ $this, 'ajax_job' ] );
 		// HD: one picture enlarged, nothing else changed.
 		add_action( 'wp_ajax_dze_content_enlarge', [ $this, 'ajax_enlarge' ] );
+		// THE « i » OF EVERY AI PICTURE: which prompt, which model, what price.
+		if ( class_exists( 'DZE_Ai_Card' ) ) {
+			DZE_Ai_Card::init();
+		}
 		add_action( 'wp_ajax_dze_content_bg_add', [ $this, 'ajax_bg_add' ] );
 		add_action( 'wp_ajax_dze_content_prompt_toggle', [ $this, 'ajax_prompt_toggle' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
@@ -1006,6 +1010,29 @@ EOT;
 		}
 		self::write_setting( 'registry', $rows );
 		return true;
+	}
+
+	/**
+	 * The product's photographs a model made or reworked — main image and
+	 * gallery — for the « i » on its own boxes.
+	 *
+	 * @return int[]
+	 */
+	public static function ai_photo_ids( int $pid ): array {
+		if ( $pid < 1 || ! class_exists( 'DZE_Ai_Card' ) ) {
+			return [];
+		}
+		$ids = self::product_image_ids( $pid );
+		if ( $ids ) {
+			_prime_post_caches( $ids, false, true );
+		}
+		return array_values( array_filter( array_map( 'intval', $ids ), [ 'DZE_Ai_Card', 'is_ai' ] ) );
+	}
+
+	/** A prompt's name as the shop wrote it, '' when no prompt has that id. */
+	public static function recipe_name( string $id ): string {
+		$r = '' !== $id ? self::registry_row( $id ) : null;
+		return is_array( $r ) ? (string) ( $r['name'] ?? '' ) : '';
 	}
 
 	/** Registry row by id (text or image), or null. */
@@ -5450,7 +5477,29 @@ Answer with STRICT JSON and nothing else: "
 					'applying'  => __( 'Applying…', 'dazont-ecom' ),
 					'applied'   => __( 'Applied ✓', 'dazont-ecom' ),
 					'error'     => __( 'error', 'dazont-ecom' ),
+					// THE « i » of a picture a model made (DZE_Ai_Card).
+					'aiInfo'    => __( 'Which prompt, which model and what price made this picture', 'dazont-ecom' ),
+					'aiTitle'   => __( 'AI picture', 'dazont-ecom' ),
+					'aiLoading' => __( 'Reading…', 'dazont-ecom' ),
+					'aiPrompt'  => __( 'Prompt', 'dazont-ecom' ),
+					'aiModel'   => __( 'Model', 'dazont-ecom' ),
+					'aiPrice'   => __( 'Price', 'dazont-ecom' ),
+					'aiMade'    => __( 'Made', 'dazont-ecom' ),
+					/* translators: %d: how many photographs were sent with the order */
+					'aiRefs'    => __( '%d photograph(s) sent', 'dazont-ecom' ),
+					'aiFraming' => __( 'Framing', 'dazont-ecom' ),
+					'aiFrom'    => __( 'Made from', 'dazont-ecom' ),
+					'aiFull'    => __( 'Full prompt sent', 'dazont-ecom' ),
+					'aiCopy'    => __( 'Copy the prompt', 'dazont-ecom' ),
+					'aiCopied'  => __( 'Copied ✓', 'dazont-ecom' ),
+					'aiNotKept' => __( 'not kept', 'dazont-ecom' ),
+					'aiOld'     => __( 'Made before Dazont Ecom 4.507.0: only what the picture kept is known — its prompt\'s name, and its model while it waits.', 'dazont-ecom' ),
+					'close'     => __( 'Close', 'dazont-ecom' ),
 				],
+				// THE PRODUCT'S OWN BOXES (« Product image », « Product gallery »)
+				// put the « i » on the pictures a model made.
+				'post'      => $on_product ? (int) get_the_ID() : 0,
+				'galleryAi' => $on_product ? self::ai_photo_ids( (int) get_the_ID() ) : [],
 			] );
 		}
 		// The zoom viewer travels with it: every grid of product images in the
@@ -6657,7 +6706,13 @@ Answer with STRICT JSON and nothing else: "
 			throw new RuntimeException( $tmp->get_error_message() );
 		}
 		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
-		return $this->attach_file( (string) $tmp, strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ), $pid, $target, $recipe_id, $keep_old );
+		$att  = $this->attach_file( (string) $tmp, strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ), $pid, $target, $recipe_id, $keep_old );
+		// What made it goes with it: once filed, the attachment is the only
+		// thing that still knows (the « i »).
+		if ( class_exists( 'DZE_Ai_Card' ) ) {
+			DZE_Ai_Card::file( $url, (int) $att, $recipe_id );
+		}
+		return $att;
 	}
 
 	/**
@@ -7670,6 +7725,18 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 		DZE_Ai_Usage::trace( 'fal', $key, $asked, $url ? (string) $url : 'ERROR — no image in the answer', microtime( true ) - $t0 );
+		// ITS CARD — the model, the price, the words — written HERE, where every
+		// picture of every screen passes once and its price is first known. The
+		// caller adds the prompt that made it (DZE_Ai_Card).
+		if ( $url && class_exists( 'DZE_Ai_Card' ) ) {
+			DZE_Ai_Card::put( $pid, (string) $url, [
+				'model'  => $key,
+				'cost'   => self::$last_cost,
+				'prompt' => $asked,
+				'refs'   => (int) ( $job['refs'] ?? 0 ),
+				'by'     => (int) ( $job['by'] ?? ( function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0 ) ),
+			] );
+		}
 		// Collected: the product owes nothing to fal any more — for THIS job.
 		// A page asking after its own picture must not wipe an older one the
 		// product is still owed.
@@ -7813,11 +7880,16 @@ Answer with STRICT JSON and nothing else: "
 	 *
 	 * @return string[]
 	 */
-	public static function made_views( int $pid, string $recipe, bool $describe = true ): array {
+	public static function made_views( int $pid, string $recipe, bool $describe = true, string $skip = '' ): array {
 		$lines   = [];
 		$waiting = self::pending( $pid );
 		$read    = 0;
 		foreach ( (array) ( $waiting['shots'] ?? [] ) as $u ) {
+			// The picture a ↻ is making again: its framing is the one asked
+			// for, not one to avoid (made_lines()).
+			if ( '' !== $skip && (string) $u === $skip ) {
+				continue;
+			}
 			if ( (string) ( $waiting['recipes'][ $u ] ?? '' ) !== $recipe ) {
 				continue;
 			}
@@ -7851,9 +7923,44 @@ Answer with STRICT JSON and nothing else: "
 		return array_slice( array_values( array_unique( $lines ) ), -8 );
 	}
 
-	/** The paragraph made_views() becomes in the order. '' when nothing was made yet. */
-	public static function made_lines( int $pid, string $recipe ): string {
-		$views = self::made_views( $pid, $recipe );
+	/**
+	 * The paragraph made_views() becomes in the order. '' when nothing was made yet.
+	 *
+	 * ↻ MAKES ITS OWN FRAMING AGAIN. « La fonction recommencer sur les images
+	 * générées me semble comporter une lacune. Ces images relancées sont
+	 * particulièrement sujettes au slop. » The picture being redone was still
+	 * waiting, so its own framing was in the list of framings never to make
+	 * again: the second attempt was told to avoid exactly what it had been
+	 * asked for, one framing more than the first attempt, and had to find yet
+	 * another — which, on a product shown from one side, means inventing.
+	 * $redo is that picture's address: left out of the list, and its framing
+	 * named as the one to make.
+	 */
+	public static function made_lines( int $pid, string $recipe, string $redo = '' ): string {
+		$again = '';
+		if ( '' !== $redo ) {
+			$waiting = self::pending( $pid );
+			if ( in_array( $redo, array_map( 'strval', (array) ( $waiting['shots'] ?? [] ) ), true ) ) {
+				$again = (string) ( $waiting['views'][ $redo ] ?? '' );
+				if ( '' === $again ) {
+					// Made before its framing was written down: read now, once.
+					$was = DZE_Ai_Usage::unit_now();
+					DZE_Ai_Usage::unit( 'img_view' );
+					$again = self::describe_view( $redo, (string) get_the_title( $pid ) );
+					DZE_Ai_Usage::unit( $was );
+					if ( '' !== $again ) {
+						self::stash( $pid, [ 'shot' => $redo, 'view' => $again ] );
+					}
+				}
+			}
+		}
+		$views = self::made_views( $pid, $recipe, true, $redo );
+		if ( '' !== $again ) {
+			return ( $views
+				? "\n\nALREADY MADE FOR THIS PRODUCT — photographs that exist already, described in words (they are not sent):\n- " . implode( "\n- ", $views ) . "\nThis photograph is none of them."
+				: '' )
+				. "\n\nTHE PHOTOGRAPH THIS ONE REPLACES was framed: " . $again . '. Make that framing again — the same part of the product, as close, from the same side — as a better photograph. What the product looks like still comes from the photographs you are given, and nothing they do not show is added.';
+		}
 		if ( ! $views ) {
 			return '';
 		}

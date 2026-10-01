@@ -1603,7 +1603,7 @@ ok( 'une seule fois : la ligne gardee sert aux suivantes', count( $GLOBALS['mai_
 ok( 'pas celle d un autre prompt', DZE_Content::made_lines( 77, 'r2' ), '' );
 ok( 'et la seule facon de differer est de se rapprocher de ce qui est montre, jamais de tourner le produit', [ false !== strpos( $dze_ml, 'by coming closer to a part the photographs show' ), false !== strpos( $dze_ml, 'Never by turning the product round' ) ], [ true, true ] );
 $dze_aj = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
-ok( 'seulement quand la fiche le demande, apres les notes', false !== strpos( $dze_aj, "if ( ! empty( \$in['aware'] ) ) {\n\t\t\t\t\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ) );" ), true );
+ok( 'seulement quand la fiche le demande, apres les notes', false !== strpos( $dze_aj, "if ( ! empty( \$in['aware'] ) ) {\n\t\t\t\t\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ), \$dze_redo );" ), true );
 ok( 'et aucune image faite ne repart vers le modele', false !== strpos( $dze_aj, '$avoid = 0;' ), true );
 // JETEE, ELLE PART AVEC TOUT CE QUI LA DECRIT.
 DZE_Content::settle_shots( 77, [ $dze_u ] );
@@ -1664,7 +1664,7 @@ $dze_cs  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/clas
 $dze_aj  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
 ok( 'plus aucun ✦ plante sur les blocs de la fiche', [ false !== strpos( $dze_js, 'function plantButtons(' ), false !== strpos( $dze_js, 'dze-one-plant' ), false !== strpos( $dze_js, 'dze-hub-rest' ) ], [ false, false, false ] );
 ok( 'ni dans le panneau Variations, ni le mur sous la galerie', [ false !== strpos( $dze_cs, "add_action( 'woocommerce_variable_product_before_variations'" ), false !== strpos( $dze_js, 'dze-bricks' ), false !== strpos( $dze_js, 'wallOrder' ) ], [ false, false, false ] );
-ok( 'la popup commande ses images et les recupere, ↻ compris', [ false !== strpos( $dze_js, 'function shootAsync(req)' ), false !== strpos( $dze_js, "shootAsync(\$.extend(imageRequest(tpl, undefined, dest), { aware: 1, model: cxModel() }))" ) ], [ true, true ] );
+ok( 'la popup commande ses images et les recupere, ↻ compris', [ false !== strpos( $dze_js, 'function shootAsync(req)' ), false !== strpos( $dze_js, "shootAsync(\$.extend(imageRequest(tpl, undefined, dest), { aware: 1, model: cxModel(), redo: String(url || '') }))" ) ], [ true, true ] );
 ok( 'l ecran de masse aussi, ↻ et « une de plus » compris', [ substr_count( $dze_jsb, 'shootAsync($.extend(imageRequest(' ), false !== strpos( $dze_jsb, 'function pollJob(post, job)' ) ], [ 3, true ] );
 ok( 'le serveur ne commande sans attendre que pour la liste d attente', false !== strpos( $dze_aj, "&& 'defer' === sanitize_key( (string) wp_unslash( \$_POST['mode'] ?? '' ) ) && ! empty( \$_POST['stash'] );" ), true );
 ok( 'le modele se choisit a cote de Launch, et le cout le suit', [ false !== strpos( $dze_js, '<select id="dze-cx-model">' ), false !== strpos( $dze_js, "\$(document).on('change', '#dze-cx-model', function () { drawWillSpend(); remember(); });" ) ], [ true, true ] );
@@ -1836,6 +1836,121 @@ $dze_code = preg_replace( '~^\s*//.*$~m', '', $dze_jsb );
 ok( 'aucun nom de la commande par produit n est encore lu', [ false !== strpos( $dze_code, 'own ||' ), false !== strpos( $dze_code, 'kept[id]' ), (bool) preg_match( '~\\b(hasOwn|markOwn|ownState|buildOwn|shotsSaid)\\(~', $dze_code ), (bool) preg_match( '~(?<![\\w.$])own\\[~', $dze_code ) ], [ false, false, false, false ] );
 ok( 'le panneau Look ne depend plus que des lignes du lancement', false !== strpos( $dze_jsb, "function syncOldMainRow() {\n\t\t// Any row of the run that writes a main image raises it" ), true );
 ok( 'la popup aussi se souvient du dernier modele', [ false !== strpos( $dze_js, "model: cxModel()\n\t\t};" ), false !== strpos( $dze_js, "modelOptions(au.model)" ) ], [ true, true ] );
+
+// 4.507.0 — LE « i » DE CHAQUE IMAGE FAITE PAR UN MODELE, ET ↻ QUI REFAIT SON CADRAGE.
+// « tu vas rajouter un petit i pour info sur toutes les images générées par IA.
+// au clic, un text doit apparaître pour dire quel prompt a été utilisé, et quel
+// modèle d'ia, et quel prix. »
+// « La fonction recommencer sur les images générées me semble comporter une
+// lacune. Ces images relancées sont particulièrement sujettes au slop. »
+if ( ! function_exists( 'delete_option' ) ) { function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; } }
+if ( ! function_exists( 'esc_url_raw' ) ) { function esc_url_raw( $s ) { return (string) $s; } }
+if ( ! function_exists( 'get_post_type' ) ) { function get_post_type( $id ) { return $GLOBALS['dze_types'][ (int) $id ] ?? false; } }
+require __DIR__ . '/../' . $dir . '/includes/class-ai-card.php';
+$GLOBALS['opts']['dze_content_settings'] = [ 'registry' => [
+	[ 'id' => 'rx', 'type' => 'image', 'name' => 'Details shoot', 'prompt' => 'Shoot the details.', 'output' => 'gallery', 'valid' => 1 ],
+] ];
+( new ReflectionProperty( 'DZE_Content', 'registry_cache' ) )->setValue( null, null );
+ok( 'le nom d un prompt se lit par son id', [ DZE_Content::recipe_name( 'rx' ), DZE_Content::recipe_name( 'nope' ), DZE_Ai_Card::recipe_name( 'img_enlarged' ) ], [ 'Details shoot', '', 'HD enlargement' ] );
+ok( 'un prix ne perd pas son centime', [ DZE_Ai_Card::money( 0.08 ), DZE_Ai_Card::money( 0.0125 ), DZE_Ai_Card::money( 1.5 ) ], [ '$0.08', '$0.013', '$1.50' ] );
+// UNE IMAGE COMMANDEE PUIS RAMASSEE : sa fiche porte le modele, le prix, les mots envoyes, et le prompt qui l a faite.
+$dze_cu = 'https://v3b.fal.media/files/b/x/card.jpg';
+DZE_Content::job_add( 79, [ 'id' => 'req-c', 'status' => 'https://queue.fal.run/fal-ai/x/requests/req-c/status', 'response' => '', 'model' => 'nano-banana-2', 'refs' => 2, 'stash' => 1, 'recipe' => 'rx', 'target' => 'gallery', 'tool' => 'generate', 'asked' => "Shoot the details.\n\n[2 photograph(s) sent · aspect ratio 1:1 · Nano Banana 2]" ] );
+$GLOBALS['fal_say']['status'] = 'COMPLETED';
+$GLOBALS['fal_say']['result'] = '{"images":[{"url":"' . $dze_cu . '"}]}';
+$GLOBALS['mai_view'] = 'close-up of the cuff, slightly from the left';
+$dze_r = $dze_look->invoke( DZE_Content::instance(), 79, 'req-c' );
+$dze_c = DZE_Ai_Card::get( $dze_cu );
+ok( 'ramassee, sa fiche dit le modele, le prix, les mots et le prompt', [
+	$dze_r['done'] ?? 0, $dze_c['model'] ?? '', (float) ( $dze_c['cost'] ?? 0 ) > 0, false !== strpos( (string) ( $dze_c['prompt'] ?? '' ), 'Shoot the details.' ),
+	$dze_c['refs'] ?? -1, $dze_c['recipe'] ?? '', $dze_c['name'] ?? '', $dze_c['tool'] ?? '', $dze_c['pid'] ?? 0,
+], [ 1, 'nano-banana-2', true, true, 2, 'rx', 'Details shoot', 'generate', 79 ] );
+ok( 'la fiche attend dans une option a part, jamais chargee d office ni sur le produit', [ isset( $GLOBALS['opts'][ 'dze_aic_' . md5( $dze_cu ) ] ), isset( $GLOBALS['dze_meta'][79]['_dze_ai_card'] ) ], [ true, false ] );
+// LE « i » D UNE IMAGE EN ATTENTE.
+$_POST = [ 'post' => 79, 'url' => $dze_cu ];
+try { DZE_Ai_Card::ajax(); $dze_j = null; } catch ( DZE_Json_Sent $e ) { $dze_j = $e; }
+$_POST = [];
+ok( 'le « i » d une image en attente : prompt, modele, prix, cadrage', [
+	$dze_j ? $dze_j->ok : null, $dze_j->payload['known'] ?? null, $dze_j->payload['name'] ?? '', '' !== (string) ( $dze_j->payload['model'] ?? '' ),
+	0 === strpos( (string) ( $dze_j->payload['cost'] ?? '' ), '$' ), $dze_j->payload['framing'] ?? '', false !== strpos( (string) ( $dze_j->payload['prompt'] ?? '' ), '[2 photograph(s) sent' ),
+], [ true, true, 'Details shoot', true, true, 'close-up of the cuff, slightly from the left', true ] );
+$_POST = [ 'post' => 80, 'url' => $dze_cu ];
+try { DZE_Ai_Card::ajax(); $dze_j = null; } catch ( DZE_Json_Sent $e ) { $dze_j = $e; }
+$_POST = [];
+ok( 'la fiche d un produit ne se lit pas par un autre', $dze_j->payload['known'] ?? null, false );
+// RANGEE SUR LE PRODUIT : la fiche passe sur la piece jointe.
+DZE_Ai_Card::file( $dze_cu, 5001, 'rx' );
+$dze_m = get_post_meta( 5001, DZE_Ai_Card::META, true );
+ok( 'rangee, la fiche passe sur la piece jointe et quitte l attente', [ $dze_m['model'] ?? '', $dze_m['recipe'] ?? '', isset( $dze_m['pid'] ), DZE_Ai_Card::get( $dze_cu ), isset( get_option( 'dze_aic_index', [] )[ 'dze_aic_' . md5( $dze_cu ) ] ) ], [ 'nano-banana-2', 'rx', false, [], false ] );
+$GLOBALS['dze_types'][5001] = 'attachment';
+$_POST = [ 'att' => 5001 ];
+try { DZE_Ai_Card::ajax(); $dze_j = null; } catch ( DZE_Json_Sent $e ) { $dze_j = $e; }
+$_POST = [];
+ok( 'le « i » d une image rangee', [ $dze_j->payload['known'] ?? null, $dze_j->payload['name'] ?? '', DZE_Ai_Card::is_ai( 5001 ) ], [ true, 'Details shoot', true ] );
+// AVANT 4.507.0 : seul le nom du prompt restait avec l image. Une vraie photo n a pas de « i ».
+update_post_meta( 5002, DZE_Content::META_RECIPE, 'rx' );
+$dze_v = DZE_Ai_Card::of_attachment( 5002 );
+ok( 'une image d avant dit ce qu elle a garde, et le dit', [ DZE_Ai_Card::is_ai( 5002 ), $dze_v['known'], $dze_v['name'], $dze_v['cost'], DZE_Ai_Card::is_ai( 5003 ) ], [ true, false, 'Details shoot', '', false ] );
+// JETEE OU REMPLACEE : sa fiche part avec elle.
+$dze_cu2 = 'https://v3b.fal.media/files/b/x/card2.jpg';
+DZE_Ai_Card::put( 79, $dze_cu2, [ 'model' => 'nano-banana-2', 'cost' => 0.08, 'prompt' => 'p' ] );
+DZE_Content::settle_shots( 79, [ $dze_cu2 ] );
+ok( 'jetee, sa fiche part avec elle', [ DZE_Ai_Card::get( $dze_cu2 ), isset( $GLOBALS['opts'][ 'dze_aic_' . md5( $dze_cu2 ) ] ) ], [ [], false ] );
+// LES FICHES TROP VIEILLES PARTENT : une adresse fal ne vit pas 45 jours.
+$GLOBALS['opts']['dze_aic_index'] = [ 'dze_aic_old' => time() - 3888000 - 60 ];
+$GLOBALS['opts']['dze_aic_old']   = [ 'model' => 'x' ];
+DZE_Ai_Card::put( 79, 'https://v3b.fal.media/files/b/x/card3.jpg', [ 'model' => 'nano-banana-2' ] );
+ok( 'les fiches de plus de 45 jours partent', [ isset( $GLOBALS['opts']['dze_aic_old'] ), isset( $GLOBALS['opts']['dze_aic_index']['dze_aic_old'] ), count( $GLOBALS['opts']['dze_aic_index'] ) ], [ false, false, 1 ] );
+// CE QU UN ✦ OU UN HD REFAIT : une image faite ici, une vraie photo, une photo collee.
+DZE_Ai_Card::put( 79, $dze_cu2, [ 'model' => 'gpt-image-2.5-sunburst', 'cost' => 0.06, 'recipe' => 'rx' ] );
+ok( 'la source d un ✦ ou d un HD est nommee', [ DZE_Ai_Card::source_of( 79, $dze_cu2, 0, false )['name'] ?? '', DZE_Ai_Card::source_of( 79, '', 5003, false ), DZE_Ai_Card::source_of( 79, '', 0, true ), DZE_Ai_Card::source_of( 79, '', 5001, false )['kind'] ?? '' ], [ 'Details shoot', [ 'kind' => 'photo' ], [ 'kind' => 'pasted' ], 'ai' ] );
+$dze_v = DZE_Ai_Card::view( [ 'tool' => 'enlarge', 'model' => DZE_Content::UPSCALER, 'cost' => 0.0125, 'base' => [ 'kind' => 'photo' ] ], [], '' );
+ok( 'un agrandissement dit ce qu il a agrandi', [ $dze_v['name'], $dze_v['cost'], $dze_v['from'] ], [ 'HD enlargement', '$0.013', 'a photograph of the product' ] );
+// LE BRANCHEMENT, la ou chaque image passe.
+$dze_cs = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+$dze_aj = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
+$dze_ph = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' );
+$dze_js = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content.js' );
+$dze_jb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
+ok( 'la fiche s ecrit la ou le prix est connu, et suit l image rangee', [
+	false !== strpos( $dze_cs, "DZE_Ai_Card::put( \$pid, (string) \$url, [\n\t\t\t\t'model'  => \$key,\n\t\t\t\t'cost'   => self::\$last_cost,\n\t\t\t\t'prompt' => \$asked," ),
+	false !== strpos( $dze_cs, "DZE_Ai_Card::file( \$url, (int) \$att, \$recipe_id );" ),
+	false !== strpos( $dze_aj, "DZE_Ai_Card::drop( \$urls );" ),
+	false !== strpos( $dze_aj, "'tool'   => \$remake ? 'remake' : 'generate',\n\t\t\t\t\t'base'   => \$dze_base," ),
+	false !== strpos( $dze_aj, "'ai'    => class_exists( 'DZE_Ai_Card' ) && DZE_Ai_Card::is_ai( (int) \$aid )," ),
+], [ true, true, true, true, true ] );
+ok( 'le « i » est dessine partout ou une image faite par un modele se montre', [
+	false !== strpos( $dze_ph, "(im.ai ? aiButton(opts.post || 0, '', im.id) : '')," ),
+	false !== strpos( $dze_ph, "action: 'dze_ai_card'" ),
+	false !== strpos( $dze_ph, "\$pop.find('.dze-ai-words').text(d.prompt || '');" ),
+	false !== strpos( $dze_js, "\t\t\t\t\taiMark(url),\n" ),
+	false !== strpos( $dze_js, "\t\t\t\t\t\taiMark(u, true),\n" ),
+	false !== strpos( $dze_jb, "window.dzePhotos.aiButton(id, url)" ),
+	false !== strpos( $dze_cs, "'galleryAi' => \$on_product ? self::ai_photo_ids( (int) get_the_ID() ) : []," ),
+], [ true, true, true, true, true, true, true ] );
+// ↻ REFAIT SON PROPRE CADRAGE, au lieu de se l interdire.
+$GLOBALS['dze_meta'][81] = [];
+DZE_Content::stash( 81, [ 'shot' => 'https://v3b.fal.media/files/b/x/one.jpg', 'recipe' => 'rx', 'view' => 'V-ONE whole jacket, front three-quarter' ] );
+DZE_Content::stash( 81, [ 'shot' => 'https://v3b.fal.media/files/b/x/two.jpg', 'recipe' => 'rx', 'view' => 'V-TWO close-up of the cuff' ] );
+$dze_ml = DZE_Content::made_lines( 81, 'rx' );
+ok( 'sans ↻, rien ne change : tous les cadrages sont a eviter', [ false !== strpos( $dze_ml, 'V-ONE' ), false !== strpos( $dze_ml, 'V-TWO' ), false !== strpos( $dze_ml, 'Do not make any of them again' ) ], [ true, true, true ] );
+$dze_ml = DZE_Content::made_lines( 81, 'rx', 'https://v3b.fal.media/files/b/x/two.jpg' );
+ok( '↻ : son propre cadrage est demande, plus interdit ; les autres restent a eviter', [
+	substr_count( $dze_ml, 'V-TWO' ), false !== strpos( $dze_ml, "THE PHOTOGRAPH THIS ONE REPLACES was framed: V-TWO close-up of the cuff. Make that framing again" ),
+	false !== strpos( $dze_ml, "- V-ONE whole jacket, front three-quarter\nThis photograph is none of them." ), false !== strpos( $dze_ml, 'Do not make any of them again' ),
+], [ 1, true, true, false ] );
+$dze_ml = DZE_Content::made_lines( 81, 'rx', 'https://v3b.fal.media/files/b/x/elsewhere.jpg' );
+ok( 'une adresse qui n attend pas sur ce produit ne change rien', [ false !== strpos( $dze_ml, 'THE PHOTOGRAPH THIS ONE REPLACES' ), false !== strpos( $dze_ml, 'Do not make any of them again' ) ], [ false, true ] );
+DZE_Content::stash( 81, [ 'shot' => 'https://v3b.fal.media/files/b/x/three.jpg', 'recipe' => 'rx' ] );
+$GLOBALS['mai_view'] = 'V-THREE detail of the hood toggle';
+$dze_ml = DZE_Content::made_lines( 81, 'rx', 'https://v3b.fal.media/files/b/x/three.jpg' );
+ok( 'une image refaite sans cadrage ecrit est lue d abord, et son cadrage demande', [ false !== strpos( $dze_ml, 'was framed: V-THREE detail of the hood toggle.' ), DZE_Content::pending( 81 )['views']['https://v3b.fal.media/files/b/x/three.jpg'] ?? '' ], [ true, 'V-THREE detail of the hood toggle' ] );
+ok( 'les deux ↻ envoient l image qu ils remplacent', [
+	false !== strpos( $dze_js, "{ aware: 1, model: cxModel(), redo: String(url || '') }" ),
+	false !== strpos( $dze_jb, "{ aware: 1, redo: String(url || '') }" ),
+	false !== strpos( $dze_aj, "\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ), \$dze_redo );" ),
+], [ true, true, true ] );
+unset( $GLOBALS['mai_view'] );
 
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
