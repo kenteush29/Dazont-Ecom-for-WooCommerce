@@ -147,7 +147,10 @@ echo "\nThe ceiling is asked at the ONE funnel every request passes\n";
 // bug.
 $src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
 $fn  = strstr( $src, 'function fal_generate(' );
-$fn  = false === $fn ? '' : substr( $fn, 0, 2000 );
+// BEFORE IT SENDS means before the submit, however long the function grows:
+// a fixed window of characters went red the day a guard was added above it.
+$dze_at = false === $fn ? false : strpos( $fn, 'wp_remote_post' );
+$fn  = ( false === $fn || false === $dze_at ) ? '' : substr( $fn, 0, $dze_at );
 ok( 'fal_generate asks before it sends',   false !== strpos( $fn, 'fal_blocked' ), true );
 ok( 'and counts the attempt before it sends', false !== strpos( $fn, 'fal_attempt' ), true );
 ok( 'it is told WHICH product it is for',  false !== strpos( $fn, 'int $pid' ), true );

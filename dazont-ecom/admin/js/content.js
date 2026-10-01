@@ -832,8 +832,8 @@
 	// figure for the whole page could neither follow the model nor count what
 	// a product really sends: Nano Banana is billed per image, GPT Image and
 	// FLUX also bill every photograph they are handed.
-	function perImage(refs) {
-		var p = cfg.imagePrice || null;
+	function perImage(refs, price) {
+		var p = price || cfg.imagePrice || null;
 		if (!p) { return parseFloat(cfg.imageCost || 0) || 0; }
 		var cap = parseInt(p.cap, 10) || 0;
 		var n = Math.max(0, cap > 0 ? Math.min(cap, refs) : refs);
@@ -858,14 +858,23 @@
 		var pasted = cxPaste ? cxPaste.list().length : 0;
 		return ownSources(target) + pasted + ((scene !== undefined && scene >= 0) ? 1 : 0);
 	}
-	function willSay(n, cost) {
+	function willSay(n, cost, model) {
 		var single = 1 === n;
 		if (!cost) { return (single && i18n.willMakeOne) ? i18n.willMakeOne : sprintf(i18n.willMake, n); }
 		var money = '$' + cost.toFixed(2);
-		var fmt = (cfg.imagePrice && cfg.imagePrice.model && i18n.willCostWith)
+		var name = model || (cfg.imagePrice && cfg.imagePrice.model) || '';
+		var fmt = (name && i18n.willCostWith)
 			? ((single && i18n.willCostWithOne) || i18n.willCostWith)
 			: ((single && i18n.willCostOne) || i18n.willCost);
-		return sprintf(fmt, n, money, (cfg.imagePrice && cfg.imagePrice.model) || '');
+		return sprintf(fmt, n, money, name);
+	}
+	// The price of the model this press will use: the one picked beside
+	// Generate, or the shop's.
+	function chosenPrice() {
+		var k = $('#dze-one-model').val() || '';
+		var hit = null;
+		(cfg.imageModels || []).forEach(function (m) { if (m.key === k) { hit = m; } });
+		return hit || cfg.imagePrice || null;
 	}
 	function drawWillSpend() {
 		var $out = $('#dze-cx-willspend');
@@ -1125,6 +1134,11 @@
 				res.shotRecipe = res.shotRecipe || {};
 				if (res.shotRecipe[url]) { res.shotRecipe[r.data.url] = res.shotRecipe[url]; }
 				delete res.shotRecipe[url];
+				// THE ONE IT REPLACES LEAVES THE WAITING LIST TOO: replaced on
+				// screen and kept on the server, it came back on the next visit.
+				if (url && url !== r.data.url) {
+					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ String(url) ] });
+				}
 				$st.text('');
 				drawShots();
 				flagWaiting();
@@ -1584,6 +1598,13 @@
 						'<option value="1">1</option><option value="2">2</option>' +
 						'<option value="3">3</option><option value="4">4</option>' +
 					'</select></label> ' +
+					// WHICH MODEL MAKES THIS PRESS. « gpt vs nano banana » on one
+					// product was a trip to the settings between two presses; the
+					// shop's model is the one selected, the others are a click.
+					'<label class="dze-qm-bglabel" id="dze-one-modelwrap" style="display:none;"><span>' + esc(i18n.oneModel || '') + '</span>' +
+					'<select id="dze-one-model">' + (cfg.imageModels || []).map(function (m) {
+						return '<option value="' + esc(m.key) + '"' + (m.own ? ' selected' : '') + '>' + esc(m.model) + '</option>';
+					}).join('') + '</select></label> ' +
 				'<button type="button" class="button button-primary" id="dze-one-gen"></button> ' +
 					'<button type="button" class="button" id="dze-one-preview" style="display:none;" title="' + esc(i18n.previewTip) + '">' + esc(i18n.preview) + '</button> ' +
 					'<button type="button" class="button button-primary" id="dze-one-apply" style="display:none;"></button> ' +
@@ -1680,6 +1701,10 @@
 	}
 
 	function openOne(fid, mode, scope) {
+		// WHAT THE SERVER HOLDS, EVERY TIME IT OPENS. The copy kept from the
+		// first opening brought back pictures thrown away since, and lost the
+		// ones made since (« le bouton supprimer […] ne les supprime pas »).
+		res.current = null;
 		oneBuild();
 		one = { fid: fid, mode: mode || 'text', value: '', tries: [], keep: {}, scope: scope || 'main' };
 		var label = mode === 'image'
@@ -1697,7 +1722,7 @@
 		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
 		if ('image' !== mode) { oneFillSettings(fid); }
 		// Asking for several at once is only offered where several make sense.
-		$('#dze-one-nwrap').toggle('image' === mode);
+		$('#dze-one-nwrap, #dze-one-modelwrap').toggle('image' === mode);
 		$('#dze-one-preview').toggle('image' === mode);
 		oneWillSpend();
 		$('#dze-one').addClass('is-open');
@@ -1710,7 +1735,9 @@
 			oneDrawSources();
 		}
 		if (mode === 'text') { oneShowBefore(fid); }
-		oneRestore(mode, fid);
+		// The pictures waiting on the product are its bricks, under the
+		// gallery: the popup only orders. A text found again opens here.
+		if ('image' !== mode) { oneRestore(mode, fid); }
 	}
 
 	// What is still waiting on this product, found again.
@@ -2117,12 +2144,13 @@
 		if (!$out.length) { return; }
 		var n = ('image' === one.mode) ? Math.max(1, parseInt($('#dze-one-n').val(), 10) || 1) : 0;
 		if (!n) { $out.text('').hide(); return; }
-		var said = willSay(n, n * perImage(oneRefs()));
+		var price = chosenPrice();
+		var said = willSay(n, n * perImage(oneRefs(), price), price ? price.model : '');
 		var cap = parseInt(cfg.falPostCap, 10) || 0;
 		if (cap > 0 && n > cap) { said += ' \u00b7 ' + sprintf(i18n.overCap, cap, n - cap); }
 		$out.show().text(said);
 	}
-	$(document).on('change', '#dze-one-n', oneWillSpend);
+	$(document).on('change', '#dze-one-n, #dze-one-model', oneWillSpend);
 
 	// THE LINE THAT EXPLAINED WHICH PHOTOGRAPH WOULD LEAD IS GONE. It said
 	// three different things depending on what had been pasted, because the
@@ -2139,6 +2167,10 @@
 		var $box = $('#dze-one-previewbox').show().html('<p class="description">' + esc(i18n.previewing) + '</p>');
 		var req = oneImageRequest($('#dze-one-prompt').val() || '');
 		req.dry = 1;
+		// What WILL be sent: the framings already made and the model picked
+		// go into the preview exactly as into the order.
+		req.aware = 1;
+		req.model = $('#dze-one-model').val() || '';
 		$.post(cfg.ajaxUrl, req).done(function (r) {
 			if (!r || !r.success) {
 				$box.html('<p class="dze-cx-state is-ko">' + esc((r && r.data && r.data.message) || i18n.error) + '</p>');
@@ -2249,54 +2281,26 @@
 		var prompt = $('#dze-one-prompt').val() || '';
 
 		if (one.mode === 'image') {
-			// Asking for several at once is one request after another, not four
-			// at the same time: the provider is billed per image and answers in
-			// its own time, and a burst of parallel calls is how a run trips the
-			// budget guard halfway through.
+			// ORDERED, NOT AWAITED. Each picture is a brick under the gallery
+			// from the moment it is ordered; the popup closes and the page
+			// shows them arrive, one after another. Waiting here for the
+			// picture held a request open past the proxy's 60 seconds — the
+			// « HTTP 504 error » — and the strip it filled was decided in one
+			// batch that could throw away what the bulk screen had made.
 			var want = Math.max(1, parseInt($('#dze-one-n').val(), 10) || 1);
-			var made = 0;
-			var shoot = function () {
-				$st.text(want > 1 ? sprintf(i18n.tryN, made + 1, want) : i18n.generating);
-				$.post(cfg.ajaxUrl, oneImageRequest(prompt))
-					.done(function (r) {
-						if (!r || !r.success) {
-							$b.prop('disabled', false);
-							$st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error);
-							return;
-						}
-						made++;
-						drawSpend(r.data.spend);
-						// The next order can carry this picture as « not like
-						// this »: the preview of the last one is stale.
-						oneClearPreview();
-						// Every attempt is paid for: none of them is thrown away
-						// behind the next one. They line up and you compare.
-						one.tries = one.tries || [];
-						one.tries.push(r.data.url);
-						// A fresh attempt arrives kept: the common case is to
-						// take what you just asked for, and unticking is one
-						// click when it is not.
-						one.keep[r.data.url] = true;
-						// What the new image should be judged against depends on
-						// what is being made: the main image is replacing the main
-						// image, a gallery shot is not — there it is the photograph
-						// it was worked from that means something.
-						var ref = oneReference(r.data.main || '');
-						$('#dze-one-oldcap').text(ref.caption);
-						$('#dze-one-old').attr('src', ref.url).attr('data-full', ref.url)
-							.closest('figure').toggle(!!ref.url);
-						oneDrawTries();
-						$('#dze-one-pair').show();
-						$('#dze-one-dest').show();
-						$('#dze-one-oldwrap').toggle('main' === ($('#dze-one-target').val() || 'main'));
-						$('#dze-one-gen').text(i18n.generate);
-						if (made < want) { shoot(); return; }
-						$b.prop('disabled', false);
-						$st.text('');
-					})
-					.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
-			};
-			shoot();
+			var price = chosenPrice();
+			var order = oneImageRequest(prompt);
+			order.async = 1;
+			// The framings already made, in words, travel with the order.
+			order.aware = 1;
+			order.model = $('#dze-one-model').val() || '';
+			for (var k = 0; k < want; k++) { wallOrder($.extend(true, {}, order), price ? price.model : ''); }
+			$b.prop('disabled', false);
+			$st.text('');
+			$('#dze-one').removeClass('is-open');
+			wallSay(sprintf(want > 1 ? (i18n.orderedN || '%s') : (i18n.ordered || ''), want));
+			var $w = $('#dze-bricks');
+			if ($w.length && $w[0].scrollIntoView) { $w[0].scrollIntoView({ behavior: 'smooth', block: 'center' }); }
 			return;
 		}
 
@@ -2730,6 +2734,12 @@
 			.done(function (r) {
 				if (!r || !r.success) { varSay($row, (r && r.data && r.data.message) || i18n.error, true); d.reject(); return; }
 				varSay($row, '');
+				// The attempt it replaces leaves the product's waiting list: kept
+				// there, it came back on the next visit.
+				var dzeOld = vars.made[varGroup($row)];
+				if (dzeOld && dzeOld !== r.data.url) {
+					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ String(dzeOld) ] });
+				}
 				vars.made[varGroup($row)] = r.data.url;
 				$row.find('.dze-var-work').html(varTryHtml(r.data.url));
 				varDrawMade();
@@ -3059,7 +3069,11 @@
 		$.post(cfg.ajaxUrl, { action: 'dze_content_boxes', nonce: cfg.nonce, post: PID })
 			.done(function (r) {
 				if (!r || !r.success) { return; }
-				if (r.data.thumb_html) { $('#postimagediv .inside').html(r.data.thumb_html); }
+				if (r.data.thumb_html) {
+					$('#postimagediv .inside').html(r.data.thumb_html);
+					// Its ✦ went with the old content: it comes back.
+					plantImageButton('#postimagediv', 'main', i18n.oneMain);
+				}
 				var $list = $('#product_images_container ul.product_images');
 				if ($list.length) {
 					// The rows come from the server, drawn the way WooCommerce
@@ -3271,13 +3285,8 @@
 		// Each box offers the recipes that write INTO it, and no others: the
 		// featured-image box was showing every image prompt of the shop,
 		// gallery remakes included.
-		[ { sel: '#postimagediv', scope: 'main', label: i18n.oneMain },
-		  { sel: '#woocommerce-product-images', scope: 'gallery', label: i18n.oneGallery } ].forEach(function (box) {
-			var $box = $(box.sel + ' > .inside');
-			if (!$box.length) { return; }
-			$box.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" ' +
-				'data-mode="image" data-scope="' + box.scope + '">✦ ' + esc(box.label) + '</button></p>');
-		});
+		plantImageButton('#postimagediv', 'main', i18n.oneMain);
+		plantImageButton('#woocommerce-product-images', 'gallery', i18n.oneGallery);
 		// Whatever writes somewhere we cannot point at — custom blocks, SEO
 		// fields — is listed in the hub box instead of being unreachable.
 		var rest = Object.keys(cfg.fields).filter(function (fid) { return !placed[fid]; });
@@ -3287,6 +3296,14 @@
 					return '<button type="button" class="button-link dze-one-btn" data-field="' + esc(fid) + '">' + esc(cfg.fields[fid]) + '</button>';
 				}).join(' · ') + '</p>');
 		}
+	}
+	// One ✦ per image box, planted once: the box can be redrawn under it
+	// (refreshBoxes()), and the button must come back with its content.
+	function plantImageButton(sel, scope, label) {
+		var $box = $(sel + ' > .inside');
+		if (!$box.length || $box.find('.dze-one-btn[data-scope="' + scope + '"]').length) { return; }
+		$box.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" ' +
+			'data-mode="image" data-scope="' + scope + '">✦ ' + esc(label) + '</button></p>');
 	}
 	$(function () { plantButtons(); });
 	$(document).on('click', '.dze-one-btn', function () {
@@ -3304,6 +3321,338 @@
 		drawShots();
 		if (!res.shots.length && !Object.keys(res.texts).length) { $('#dze-cx-result').hide(); }
 	});
+
+	// =====================================================================
+	// THE WALL: every picture made for this product, laid on its page
+	// =====================================================================
+	//
+	// « Chaque image générée doit être comme une nouvelle brique posée sur la
+	// page produit. » A picture used to live in the popup's strip, decided in a
+	// batch by one Apply button whose « Cancel » threw away everything waiting
+	// on the product — the bulk screen's work included — and a strip the popup
+	// kept in memory brought back what had been thrown away the next time it
+	// opened (« le bouton supprimer […] ne les supprime pas »). Each picture is
+	// now a brick under the product's gallery, from the second it is ordered
+	// to the moment it is decided: ＋ files it in the gallery, ★ makes it the
+	// main image, ✕ throws it away — each at once, one picture at a time, read
+	// from the server and never from a copy.
+	//
+	// ONE PICTURE AT A TIME. The orders queue here and the next one leaves
+	// when the last is done, because the last one's framing, in words, is what
+	// tells the next not to repeat it (made_lines()) — three pictures ordered
+	// together were three times the same three-quarter view.
+	var wall = { shots: [], maps: { targets: {}, recipes: {}, models: {}, views: {} }, texts: {}, jobs: {}, queue: [], failed: [], busy: 0, added: 0, tick: null };
+
+	function wallBuild() {
+		if ($('#dze-bricks').length) { return true; }
+		var $box = $('#woocommerce-product-images > .inside');
+		if (!$box.length || !PID) { return false; }
+		var $w = $('<div class="dze-bricks" id="dze-bricks" style="display:none;"></div>').append(
+			$('<p class="dze-bricks-h"></p>').append(
+				$('<strong></strong>').text(i18n.brickWall || ''), ' ',
+				$('<span class="dze-bricks-n"></span>')
+			),
+			$('<div class="dze-bricks-grid dze-zoomgroup"></div>'),
+			$('<p class="description dze-bricks-legend"></p>').text(i18n.brickLegend || ''),
+			$('<p class="dze-bricks-say" role="status"></p>')
+		);
+		var $after = $box.find('#product_images_container');
+		if ($after.length) { $after.after($w); } else { $box.append($w); }
+		return true;
+	}
+
+	function shortModel(label) { return String(label || '').replace(/\s*\([^)]*\)\s*$/, ''); }
+	function modelLabel(key) {
+		var hit = '';
+		(cfg.imageModels || []).forEach(function (m) { if (m.key === key) { hit = m.model; } });
+		return hit || key || '';
+	}
+
+	// What the server holds — the only truth there is about what waits.
+	function wallFrom(cur) {
+		var p = (cur && cur.pending) || {};
+		wall.shots = (p.shots || []).slice();
+		wall.maps = {
+			targets: $.extend({}, p.targets || {}), recipes: $.extend({}, p.recipes || {}),
+			models: $.extend({}, p.models || {}), views: $.extend({}, p.views || {})
+		};
+		wall.texts = p.texts || {};
+		((cur && cur.jobs) || []).forEach(function (j) {
+			if (wall.jobs[j.id]) { return; }
+			wall.jobs[j.id] = { model: j.model, key: j.key, t0: Date.now() - (parseInt(j.secs, 10) || 0) * 1000 };
+			wallPoll(j.id, 0);
+		});
+	}
+
+	function wallLoad() {
+		if (!wallBuild()) { return $.Deferred().resolve(); }
+		return $.post(cfg.ajaxUrl, { action: 'dze_content_current', nonce: cfg.nonce, post: PID })
+			.then(function (r) {
+				if (!r || !r.success) { return; }
+				res.current = r.data;
+				wallFrom(r.data);
+				wallDraw();
+				wallNext();
+			});
+	}
+
+	function wallSay(msg, bad) {
+		$('#dze-bricks .dze-bricks-say').toggleClass('is-ko', !!bad).text(msg || '');
+	}
+
+	function wallSecs(t0) { return Math.max(0, Math.round((Date.now() - t0) / 1000)); }
+
+	function wallDraw() {
+		var $w = $('#dze-bricks');
+		if (!$w.length) { return; }
+		var $g = $w.find('.dze-bricks-grid').empty();
+		wall.shots.forEach(function (u) {
+			var view = wall.maps.views[u] || '';
+			var forMain = 'main' === (wall.maps.targets[u] || '');
+			$g.append($('<div class="dze-brick"></div>').attr('data-url', u)
+				.attr('title', view ? sprintf(i18n.brickView || '%s', view) : '')
+				.append(
+					$('<img alt="" />').attr('src', u).attr('data-full', u),
+					forMain ? $('<span class="dze-brick-badge">★</span>').attr('title', i18n.brickForMain || '') : null,
+					$('<span class="dze-brick-cap"></span>').text(shortModel(modelLabel(wall.maps.models[u] || ''))),
+					$('<span class="dze-brick-acts"></span>').append(
+						$('<button type="button" class="dze-brick-add">＋</button>').attr({ title: i18n.brickAdd, 'aria-label': i18n.brickAdd }),
+						$('<button type="button" class="dze-brick-main">★</button>').attr({ title: i18n.brickMain, 'aria-label': i18n.brickMain }),
+						$('<button type="button" class="dze-brick-throw">✕</button>').attr({ title: i18n.brickThrow, 'aria-label': i18n.brickThrow })
+					)
+				));
+		});
+		Object.keys(wall.jobs).forEach(function (id) {
+			var j = wall.jobs[id];
+			$g.append($('<div class="dze-brick is-making"></div>').attr('data-job', id).append(
+				$('<span class="spinner is-active"></span>'),
+				$('<span class="dze-brick-state"></span>').attr('data-t0', j.t0).text(sprintf(i18n.brickMaking || '%s', wallSecs(j.t0))),
+				$('<span class="dze-brick-cap"></span>').text(shortModel(j.model || modelLabel(j.key)))
+			));
+		});
+		if (wall.busy) {
+			$g.append($('<div class="dze-brick is-making"></div>').append(
+				$('<span class="spinner is-active"></span>'),
+				$('<span class="dze-brick-state"></span>').text(i18n.brickOrdering || ''),
+				$('<span class="dze-brick-cap"></span>').text(shortModel(wall.busy.model || ''))
+			));
+		}
+		wall.queue.forEach(function (o) {
+			$g.append($('<div class="dze-brick is-queued"></div>').append(
+				$('<span class="dze-brick-state"></span>').text(i18n.brickQueued || ''),
+				$('<span class="dze-brick-cap"></span>').text(shortModel(o.model || ''))
+			));
+		});
+		wall.failed.forEach(function (f, i) {
+			$g.append($('<div class="dze-brick is-failed"></div>').attr('data-fail', i).attr('title', f.msg || '').append(
+				$('<span class="dze-brick-state"></span>').text(sprintf(i18n.brickFailed || '%s', f.msg || i18n.error)),
+				$('<span class="dze-brick-cap"></span>').text(shortModel(f.model || '')),
+				$('<span class="dze-brick-acts"></span>').append(
+					$('<button type="button" class="dze-brick-dismiss">✕</button>').attr({ title: i18n.brickDismiss, 'aria-label': i18n.brickDismiss })
+				)
+			));
+		});
+		var n = wall.shots.length + Object.keys(wall.jobs).length + wall.queue.length + (wall.busy ? 1 : 0);
+		$w.find('.dze-bricks-n').text(n ? '(' + n + ')' : '');
+		$w.find('.dze-bricks-legend').toggle(wall.shots.length > 0);
+		$w.toggle(n + wall.failed.length > 0 || '' !== $w.find('.dze-bricks-say').text());
+		// The seconds of the pictures being made count on screen, without a
+		// request: the server is only asked every few seconds.
+		if (Object.keys(wall.jobs).length && !wall.tick) {
+			wall.tick = setInterval(function () {
+				$('#dze-bricks .is-making .dze-brick-state[data-t0]').each(function () {
+					$(this).text(sprintf(i18n.brickMaking || '%s', wallSecs(parseInt($(this).attr('data-t0'), 10) || Date.now())));
+				});
+				if (!Object.keys(wall.jobs).length) { clearInterval(wall.tick); wall.tick = null; }
+			}, 1000);
+		}
+	}
+
+	// An order: kept in line until the picture before it is done.
+	function wallOrder(req, model) {
+		wall.queue.push({ req: req, model: model });
+		wallBuild();
+		wallSay('');
+		wallDraw();
+		wallNext();
+	}
+
+	function wallNext() {
+		if (wall.busy || Object.keys(wall.jobs).length || !wall.queue.length) { return; }
+		var o = wall.queue.shift();
+		wall.busy = o;
+		wallDraw();
+		$.post(cfg.ajaxUrl, o.req)
+			.done(function (r) {
+				wall.busy = 0;
+				var d = (r && r.data) || {};
+				if (!r || !r.success || !d.job) {
+					wall.failed.push({ model: o.model, msg: d.message || i18n.error });
+					wallDraw();
+					wallNext();
+					return;
+				}
+				wall.jobs[d.job] = { model: d.model || o.model, key: d.key || '', t0: Date.now() };
+				drawSpend(d.spend);
+				wallDraw();
+				wallPoll(d.job, 0);
+			})
+			.fail(function (x) {
+				wall.busy = 0;
+				// The order may have reached fal before the answer was lost: the
+				// server files a job before it answers, so the wall is read again,
+				// and only an order that left no job behind is said to have failed.
+				var before = Object.keys(wall.jobs).length;
+				wallLoad().always(function () {
+					if (Object.keys(wall.jobs).length > before) { return; }
+					wall.failed.push({ model: o.model, msg: reason(x) });
+					wallDraw();
+					wallNext();
+				});
+			});
+	}
+
+	// Asking after one picture, every few seconds, in calls that last a
+	// moment whatever fal is doing.
+	function wallPoll(id, misses) {
+		setTimeout(function () {
+			if (!wall.jobs[id]) { return; }
+			$.post(cfg.ajaxUrl, { action: 'dze_content_job', nonce: cfg.nonce, post: PID, job: id })
+				.done(function (r) {
+					var d = (r && r.data) || {};
+					if (r && r.success && d.running) { wallPoll(id, 0); return; }
+					var was = wall.jobs[id] || {};
+					delete wall.jobs[id];
+					if (r && r.success && d.done && d.url) {
+						if (wall.shots.indexOf(d.url) < 0) { wall.shots.push(d.url); }
+						wall.maps.targets[d.url] = d.target || 'gallery';
+						wall.maps.recipes[d.url] = d.recipe || '';
+						wall.maps.models[d.url] = d.key || '';
+						wall.maps.views[d.url] = d.view || '';
+						drawSpend(d.spend);
+						wallSay(i18n.brickArrived || '');
+						wallDraw();
+						wallNext();
+						return;
+					}
+					if (d.gone && !d.error) {
+						// Collected by another tab, or already filed: what the server
+						// holds says where it is.
+						wallLoad();
+						return;
+					}
+					wall.failed.push({ model: was.model, msg: d.message || i18n.error });
+					wallDraw();
+					wallNext();
+				})
+				.fail(function (x) {
+					// A look that failed is not an answer: look again — but not
+					// for ever, and say what the last look got.
+					if (misses < 20) { wallPoll(id, misses + 1); return; }
+					var was = wall.jobs[id] || {};
+					delete wall.jobs[id];
+					wall.failed.push({ model: was.model, msg: sprintf(i18n.brickLost || '%s', reason(x)) });
+					wallDraw();
+					wallNext();
+				});
+		}, misses ? 5000 : 3000);
+	}
+
+	function wallGone(url) {
+		wall.shots = wall.shots.filter(function (u) { return u !== url; });
+		[ 'targets', 'recipes', 'models', 'views' ].forEach(function (k) { delete wall.maps[k][url]; });
+		// The toolbox reads the same waiting list: its copy follows.
+		if (res.current && res.current.pending && res.current.pending.shots) {
+			res.current.pending.shots = res.current.pending.shots.filter(function (u) { return u !== url; });
+		}
+		wallDraw();
+	}
+
+	function wallEmpty() {
+		return !wall.shots.length && !Object.keys(wall.jobs).length && !wall.queue.length && !wall.busy &&
+			!Object.keys(wall.texts || {}).length;
+	}
+
+	// ＋ and ★: the picture is filed on the product, now, alone.
+	$(document).on('click', '.dze-brick-add, .dze-brick-main', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		var $card = $(this).closest('.dze-brick');
+		var url = String($card.data('url') || '');
+		if (!url || $card.hasClass('is-busy')) { return; }
+		var asMain = $(this).hasClass('dze-brick-main');
+		$card.addClass('is-busy');
+		wallSay(i18n.applying || '');
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
+			// The prompt that made THIS picture names its file.
+			recipe: wall.maps.recipes[url] || cfg.mainRecipe || '',
+			items: [ { url: url, target: asMain ? 'main' : 'gallery' } ],
+			// The main image it replaces goes to the front of the gallery: an
+			// unwanted one is removed there, like any other photograph.
+			keep_old: 1,
+			replace: 0
+		}).done(function (r) {
+			if (!r || !r.success) {
+				$card.removeClass('is-busy');
+				wallSay((r && r.data && r.data.message) || i18n.error, true);
+				return;
+			}
+			wall.added++;
+			wallGone(url);
+			refreshBoxes();
+			wallSay(asMain ? i18n.brickMainDone : i18n.brickAdded);
+			// Placed, it recorded itself under Done (attach_file()): the screen
+			// claims no count of its own. Once nothing waits on the product any
+			// more, it also leaves the bulk list.
+			if (wallEmpty()) {
+				$.post(cfg.ajaxUrl, { action: 'dze_content_logged', nonce: cfg.nonce, post: PID, unqueue: 1 });
+			}
+		}).fail(function (x) {
+			$card.removeClass('is-busy');
+			wallSay(reason(x), true);
+		});
+	});
+
+	// ✕: thrown away for good. It was never on the shop; it leaves the
+	// product's waiting list on the server, so no screen brings it back.
+	$(document).on('click', '.dze-brick-throw', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		var $card = $(this).closest('.dze-brick');
+		var url = String($card.data('url') || '');
+		// NEVER AN EMPTY LIST: the server reads « no photograph named » as
+		// « throw away everything this product holds », bulk work included.
+		if (!url || $card.hasClass('is-busy')) { return; }
+		$card.addClass('is-busy');
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ] })
+			.done(function (r) {
+				if (!r || !r.success) {
+					$card.removeClass('is-busy');
+					wallSay((r && r.data && r.data.message) || i18n.error, true);
+					return;
+				}
+				wallGone(url);
+				wallSay(i18n.brickThrown || '');
+				if (wall.added && wallEmpty()) {
+					$.post(cfg.ajaxUrl, { action: 'dze_content_logged', nonce: cfg.nonce, post: PID, unqueue: 1 });
+				}
+			})
+			.fail(function (x) {
+				$card.removeClass('is-busy');
+				wallSay(reason(x), true);
+			});
+	});
+
+	// A failure said on its brick is dismissed there.
+	$(document).on('click', '.dze-brick-dismiss', function (e) {
+		e.preventDefault();
+		var i = parseInt($(this).closest('.dze-brick').attr('data-fail'), 10);
+		if (!isNaN(i)) { wall.failed.splice(i, 1); }
+		wallDraw();
+	});
+
+	$(function () { wallLoad(); });
 
 	// POD hands its result over to this strip.
 	window.dzeContentAddToGallery = function (url) {

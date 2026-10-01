@@ -753,6 +753,54 @@ fait" (4.499.0):
   changed IS the job — which is the only lane allowed to look like its source,
   and the only reason `sources_instruction()` needed to be told which lane it
   is on.
+- **THE PRODUCT PAGE ORDERS, THEN COMES BACK FOR ITS PICTURE** (4.505.0).
+  « HTTP 504 error — see the log ↗ ne me donne rien » · « Aucune nouvelle
+  image n'a vu la précédente » · « le bouton supprimer […] ne les supprime
+  pas » · « Chaque image générée doit être comme une nouvelle brique posée
+  sur la page produit ».
+  - **Ordering.** A press from the product page (`dze_content_quick_main`
+    with `async=1`) sets `DZE_Content::$submit_only`. `fal_generate()` stops
+    once fal has accepted the job and leaves it in `$submitted`; `shoot()`
+    files it in `_dze_img_jobs` (`job_add`) and answers in seconds.
+  - **Asking after it.** The page polls `dze_content_job` (`ajax_job` →
+    `job_look`) with one `fal_status()` look per call. When the job is done,
+    `fal_fetch()` runs, then the charge, `describe_view()`, and `stash()` with
+    `model` and `view`.
+    - A job unfinished after `JOB_GIVE_UP` (15 min), or unknown to fal, is
+      given up and written to the health log.
+    - One MySQL `GET_LOCK` per job, so two tabs never file or bill it twice.
+  - **Other screens.** `fal_collect()` is a loop of `fal_status()` +
+    `fal_fetch()`, so bulk, toolbox, POD and the lab still wait as before.
+    An owed `_dze_fal_wait` job is adopted by an async press (`job_adopt`),
+    never waited on.
+  - **AWARENESS IN WORDS ONLY.**
+    - Haiku describes each collected picture's framing (`describe_view`,
+      ~1 s, under $0.002). The line is kept in the waiting list (`views`),
+      then on the attachment (`_dze_view`) once accepted.
+    - The next order of the SAME prompt gets `made_lines()`: « ALREADY MADE…
+      do not make any of them again… only the framing changes ».
+    - A waiting picture made before 4.505.0 (no line yet) is read once,
+      at the next order of its prompt (8 at most), and its line kept.
+    - Never the pictures themselves (rule above). The wall's queue runs one
+      order at a time, so each one knows the last.
+  - **THE WALL** (`#dze-bricks`, under `#product_images_container`) shows
+    waiting pictures, jobs being made, queued orders and failures. All of it
+    is read from the server (`dze_content_current` → `pending`, `jobs`).
+    - ＋ is `image_attach` to the gallery.
+    - ★ makes it the main image; the old main goes to the front of the
+      gallery.
+    - ✕ is `pending_clear` by URL. NEVER send an empty `shots` list: empty
+      means drop the whole product, bulk work included.
+  - **The popup only orders.**
+    - Model select `#dze-one-model`, fed by `cfg.imageModels`.
+    - `$model_override` is checked against the catalogue keys as typed:
+      `sanitize_key` eats the dot of « 2.5 ».
+    - `openOne` resets `res.current`, because the cached copy brought back
+      thrown-away pictures.
+  - **Regenerate.** The three ↻ (toolbox, bulk, variations) now clear the
+    picture they replace.
+  - **Counts.** `attach_file()` logs itself, so screens never send counts to
+    `dze_content_logged`.
 - **NO PICTURE THE MODEL MADE IS EVER A REFERENCE FOR THE NEXT ONE.** « Le
   slop commence à partir de la 2e image générée. La première est mieux en
   général. » Two lanes fed the model its own output back:

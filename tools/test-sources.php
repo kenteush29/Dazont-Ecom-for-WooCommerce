@@ -176,7 +176,9 @@ function get_post_meta( $id, $key = '', $single = false ) {
 }
 function update_post_meta( $id, $key, $v ) { $GLOBALS['dze_meta'][ (int) $id ][ (string) $key ] = $v; return true; }
 $GLOBALS['mai'] = [];
-class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return $GLOBALS['mai']; } public static function api_key() { return 'k'; } public static function shop_profile() { return 'Online shop selling tactical gear.'; } public static function tab_links() { return []; } }
+class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return $GLOBALS['mai']; } public static function api_key() { return 'k'; } public static function shop_profile() { return 'Online shop selling tactical gear.'; } public static function tab_links() { return []; }
+	// Claude reading one picture: what describe_view() asks, recorded, and the line it answers.
+	public static function complete_with_images( ...$a ) { $GLOBALS['mai_vision'][] = $a; if ( ! empty( $GLOBALS['mai_view_fail'] ) ) { throw new RuntimeException( 'down' ); } return (string) ( $GLOBALS['mai_view'] ?? '' ); } }
 function get_current_user_id() { return 1; }
 function get_user_meta( ...$a ) { return $GLOBALS['dze_list'] ?? []; }
 // The fake shop can really shorten its list, so a Discard that removes a
@@ -222,6 +224,8 @@ function wp_send_json_success( $d = null ) { throw new DZE_Json_Sent( $d, true )
 function wp_send_json_error( $d = null, $c = 0 ) { throw new DZE_Json_Sent( $d, false ); }
 function check_ajax_referer( ...$a ) { return true; }
 function wp_unslash( $v ) { return $v; }
+function wp_slash( $v ) { return $v; }
+if ( ! defined( 'MB_IN_BYTES' ) ) { define( 'MB_IN_BYTES', 1048576 ); }
 function absint( $v ) { return abs( (int) $v ); }
 /** The popup behind every "✎ Prompt" drawn in JavaScript on that screen. */
 class DZE_Prompts {
@@ -1504,7 +1508,7 @@ $dze_lab = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/imag
 $dze_cc  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
 $dze_pos = 'replace(/%(\d+)\$s|%s/g, function (m, n) { return n ? args[parseInt(n, 10) - 1] : args[i++]; });';
 ok( 'les sprintf des ecrans d images respectent la position', [ substr_count( $dze_js, $dze_pos ), substr_count( $dze_jsb, $dze_pos ), substr_count( $dze_lab, $dze_pos ) ], [ 1, 1, 1 ] );
-ok( 'le panneau d une fiche compte ce qu il envoie',      false !== strpos( $dze_js, 'var said = willSay(n, n * perImage(oneRefs()));' ), true );
+ok( 'le panneau d une fiche compte ce qu il envoie',      false !== strpos( $dze_js, "var said = willSay(n, n * perImage(oneRefs(), price), price ? price.model : '');" ), true );
 ok( 'et se redessine : produit lu, photos choisies, photo collee', [
 	(bool) preg_match( '/drawWillSpend\(\);\s*oneWillSpend\(\);/', $dze_js ),
 	(bool) preg_match( '/oneClearPreview\(\);\s*\/\/ What is sent is what is billed[^\n]*\n\s*oneWillSpend\(\);/', $dze_js ),
@@ -1525,6 +1529,125 @@ ok( 'et le prix du modele en vigueur',                    false !== strpos( $dze
 $GLOBALS['opts']['dze_content_settings'] = [ 'fal_image_cost' => 0.09 ];
 ok( 'Nano Banana 2 : le prix saisi, par image',           false !== strpos( DZE_Content::spend_tip(), 'Nano Banana 2 (Google), $0.090 per image.' ), true );
 ok( 'les deux ecrans lisent la meme aide',                substr_count( $dze_cc, '=> self::spend_tip(),' ), 2 );
+// =====================================================================
+// 4.505.0 — LA FICHE PRODUIT COMMANDE, PUIS REVIENT CHERCHER SON IMAGE
+// =====================================================================
+// « HTTP 504 error — see the log ↗ ne me donne rien. » Un appui tenait la
+// requête ouverte le temps que fal finisse — 40 à 60 s avec GPT Image — et le
+// proxy de Hostinger coupe à 60 : PHP mourait avec, et une image payée n'était
+// notée nulle part. « Aucune nouvelle image n'a vu la précédente » : trois
+// commandes, trois fois le même trois-quarts. Et « le bouton supprimer […] ne
+// les supprime pas » : la copie gardée par le panneau les ramenait.
+$GLOBALS['dze_meta'] = [];
+$GLOBALS['tr']       = [];
+$GLOBALS['fal_sent'] = [];
+$GLOBALS['fal_got']  = [];
+$GLOBALS['opts']['dze_content_settings'] = [ 'img_model' => 'nano-banana-2' ];
+// Its own provider, whole: the tests before it leave other ids and other bills behind.
+$GLOBALS['fal_say'] = [
+	'code'   => 200,
+	'body'   => '{"request_id":"req-1","status_url":"https://queue.fal.run/fal-ai/nano-banana-2/edit/requests/req-1/status","response_url":"https://queue.fal.run/fal-ai/nano-banana-2/edit/requests/req-1"}',
+	'status' => 'IN_PROGRESS',
+	'result' => '{"images":[{"url":"https://v3b.fal.media/files/b/x/new.jpg"}]}',
+	'units'  => '1',
+];
+DZE_Content::$submit_only = true;
+$dze_got = DZE_Content::instance()->fal_generate( 'p', [ 'data:image/jpeg;base64,AA' ], '1:1', 77, '' );
+DZE_Content::$submit_only = false;
+$dze_status_asked = count( array_filter( $GLOBALS['fal_got'], static fn( $u ) => '/status' === substr( (string) $u, -7 ) ) );
+ok( 'commandée, la photo ne fait plus attendre : aucune question de statut', [ $dze_got, $dze_status_asked ], [ '', 0 ] );
+ok( 'la commande revient avec ses mots et son heure de départ', [ DZE_Content::$submitted['id'] ?? '', isset( DZE_Content::$submitted['asked'] ), isset( DZE_Content::$submitted['t0'] ) ], [ 'req-1', true, true ] );
+DZE_Content::job_add( 77, DZE_Content::$submitted + [ 'target' => 'gallery', 'recipe' => 'r1', 'stash' => 1 ] );
+DZE_Content::$submitted = [];
+ok( 'et elle est rangée sur le produit, où une page rouverte la retrouve', [ array_keys( DZE_Content::jobs( 77 ) ), DZE_Content::jobs_public( 77 )[0]['key'] ?? '' ], [ [ 'req-1' ], 'nano-banana-2' ] );
+$dze_look = new ReflectionMethod( 'DZE_Content', 'job_look' );
+$dze_look->setAccessible( true );
+$GLOBALS['fal_got'] = [];
+$dze_r = $dze_look->invoke( DZE_Content::instance(), 77, 'req-1' );
+ok( 'tant que fal travaille : « en cours », en une seule question', [ $dze_r['running'] ?? 0, count( $GLOBALS['fal_got'] ), count( DZE_Content::jobs( 77 ) ) ], [ 1, 1, 1 ] );
+$GLOBALS['fal_say']['status'] = 'COMPLETED';
+$GLOBALS['mai_view']   = 'whole jacket, front three-quarter view, hood up';
+$GLOBALS['mai_vision'] = [];
+$dze_r = $dze_look->invoke( DZE_Content::instance(), 77, 'req-1' );
+$dze_u = 'https://v3b.fal.media/files/b/x/new.jpg';
+$dze_w = DZE_Content::pending( 77 );
+ok( 'finie : dans la liste d attente, avec sa cible, son prompt, son modele et son cadrage', [
+	$dze_r['done'] ?? 0, $dze_r['url'] ?? '', $dze_r['key'] ?? '',
+	$dze_w['shots'] ?? [], $dze_w['recipes'][ $dze_u ] ?? '', $dze_w['models'][ $dze_u ] ?? '', $dze_w['views'][ $dze_u ] ?? '',
+], [ 1, $dze_u, 'nano-banana-2', [ $dze_u ], 'r1', 'nano-banana-2', 'whole jacket, front three-quarter view, hood up' ] );
+ok( 'le cadrage est lu par Haiku, sur la photo elle-meme', [ count( $GLOBALS['mai_vision'] ), $GLOBALS['mai_vision'][0][3] ?? '', ( $GLOBALS['mai_vision'][0][2][0]['media'] ?? '' ) ], [ 1, 'claude-haiku-4-5-20251001', 'image/jpeg' ] );
+ok( 'et la commande quitte la liste des travaux, payee une fois', [ DZE_Content::jobs( 77 ), (float) get_post_meta( 77, DZE_Content::META_SPEND, true ) > 0 ], [ [], true ] );
+// UNE COMMANDE QUE FAL N'A PAS FINIE EN UN QUART D'HEURE est abandonnée, dite,
+// et retirée — plus jamais redemandée.
+DZE_Content::job_add( 77, [ 'id' => 'req-2', 'status' => 'https://queue.fal.run/fal-ai/x/requests/req-2/status', 'response' => '', 'model' => 'nano-banana-2', 'refs' => 1, 't' => time() - 1000 ] );
+$GLOBALS['fal_say']['status'] = 'IN_QUEUE';
+$dze_r = $dze_look->invoke( DZE_Content::instance(), 77, 'req-2' );
+ok( 'abandonnee apres 15 minutes, dite sur sa brique, retiree des travaux', [ $dze_r['error'] ?? 0, $dze_r['gone'] ?? 0, isset( DZE_Content::jobs( 77 )['req-2'] ) ], [ 1, 1, false ] );
+// Haiku muet : la photo est rangée quand meme, sans cadrage.
+DZE_Content::job_add( 77, [ 'id' => 'req-3', 'status' => 'https://queue.fal.run/fal-ai/x/requests/req-3/status', 'response' => '', 'model' => 'nano-banana-2', 'refs' => 1, 'stash' => 1, 'recipe' => 'r1', 'target' => 'gallery' ] );
+$GLOBALS['fal_say']['status'] = 'COMPLETED';
+$GLOBALS['fal_say']['result'] = '{"images":[{"url":"https://v3b.fal.media/files/b/x/two.jpg"}]}';
+$GLOBALS['mai_view_fail'] = 1;
+$dze_r = $dze_look->invoke( DZE_Content::instance(), 77, 'req-3' );
+unset( $GLOBALS['mai_view_fail'] );
+ok( 'si Claude ne répond pas, la photo est rangée sans cadrage', [ $dze_r['done'] ?? 0, DZE_Content::pending( 77 )['views']['https://v3b.fal.media/files/b/x/two.jpg'] ?? 'absent' ], [ 1, 'absent' ] );
+// LA COMMANDE SUIVANTE EST PRÉVENUE — EN MOTS, JAMAIS EN IMAGES. two.jpg est
+// arrivée sans cadrage (Claude muet) : elle est lue maintenant, une fois.
+$GLOBALS['mai_view']   = 'close-up of the chest zipper';
+$GLOBALS['mai_vision'] = [];
+$dze_ml = DZE_Content::made_lines( 77, 'r1' );
+ok( 'la suivante est prevenue en mots de ce qui existe deja', [ false !== strpos( $dze_ml, 'ALREADY MADE' ), false !== strpos( $dze_ml, 'whole jacket, front three-quarter view, hood up' ), false !== strpos( $dze_ml, 'v3b.fal.media' ) ], [ true, true, false ] );
+ok( 'une image en attente sans cadrage est lue avant la commande, et la ligne gardee', [ false !== strpos( $dze_ml, 'close-up of the chest zipper' ), DZE_Content::pending( 77 )['views']['https://v3b.fal.media/files/b/x/two.jpg'] ?? '', count( $GLOBALS['mai_vision'] ) ], [ true, 'close-up of the chest zipper', 1 ] );
+DZE_Content::made_lines( 77, 'r1' );
+ok( 'une seule fois : la ligne gardee sert aux suivantes', count( $GLOBALS['mai_vision'] ), 1 );
+ok( 'pas celle d un autre prompt', DZE_Content::made_lines( 77, 'r2' ), '' );
+$dze_aj = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
+ok( 'seulement quand la fiche le demande, apres les notes', false !== strpos( $dze_aj, "if ( ! empty( \$in['aware'] ) ) {\n\t\t\t\t\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ) );" ), true );
+ok( 'et aucune image faite ne repart vers le modele', false !== strpos( $dze_aj, '$avoid = 0;' ), true );
+// JETEE, ELLE PART AVEC TOUT CE QUI LA DECRIT.
+DZE_Content::settle_shots( 77, [ $dze_u ] );
+$dze_w = DZE_Content::pending( 77 );
+ok( 'jetee, elle part avec sa cible, son prompt, son modele et son cadrage', [ $dze_w['shots'] ?? [], isset( $dze_w['models'][ $dze_u ] ), isset( $dze_w['views'][ $dze_u ] ), isset( $dze_w['recipes'][ $dze_u ] ) ], [ [ 'https://v3b.fal.media/files/b/x/two.jpg' ], false, false, false ] );
+$dze_ml = DZE_Content::made_lines( 77, 'r1' );
+ok( 'son cadrage est libre a nouveau, celui des autres reste', [ false !== strpos( $dze_ml, 'whole jacket, front three-quarter view, hood up' ), false !== strpos( $dze_ml, 'close-up of the chest zipper' ) ], [ false, true ] );
+// UNE PHOTO DEJA DUE NE BLOQUE PLUS une commande : elle rejoint les travaux suivis.
+update_post_meta( 78, DZE_Content::FAL_PENDING_META, [ 'id' => 'old-1', 'status' => 'https://queue.fal.run/fal-ai/x/requests/old-1/status', 'response' => '', 'model' => 'nano-banana-2', 'refs' => 1 ] );
+$GLOBALS['fal_say']['status'] = 'IN_PROGRESS';
+$GLOBALS['tr'] = [];
+DZE_Content::$submit_only = true;
+$dze_got = DZE_Content::instance()->fal_generate( 'p', [ 'data:image/jpeg;base64,AA' ], '1:1', 78, '' );
+DZE_Content::$submit_only = false;
+ok( 'la photo due rejoint les travaux suivis, la nouvelle part', [ isset( DZE_Content::jobs( 78 )['old-1'] ), DZE_Content::fal_pending( 78 ), DZE_Content::$submitted['id'] ?? '' ], [ true, [], 'req-1' ] );
+DZE_Content::$submitted = [];
+// UN APPUI NOMME SON MODELE — le point de « 2.5 » compris.
+DZE_Content::$model_override = 'gpt-image-2.5-sunburst';
+ok( 'un appui peut nommer son modele, le point compris', DZE_Content::image_model_key(), 'gpt-image-2.5-sunburst' );
+DZE_Content::$model_override = 'gpt-image-25-sunburst';
+ok( 'un nom inconnu retombe sur le reglage', DZE_Content::image_model_key(), 'nano-banana-2' );
+DZE_Content::$model_override = '';
+ok( 'le nom est compare au catalogue tel quel, jamais passe par sanitize_key', [ false !== strpos( $dze_aj, "self::\$model_override = isset( self::image_models()[ \$dze_model ] ) ? \$dze_model : '';" ), false !== strpos( $dze_aj, "sanitize_key( wp_unslash( \$_POST['model'] ) )" ) ], [ true, false ] );
+$GLOBALS['opts']['dze_content_settings'] = [ 'img_model' => 'gpt-image-2.5-sunburst' ];
+$dze_mc = DZE_Content::image_models_cfg();
+ok( 'la liste des modeles commence par celui de la boutique, chacun avec son prix', [ $dze_mc[0]['key'], $dze_mc[0]['own'], count( $dze_mc ), isset( $dze_mc[1]['base'], $dze_mc[1]['perRef'], $dze_mc[1]['model'] ) ], [ 'gpt-image-2.5-sunburst', true, count( DZE_Content::image_models() ), true ] );
+$GLOBALS['opts']['dze_content_settings'] = [];
+// L'ECRAN : il commande, il demande des nouvelles, il ne jette jamais tout.
+$dze_cs = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+$dze_js = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content.js' );
+$dze_jsb = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
+ok( 'la page demande des nouvelles par un appel enregistre', false !== strpos( $dze_cs, "add_action( 'wp_ajax_dze_content_job', [ \$this, 'ajax_job' ] );" ), true );
+ok( 'le bouton Generate commande, avec la memoire des cadrages et le modele choisi', [ false !== strpos( $dze_js, 'order.async = 1;' ), false !== strpos( $dze_js, 'order.aware = 1;' ), false !== strpos( $dze_js, "order.model = \$('#dze-one-model').val() || '';" ) ], [ true, true, true ] );
+ok( 'une image a la fois, chacune prevenue de la precedente', false !== strpos( $dze_js, 'if (wall.busy || Object.keys(wall.jobs).length || !wall.queue.length) { return; }' ), true );
+ok( 'la page demande des nouvelles, jamais la requete ne reste ouverte', false !== strpos( $dze_js, "action: 'dze_content_job'" ), true );
+ok( '✕ ne part jamais avec une liste vide (vide = tout jeter)', [ false !== strpos( $dze_js, "if (!url || \$card.hasClass('is-busy')) { return; }\n\t\t\$card.addClass('is-busy');\n\t\t\$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ] })" ) ], [ true ] );
+ok( 'le panneau relit le serveur a chaque ouverture, et ne refait plus sa bande d images', [ false !== strpos( $dze_js, "\t\tres.current = null;\n\t\toneBuild();" ), false !== strpos( $dze_js, "if ('image' !== mode) { oneRestore(mode, fid); }" ) ], [ true, true ] );
+ok( 'les trois ↻ retirent l image qu ils remplacent', [ substr_count( $dze_js, 'THE ONE IT REPLACES LEAVES THE WAITING LIST TOO' ), substr_count( $dze_jsb, 'THE ONE IT REPLACES LEAVES THE WAITING LIST TOO' ), false !== strpos( $dze_js, 'var dzeOld = vars.made[varGroup($row)];' ) ], [ 1, 1, true ] );
+ok( 'une photo placee ne se compte pas deux fois', false !== strpos( $dze_js, "action: 'dze_content_logged', nonce: cfg.nonce, post: PID, unqueue: 1 });" ), true );
+$dze_cl = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-cleanup.php' );
+ok( 'les deux nouvelles metas sont declarees au nettoyage', [ false !== strpos( $dze_cl, "'_dze_img_jobs'" ), false !== strpos( $dze_cl, "'_dze_view'" ) ], [ true, true ] );
+$GLOBALS['fal_say']['status'] = 'COMPLETED';
+$GLOBALS['fal_say']['result'] = '{"images":[{"url":"https://fal.media/x.jpg"}]}';
+$GLOBALS['dze_meta'] = [];
+
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

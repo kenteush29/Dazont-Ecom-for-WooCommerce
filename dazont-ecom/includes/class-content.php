@@ -156,8 +156,8 @@ final class DZE_Content {
 	 *
 	 * @return array{model:string,base:float,perRef:float,cap:int}
 	 */
-	public static function image_price_cfg(): array {
-		$key = self::image_model_key();
+	public static function image_price_cfg( string $key = '' ): array {
+		$key = isset( self::image_models()[ $key ] ) ? $key : self::image_model_key();
 		$m   = self::image_models()[ $key ];
 		return [
 			'model'  => (string) $m['label'],
@@ -167,8 +167,28 @@ final class DZE_Content {
 		];
 	}
 
+	/**
+	 * EVERY MODEL A PRESS CAN NAME, priced the way the bill reads them, the
+	 * shop's own first. The product page offers them beside Generate, so two
+	 * models are compared on one product without touching the setting.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function image_models_cfg(): array {
+		$own = self::image_model_key();
+		$out = [];
+		foreach ( array_keys( self::image_models() ) as $key ) {
+			$out[] = [ 'key' => (string) $key, 'own' => $key === $own ] + self::image_price_cfg( (string) $key );
+		}
+		usort( $out, static fn( $a, $b ) => (int) $b['own'] - (int) $a['own'] );
+		return $out;
+	}
+
 	/** The model this shop makes its photographs with: the setting, or the default. */
 	public static function image_model_key(): string {
+		if ( '' !== self::$model_override && isset( self::image_models()[ self::$model_override ] ) ) {
+			return self::$model_override;
+		}
 		$k = (string) ( self::get_settings()['img_model'] ?? '' );
 		return isset( self::image_models()[ $k ] ) ? $k : 'nano-banana-2';
 	}
@@ -211,6 +231,46 @@ final class DZE_Content {
 
 	/** A job fal accepted and the shop has not collected yet, per product. */
 	public const FAL_PENDING_META = '_dze_fal_wait';
+
+	/**
+	 * THE PICTURES A PRODUCT PAGE ORDERED AND COMES BACK FOR.
+	 *
+	 * « HTTP 504 error — see the log ↗ ne me donne rien. » One press held its
+	 * request open while PHP waited on fal for up to FAL_WAIT seconds; GPT
+	 * Image takes 40 to 60 of them, and Hostinger's proxy answers 504 at 60 —
+	 * killing PHP with it, so a picture fal had billed was recorded nowhere,
+	 * not even in the log the error pointed to. The product page now orders
+	 * (a few seconds), files the job here, and asks after it in short calls
+	 * (ajax_job) until the picture is in the waiting list.
+	 */
+	public const META_JOBS = '_dze_img_jobs';
+
+	/**
+	 * WHAT AN AI PHOTOGRAPH ON THE PRODUCT SHOWS, IN WORDS — its framing,
+	 * carried from the waiting list onto the attachment when it is accepted,
+	 * so the photographs made after it know it exists (made_lines()).
+	 */
+	public const META_VIEW = '_dze_view';
+
+	/** A job fal has not finished in this long is given up and said so. */
+	private const JOB_GIVE_UP = 900;
+
+	/**
+	 * ORDER, DO NOT WAIT. Set for one request by the product page's press:
+	 * fal_generate() stops once fal has accepted the job and leaves it in
+	 * $submitted, where shoot() files it as a job instead of a picture.
+	 */
+	public static bool $submit_only = false;
+	/** @var array<string,mixed> The job fal_generate() just ordered. */
+	public static array $submitted = [];
+
+	/**
+	 * ONE PRESS'S MODEL. « Test avec une seule image, gpt vs nano banana » —
+	 * comparing two models meant changing the shop's setting between two
+	 * presses. The product page can name one for the press it sends; the
+	 * setting stays the default everywhere else.
+	 */
+	public static string $model_override = '';
 
 	// The real limit on a generation is the SIZE of the request body, not a
 	// number of photographs — and that limit is enforced on every lane, image
@@ -279,6 +339,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_log_clear', [ $this, 'ajax_log_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
+		// The product page asks after the pictures it ordered, in short calls.
+		add_action( 'wp_ajax_dze_content_job', [ $this, 'ajax_job' ] );
 		add_action( 'wp_ajax_dze_content_bg_add', [ $this, 'ajax_bg_add' ] );
 		add_action( 'wp_ajax_dze_content_prompt_toggle', [ $this, 'ajax_prompt_toggle' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
@@ -2049,6 +2111,20 @@ EOT;
 				$who = (array) ( $cur['recipes'] ?? [] );
 				$who[ (string) $add['shot'] ] = (string) $add['recipe'];
 				$cur['recipes'] = $who;
+			}
+			// THE MODEL THAT MADE IT, named on its tile: two models compared
+			// side by side are two pictures that must say which is which.
+			if ( ! empty( $add['model'] ) ) {
+				$by = (array) ( $cur['models'] ?? [] );
+				$by[ (string) $add['shot'] ] = (string) $add['model'];
+				$cur['models'] = $by;
+			}
+			// ITS FRAMING, IN WORDS (describe_view): what the next order is
+			// told not to repeat.
+			if ( ! empty( $add['view'] ) ) {
+				$seen = (array) ( $cur['views'] ?? [] );
+				$seen[ (string) $add['shot'] ] = (string) $add['view'];
+				$cur['views'] = $seen;
 			}
 		}
 		// WHO LAUNCHED THE WORK ON THIS PRODUCT, kept from the FIRST piece and
@@ -5257,6 +5333,9 @@ Answer with STRICT JSON and nothing else: "
 			// so the button can state the bill before it is pressed.
 			'imageCost'  => self::fal_image_cost(),
 			'imagePrice' => self::image_price_cfg(),
+			// THE MODELS ONE PRESS CAN NAME (« gpt vs nano banana »), priced, the
+			// shop's own first: the bill before the press follows the choice.
+			'imageModels' => self::image_models_cfg(),
 			'falPostCap' => class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::fal_post_cap() : 0,
 			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
@@ -5600,6 +5679,33 @@ Answer with STRICT JSON and nothing else: "
 				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
 				'stepElse'   => __( 'Photographs from elsewhere', 'dazont-ecom' ),
 				'noRecipes'  => __( 'No image prompt writes here yet. Add one under Settings → Product content → Prompts.', 'dazont-ecom' ),
+				// THE WALL under the gallery: each picture made for the product,
+				// from the moment it is ordered to the moment it is decided.
+				'brickWall'    => __( 'Made with AI — not on the shop yet', 'dazont-ecom' ),
+				'brickLegend'  => __( '＋ add to the gallery · ★ make it the main image · ✕ throw away for good (it was never on the shop) · ⤢ see it full size', 'dazont-ecom' ),
+				/* translators: %s: what the picture shows, e.g. "whole jacket, front three-quarter view" */
+				'brickView'    => __( 'Framing: %s', 'dazont-ecom' ),
+				'brickForMain' => __( 'Made for the main image', 'dazont-ecom' ),
+				'brickAdd'     => __( 'Add to the gallery', 'dazont-ecom' ),
+				'brickMain'    => __( 'Make it the main image (the current one moves to the front of the gallery)', 'dazont-ecom' ),
+				'brickThrow'   => __( 'Throw away for good — it leaves this product and does not come back', 'dazont-ecom' ),
+				/* translators: %s: seconds since the picture was ordered */
+				'brickMaking'  => __( 'Being made · %s s', 'dazont-ecom' ),
+				'brickOrdering'=> __( 'Ordering…', 'dazont-ecom' ),
+				'brickQueued'  => __( 'Next in line', 'dazont-ecom' ),
+				/* translators: %s: why the picture was not made */
+				'brickFailed'  => __( 'Not made: %s', 'dazont-ecom' ),
+				'brickDismiss' => __( 'Dismiss this message', 'dazont-ecom' ),
+				'brickArrived' => __( 'A new picture is in. Nothing goes on the shop until you press ＋ or ★.', 'dazont-ecom' ),
+				/* translators: %s: the error of the last attempt to reach the server */
+				'brickLost'    => __( 'The server could not be reached to collect it (%s). It is kept on the product: reload the page to find it.', 'dazont-ecom' ),
+				'brickAdded'   => __( 'Added to the gallery.', 'dazont-ecom' ),
+				'brickMainDone'=> __( 'It is the main image now; the previous one is first in the gallery.', 'dazont-ecom' ),
+				'brickThrown'  => __( 'Thrown away for good.', 'dazont-ecom' ),
+				'ordered'      => __( 'Ordered. The picture appears under the product gallery when it is made — about a minute with GPT Image, fifteen seconds with Nano Banana.', 'dazont-ecom' ),
+				/* translators: %s: how many pictures were ordered */
+				'orderedN'     => __( '%s pictures ordered. They are made one after another — each one told what the previous ones show — and appear under the product gallery.', 'dazont-ecom' ),
+				'oneModel'     => __( 'Model', 'dazont-ecom' ),
 				'oneGallery' => __( 'Gallery images', 'dazont-ecom' ),
 				'imgAll'     => __( 'Every photograph of the product', 'dazont-ecom' ),
 				'noShots'    => __( 'No photograph on this product yet — add the main image to the product and save it, or paste one below.', 'dazont-ecom' ),
@@ -7125,6 +7231,13 @@ Answer with STRICT JSON and nothing else: "
 		// it is not an attempt, and it does not touch the hourly ceiling:
 		// nothing new is being asked of fal.
 		$owed = self::fal_pending( $pid );
+		if ( $owed && self::$submit_only ) {
+			// A PAGE THAT COMES BACK FOR ITS PICTURES does not wait here for an
+			// old one: the job owed joins the ones it asks after, and arrives
+			// in the waiting list like them — paid once, shown once.
+			self::job_adopt( $pid, $owed );
+			$owed = [];
+		}
 		if ( $owed ) {
 			try {
 				$back = self::fal_collect( $owed, $pid, $prompt . "\n\n[collected — a job this product had already paid for]", microtime( true ) );
@@ -7239,6 +7352,12 @@ Answer with STRICT JSON and nothing else: "
 			$fail( 'provider — ' . $msg );
 			throw new RuntimeException( $msg );
 		}
+		if ( self::$submit_only ) {
+			// THE JOB, NOT THE PICTURE: the page that ordered it collects it
+			// (ajax_job), with the words that were sent and the time they left.
+			self::$submitted = $job + [ 'asked' => $dze_asked, 't0' => $dze_t0 ];
+			return '';
+		}
 		$got = self::fal_collect( $job, $pid, $dze_asked, $dze_t0 );
 		if ( '' !== $got ) {
 			return $got;
@@ -7292,16 +7411,9 @@ Answer with STRICT JSON and nothing else: "
 		$nap  = (int) min( 2000000, max( 0, self::fal_wait() * 125000 ) );
 		$done = false;
 		while ( time() < $until ) {
-			$st = wp_remote_get( $job['status'], [
-				'timeout' => 20,
-				'headers' => [ 'Authorization' => 'Key ' . self::fal_key() ],
-			] );
-			if ( ! is_wp_error( $st ) ) {
-				$row = json_decode( wp_remote_retrieve_body( $st ), true );
-				if ( 'COMPLETED' === (string) ( ( is_array( $row ) ? $row : [] )['status'] ?? '' ) ) {
-					$done = true;
-					break;
-				}
+			if ( 'done' === self::fal_status( $job, 20 ) ) {
+				$done = true;
+				break;
 			}
 			if ( $nap > 0 ) {
 				usleep( $nap );
@@ -7310,7 +7422,40 @@ Answer with STRICT JSON and nothing else: "
 		if ( ! $done ) {
 			return '';
 		}
-		$where = '' !== $job['response'] ? $job['response'] : rtrim( $job['status'], '/status' );
+		return self::fal_fetch( $job, $pid, $asked, $t0 );
+	}
+
+	/**
+	 * ONE LOOK AT A JOB, never a wait: 'done', 'running', or 'failed' when fal
+	 * no longer knows it. The page that ordered a picture asks this every few
+	 * seconds, in calls short enough for any proxy; a network blip is
+	 * « running » — not an answer.
+	 */
+	public static function fal_status( array $job, int $timeout = 10 ): string {
+		$st = wp_remote_get( (string) ( $job['status'] ?? '' ), [
+			'timeout' => $timeout,
+			'headers' => [ 'Authorization' => 'Key ' . self::fal_key() ],
+		] );
+		if ( is_wp_error( $st ) ) {
+			return 'running';
+		}
+		$row = json_decode( wp_remote_retrieve_body( $st ), true );
+		$say = (string) ( ( is_array( $row ) ? $row : [] )['status'] ?? '' );
+		if ( 'COMPLETED' === $say ) {
+			return 'done';
+		}
+		$code = (int) wp_remote_retrieve_response_code( $st );
+		return ( '' === $say && $code >= 400 && $code < 500 && 429 !== $code ) ? 'failed' : 'running';
+	}
+
+	/**
+	 * Takes a FINISHED job's picture, and files what it cost.
+	 *
+	 * '' means it finished and could not be fetched this time: it is collected
+	 * on the next look, never ordered again.
+	 */
+	public static function fal_fetch( array $job, int $pid, string $asked, float $t0 ): string {
+		$where = '' !== (string) ( $job['response'] ?? '' ) ? (string) $job['response'] : rtrim( (string) $job['status'], '/status' );
 		$res   = wp_remote_get( $where, [
 			'timeout' => 30,
 			'headers' => [ 'Authorization' => 'Key ' . self::fal_key() ],
@@ -7318,6 +7463,7 @@ Answer with STRICT JSON and nothing else: "
 		if ( is_wp_error( $res ) ) {
 			return ''; // finished and not fetched: collected on the next run.
 		}
+		$code = (int) wp_remote_retrieve_response_code( $res );
 		$body = json_decode( wp_remote_retrieve_body( $res ), true );
 		$url  = ( is_array( $body ) ? $body : [] )['images'][0]['url'] ?? '';
 		// What this call is actually billed. fal answers with the number of
@@ -7343,12 +7489,196 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 		DZE_Ai_Usage::trace( 'fal', $key, $asked, $url ? (string) $url : 'ERROR — no image in the answer', microtime( true ) - $t0 );
-		// Collected: the product owes nothing to fal any more.
-		self::fal_pending_clear( $pid );
+		// Collected: the product owes nothing to fal any more — for THIS job.
+		// A page asking after its own picture must not wipe an older one the
+		// product is still owed.
+		if ( (string) ( self::fal_pending( $pid )['id'] ?? '' ) === (string) ( $job['id'] ?? '' ) ) {
+			self::fal_pending_clear( $pid );
+		}
 		if ( ! $url ) {
-			throw new RuntimeException( __( 'fal.ai returned no image.', 'dazont-ecom' ) );
+			// fal's own words when it refused the picture (a model's content
+			// rule, an image it could not read) — not a bare « no image ».
+			throw new RuntimeException( $code >= 400
+				? sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( self::fal_said( $code, $body ), 0, 300 ) )
+				: __( 'fal.ai returned no image.', 'dazont-ecom' ) );
 		}
 		return (string) $url;
+	}
+
+	// =========================================================================
+	// Pictures ordered by the product page, collected later
+	// =========================================================================
+
+	/** @return array<string,array<string,mixed>> The jobs of one product, by id. */
+	public static function jobs( int $pid ): array {
+		$all = $pid > 0 ? get_post_meta( $pid, self::META_JOBS, true ) : [];
+		return is_array( $all ) ? $all : [];
+	}
+
+	/** Files one job. Slashed on the way in: the words sent may hold any character. */
+	public static function job_add( int $pid, array $job ): void {
+		if ( $pid < 1 || '' === (string) ( $job['id'] ?? '' ) ) {
+			return;
+		}
+		$all                          = self::jobs( $pid );
+		$all[ (string) $job['id'] ] = $job + [ 't' => time() ];
+		update_post_meta( $pid, self::META_JOBS, wp_slash( $all ) );
+	}
+
+	public static function job_remove( int $pid, string $id ): void {
+		$all = self::jobs( $pid );
+		if ( ! isset( $all[ $id ] ) ) {
+			return;
+		}
+		unset( $all[ $id ] );
+		if ( $all ) {
+			update_post_meta( $pid, self::META_JOBS, wp_slash( $all ) );
+		} else {
+			delete_post_meta( $pid, self::META_JOBS );
+		}
+	}
+
+	/**
+	 * A job left from a press that could not wait (FAL_PENDING_META) becomes
+	 * one the page asks after: its picture arrives in the waiting list with
+	 * the others instead of blocking the next order for two minutes.
+	 */
+	public static function job_adopt( int $pid, array $owed ): void {
+		self::job_add( $pid, $owed + [
+			'asked'  => '[collected — a job this product had already paid for]',
+			't0'     => microtime( true ),
+			'target' => 'gallery',
+			'recipe' => '',
+			'stash'  => 1,
+		] );
+		self::fal_pending_clear( $pid );
+	}
+
+	/**
+	 * What the page shows of the jobs still running: never the words sent —
+	 * they are on the log — only what a tile needs.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function jobs_public( int $pid ): array {
+		$out = [];
+		foreach ( self::jobs( $pid ) as $id => $j ) {
+			$model = (string) ( $j['model'] ?? '' );
+			$out[] = [
+				'id'     => (string) $id,
+				'target' => (string) ( $j['target'] ?? 'gallery' ),
+				'recipe' => (string) ( $j['recipe'] ?? '' ),
+				'model'  => (string) ( self::image_models()[ $model ]['label'] ?? $model ),
+				'key'    => $model,
+				'secs'   => max( 0, time() - (int) ( $j['t'] ?? time() ) ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * WHAT A PICTURE SHOWS, IN ONE LINE — its framing, never its quality.
+	 *
+	 * « Aucune nouvelle image n'a vu la précédente. » Handing the model the
+	 * pictures it had already made is what CLAUDE.md forbids (« no picture the
+	 * model made is ever a reference for the next one »): an edit model
+	 * conditions on every picture it is given, and the third image was built on
+	 * the second, its smoothed camouflage and guessed geometry compounding
+	 * (« le slop commence à partir de la 2e image »). So the pictures stay out,
+	 * and their FRAMING travels as words: a line like « whole jacket, front
+	 * three-quarter view, hood up » keeps the next one from repeating it
+	 * without giving it anything to copy. Haiku reads it for a fraction of a
+	 * cent; '' when it cannot, and the picture is filed all the same.
+	 */
+	public static function describe_view( string $url, string $title ): string {
+		if ( '' === $url || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return '';
+		}
+		$got = wp_remote_get( $url, [ 'timeout' => 15 ] );
+		if ( is_wp_error( $got ) || 200 !== (int) wp_remote_retrieve_response_code( $got ) ) {
+			return '';
+		}
+		$bytes = (string) wp_remote_retrieve_body( $got );
+		if ( '' === $bytes || strlen( $bytes ) > 4 * MB_IN_BYTES ) {
+			return '';
+		}
+		$media = strtolower( trim( explode( ';', (string) wp_remote_retrieve_header( $got, 'content-type' ) )[0] ) );
+		if ( ! in_array( $media, [ 'image/jpeg', 'image/png', 'image/webp', 'image/gif' ], true ) ) {
+			$media = 'image/jpeg';
+		}
+		try {
+			$line = DZE_Marketing_Ai::complete_with_images(
+				'You write the shot list of a product photo session. You describe the FRAMING of one photograph in one line of at most 14 words: which part of the product it shows, how close, from which side or angle. Never colours, never quality, never opinions. Answer with the line only.',
+				'Image 1 is a photograph of this product: ' . wp_strip_all_tags( $title ) . '. Its framing, in one line:',
+				[ [ 'media' => $media, 'data' => base64_encode( $bytes ) ] ], // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- an image payload for the API.
+				'claude-haiku-4-5-20251001',
+				80,
+				30
+			);
+		} catch ( \Throwable $e ) {
+			return '';
+		}
+		$line = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( $line ) ) );
+		$line = trim( $line, " \t\n\r\0\x0B\"'«».-*" );
+		// No backslash: the line lives in post meta, which unslashes.
+		return mb_substr( str_replace( '\\', '/', $line ), 0, 160 );
+	}
+
+	/**
+	 * THE FRAMINGS ALREADY MADE for this product by this prompt, as lines for
+	 * the next order: the pictures waiting for a decision and the AI
+	 * photographs already on the product — never one thrown away, whose
+	 * framing is free again.
+	 *
+	 * @return string[]
+	 */
+	public static function made_views( int $pid, string $recipe, bool $describe = true ): array {
+		$lines   = [];
+		$waiting = self::pending( $pid );
+		$read    = 0;
+		foreach ( (array) ( $waiting['shots'] ?? [] ) as $u ) {
+			if ( (string) ( $waiting['recipes'][ $u ] ?? '' ) !== $recipe ) {
+				continue;
+			}
+			$v = (string) ( $waiting['views'][ $u ] ?? '' );
+			// A PICTURE MADE BEFORE ITS FRAMING WAS WRITTEN DOWN is read now,
+			// once, and the line kept with it: the three identical
+			// three-quarter views waiting on a product when this arrived are
+			// exactly what the next order must hear about. A handful at most.
+			if ( '' === $v && $describe && $read < 8 ) {
+				$read++;
+				$was = DZE_Ai_Usage::unit_now();
+				DZE_Ai_Usage::unit( 'img_view' );
+				$v = self::describe_view( (string) $u, (string) get_the_title( $pid ) );
+				DZE_Ai_Usage::unit( $was );
+				if ( '' !== $v ) {
+					self::stash( $pid, [ 'shot' => (string) $u, 'view' => $v ] );
+				}
+			}
+			if ( '' !== $v ) {
+				$lines[] = $v;
+			}
+		}
+		foreach ( self::product_image_ids( $pid ) as $aid ) {
+			$v = (string) get_post_meta( (int) $aid, self::META_VIEW, true );
+			if ( '' !== $v && (string) get_post_meta( (int) $aid, self::META_RECIPE, true ) === $recipe ) {
+				$lines[] = $v;
+			}
+		}
+		// The most recent last, and a handful: a list of thirty framings is a
+		// paragraph the model stops reading.
+		return array_slice( array_values( array_unique( $lines ) ), -8 );
+	}
+
+	/** The paragraph made_views() becomes in the order. '' when nothing was made yet. */
+	public static function made_lines( int $pid, string $recipe ): string {
+		$views = self::made_views( $pid, $recipe );
+		if ( ! $views ) {
+			return '';
+		}
+		return "\n\nALREADY MADE FOR THIS PRODUCT — photographs that exist already, described in words (they are not sent):\n- "
+			. implode( "\n- ", $views )
+			. "\nDo not make any of them again: this photograph is framed differently. Only the framing changes — what the product looks like still comes from the photographs you are given, and nothing they do not show is added.";
 	}
 
 	/** The job a product is still owed, if any. */
