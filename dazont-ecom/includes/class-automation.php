@@ -495,7 +495,7 @@ final class DZE_Automation {
 				// sentence that repeats a number lies the day the number moves.
 				'more'    => sprintf(
 					/* translators: 1: objects sent per minute at most, 2: objects on their way before it waits, 3: translations waiting for a decision before it waits */
-					__( 'WPML already knows what this shop owes a translation of: an object with no translation in one of your languages, or one WPML has marked as needing an update. This pass takes those — attributes and categories first, because an untranslated attribute breaks a page, then products and articles — and sends each one in every language it is short of, in one go, because a product translated into French and not into German is a job half done. Nothing is translated inside the pass itself: it puts the objects in the translation queue, which goes to Anthropic in batches, at half price, and usually comes back within minutes. Two paces. Always on: it looks every minute and sends everything that is owed, up to %1$s objects a minute, and holds back while %2$s are already on their way. Daily limit: it sends the number you set each day, spread across the day. What is sent is only what really moved: the module keeps its own register of the words each translation was made from, so a product flagged because its category was renamed costs nothing and is simply marked up to date. Which kinds of content take part is the shop\'s own list under Settings → Translation, and what is inside each object — which fields are translated, which WPML copies — is WPML\'s answer and never ours. An object it has worked on is left alone for a month, and one already holding a translation waiting for your yes or no is never sent twice. Nothing reaches the shop until you accept it, on Dazont Ecom → WPML Translations, the screen built for it — and while %3$s translations are waiting there for your yes or no, it sends nothing more. Tick "Save without review" and each translation is written the moment it comes back.', 'dazont-ecom' ),
+					__( 'WPML already knows what this shop owes a translation of: an object with no translation in one of your languages, or one WPML has marked as needing an update. This pass takes those — attributes and categories first, because an untranslated attribute breaks a page, then products and articles — and sends each one in every language it is short of, in one go, because a product translated into French and not into German is a job half done. Nothing is translated inside the pass itself: it puts the objects in the translation queue, which goes to Anthropic in batches, at half price, and usually comes back within minutes. Two paces. Always on: it looks every minute and sends everything that is owed, up to %1$s objects a minute, and holds back while %2$s are already on their way. Daily limit: it sends the number you set each day, spread across the day. What is sent is only what really moved: the module keeps its own register of the words each translation was made from, so a product flagged because its category was renamed costs nothing and is simply marked up to date. Which kinds of content take part is the shop\'s own list under Settings → Translation, and what is inside each object — which fields are translated, which WPML copies — is WPML\'s answer and never ours. An object it has worked on is left alone for a month, and one already holding a translation waiting for your yes or no is never sent twice. Nothing reaches the shop until you accept it, on Dazont Ecom → WPML Translations, the screen built for it — and while %3$s translations are waiting there for your yes or no, it sends nothing more. Tick "Save without review" and each translation is published in the background as it comes back, without ever going through « To review »: only one that came back incomplete, or could not be written, waits there — with the reason.', 'dazont-ecom' ),
 					number_format_i18n( self::FEED_MAX ),
 					number_format_i18n( self::FEED_ROOM ),
 					number_format_i18n( self::REVIEW_ROOM )
@@ -2147,6 +2147,14 @@ final class DZE_Automation {
 		}
 		$conf    = self::conf( $id );
 		$en_file = method_exists( 'DZE_Translate', 'queued_map' ) ? (array) DZE_Translate::queued_map() : [];
+		// LA FILE EST RÉVEILLÉE À CHAQUE MINUTE où elle porte du travail, pleine
+		// ou non. Un passage mort ne reprenait pas rendez-vous, et la tâche, qui
+		// ne réveillait la file qu'après un dépôt, n'en faisait plus aucun : la
+		// file était pleine. Dix heures quarante-quatre d'arrêt, la nuit du 30
+		// septembre, jusqu'à ce que quelqu'un ouvre l'écran.
+		if ( $en_file ) {
+			DZE_Translate::kick_drain();
+		}
 		$n       = 1;
 		if ( ! $forced ) {
 			if ( empty( $conf['apply'] ) && (int) DZE_Translate::review_count() >= self::REVIEW_ROOM ) {

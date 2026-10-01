@@ -565,6 +565,8 @@ final class DZE_Translate {
 			'land'   => $per( $raw['land'] ?? [], false ),
 			'keep'   => $per( $raw['keep'] ?? [], false ),
 			'fails'  => $per( $raw['fails'] ?? [], false ),
+			// PRISE POUR ÊTRE ÉCRITE, et combien de fois : voir publish().
+			'claim'  => $per( $raw['claim'] ?? [], false ),
 		];
 	}
 
@@ -896,9 +898,10 @@ final class DZE_Translate {
 	 * @return int combien de langues ont quitté la file sans rien coûter.
 	 */
 	public static function cancel( string $ref, string $lang = '' ): int {
-		$lang = sanitize_key( $lang );
-		$n    = 0;
-		self::with_queue( static function ( array $file ) use ( $ref, $lang, &$n ): array {
+		$lang  = sanitize_key( $lang );
+		$n     = 0;
+		$revue = [];
+		self::with_queue( static function ( array $file ) use ( $ref, $lang, &$n, &$revue ): array {
 			foreach ( $file as $i => $e ) {
 				if ( self::ref( $e ) !== $ref ) {
 					continue;
@@ -910,7 +913,8 @@ final class DZE_Translate {
 						continue;
 					}
 					if ( isset( $e['land'][ $code ] ) ) {
-						continue; // revenue : elle attend dans « À relire », non publiée.
+						$revue[] = $code; // revenue : elle attend dans « À relire », non publiée.
+						continue;
 					}
 					if ( isset( $e['sent'][ $code ] ) ) {
 						// PARTIE : elle reviendra, pour être relue.
@@ -924,6 +928,10 @@ final class DZE_Translate {
 			}
 			return $file;
 		} );
+		$o = $revue ? self::from_ref( $ref ) : [];
+		if ( $o ) {
+			self::move_held( $o, $revue, self::META_PUB, self::META_WAIT, array_fill_keys( $revue, __( 'Taken out of the queue after it came back: it waits here instead of being published.', 'dazont-ecom' ) ) );
+		}
 		return $n;
 	}
 
@@ -960,10 +968,14 @@ final class DZE_Translate {
 	 * @return array{removed:int,sent:int}
 	 */
 	public static function cancel_all(): array {
-		$out = [ 'removed' => 0, 'sent' => 0 ];
-		self::with_queue( static function ( array $file ) use ( &$out ): array {
+		$out   = [ 'removed' => 0, 'sent' => 0 ];
+		$revue = [];
+		self::with_queue( static function ( array $file ) use ( &$out, &$revue ): array {
 			foreach ( $file as $e ) {
 				foreach ( $e['langs'] as $code ) {
+					if ( isset( $e['land'][ $code ] ) ) {
+						$revue[ self::ref( $e ) ][] = $code;
+					}
 					if ( isset( $e['sent'][ $code ] ) || isset( $e['land'][ $code ] ) ) {
 						$out['sent']++;
 					} else {
@@ -973,6 +985,12 @@ final class DZE_Translate {
 			}
 			return [];
 		} );
+		foreach ( $revue as $ref => $codes ) {
+			$o = self::from_ref( (string) $ref );
+			if ( $o ) {
+				self::move_held( $o, $codes, self::META_PUB, self::META_WAIT, array_fill_keys( $codes, __( 'The queue was emptied after it came back: it waits here instead of being published.', 'dazont-ecom' ) ) );
+			}
+		}
 		foreach ( self::batches() as $bid => $b ) {
 			if ( 'in_progress' !== (string) ( $b['status'] ?? '' ) ) {
 				continue;
@@ -1132,11 +1150,26 @@ final class DZE_Translate {
 		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			return;
 		}
+		// L'APPELANT PEUT RACCROCHER, LE PASSAGE CONTINUE. Lancé en requête
+		// asynchrone par le planificateur, le passage est une requête dont
+		// l'appelant raccroche au bout d'un centième de seconde : les dix-huit
+		// passages morts de la semaine sur Kula étaient tous de ceux-là, aucun
+		// des trois cent soixante-seize lancés par le cron.
+		if ( function_exists( 'ignore_user_abort' ) ) {
+			@ignore_user_abort( true ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- l'hébergeur peut refuser.
+		}
 		if ( ! self::take( 'tick', 0 ) ) {
 			return; // un passage tourne : il reprendra rendez-vous lui-même.
 		}
 		$t0     = microtime( true );
 		$budget = is_numeric( $budget ) ? max( 5, (int) $budget ) : self::TICK_BUDGET;
+		// UN RENDEZ-VOUS PRIS AVANT DE TRAVAILLER. Un passage qui mourait n'en
+		// prenait aucun — il le prenait à la fin — et la file restait arrêtée
+		// jusqu'à ce que quelqu'un ouvre l'écran : dix heures quarante-quatre,
+		// la nuit du 30 septembre. Celui-ci ne sert que si le passage meurt.
+		if ( self::has_work() ) {
+			self::kick_drain( 3 * MINUTE_IN_SECONDS );
+		}
 		try {
 			if ( function_exists( 'set_time_limit' ) ) {
 				@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- l'hébergeur peut refuser.
@@ -1148,7 +1181,10 @@ final class DZE_Translate {
 			// échecs et ses réponses partielles.
 			self::repair_marks();
 			self::collect( $t0, $budget );
-			self::publish( $t0, $budget );
+			// PUBLIER NE PREND PLUS TOUT LE PASSAGE : ce qui attend d'être envoyé
+			// part aussi, à chaque passage. Deux cents produits revenus d'un coup
+			// retenaient tout envoi pendant une heure.
+			self::publish( $t0, (int) max( 5, floor( $budget * 0.6 ) ) );
 			// IMMÉDIAT : des vagues tant que le temps le permet — une vague
 			// revient dans le temps de son appel le plus long, et la suivante ne
 			// part que s'il reste de quoi l'attendre. Ce qu'elles rapportent sans
@@ -1183,18 +1219,24 @@ final class DZE_Translate {
 				}
 			}
 		}
-		$ouverts = false;
-		foreach ( self::batches() as $b ) {
-			if ( in_array( (string) ( $b['status'] ?? '' ), [ 'creating', 'in_progress', 'canceling', 'ended' ], true ) ) {
-				$ouverts = true;
-				break;
-			}
-		}
-		if ( ! $file && ! $ouverts ) {
+		if ( ! self::has_work() ) {
 			return;
 		}
 		$attente = (int) self::fresh_option( self::OPT_BACKOFF, 0 ) - time();
 		self::kick_drain( $vite && $attente <= 0 ? 5 : max( 60, $attente ) );
+	}
+
+	/** Y a-t-il de quoi faire : une file, ou un lot encore dehors ? */
+	private static function has_work(): bool {
+		if ( self::asked() ) {
+			return true;
+		}
+		foreach ( self::batches() as $b ) {
+			if ( in_array( (string) ( $b['status'] ?? '' ), [ 'creating', 'in_progress', 'canceling', 'ended' ], true ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -1510,8 +1552,9 @@ final class DZE_Translate {
 			}
 			// CE QUI ATTEND DÉJÀ UN OUI OU UN NON N'EST PAS À REFAIRE : la
 			// reproduire la paierait deux fois.
+			// NI CE QUI EST REVENU ET SE PUBLIE.
 			$attend = self::waiting( $o );
-			if ( isset( $attend['langs'][ $code ] ) ) {
+			if ( isset( $attend['langs'][ $code ] ) || isset( self::publishing( $o )['langs'][ $code ] ) ) {
 				$drop[] = [ $e, $code, '' ];
 				continue;
 			}
@@ -1695,7 +1738,8 @@ final class DZE_Translate {
 				$par_id[ $id ] = $st;
 			}
 		}
-		self::with_queue( static function ( array $file ) use ( $par_jeton, $par_id ): array {
+		$vers_pub = [];
+		self::with_queue( static function ( array $file ) use ( $par_jeton, $par_id, &$vers_pub ): array {
 			foreach ( $file as $i => $e ) {
 				$reste = [];
 				foreach ( $e['langs'] as $code ) {
@@ -1743,10 +1787,14 @@ final class DZE_Translate {
 						// — jamais rayée en silence.
 						$o   = self::obj( $e['kind'], $e['id'], $e['type'] );
 						$att = $o ? self::waiting( $o ) : [];
-						if ( isset( $att['langs'][ $code ] ) ) {
+						$pub = $o ? self::publishing( $o ) : [];
+						if ( isset( $att['langs'][ $code ] ) || isset( $pub['langs'][ $code ] ) ) {
 							if ( ! empty( $e['accept'] ) ) {
 								$file[ $i ]['land'][ $code ] = 1;
 								$reste[]                     = $code;
+								if ( ! isset( $pub['langs'][ $code ] ) ) {
+									$vers_pub[ self::ref( $e ) ][] = $code;
+								}
 							}
 							continue;
 						}
@@ -1759,6 +1807,13 @@ final class DZE_Translate {
 			}
 			return $file;
 		} );
+		// CE QUI PART ÊTRE PUBLIÉ quitte « À relire » pour ce qui se publie.
+		foreach ( $vers_pub as $ref => $codes ) {
+			$o = self::from_ref( (string) $ref );
+			if ( $o ) {
+				self::move_held( $o, $codes, self::META_WAIT, self::META_PUB );
+			}
+		}
 		// ET LA FICHE D'UNE VAGUE MORTE S'EFFACE, avec les mots qu'elle gardait :
 		// ses langues viennent de reprendre leur place.
 		foreach ( self::batches() as $k => $fiche ) {
@@ -2251,6 +2306,34 @@ final class DZE_Translate {
 		foreach ( (array) ( $b['tasks'] ?? [] ) as $task ) {
 			$qui[ (string) ( $task['ref'] ?? '' ) ] = (int) ( $task['by'] ?? -1 );
 		}
+		// SANS RELECTURE, OU À RELIRE — décidé ici, langue par langue, comme la
+		// marque que la file reçoit plus bas : demandée sans relecture, jamais
+		// annulée en route, et revenue entière. Ce qui part en relecture alors
+		// que l'envoi disait « publier » dit pourquoi.
+		$sans  = [];
+		$motif = [];
+		$jet   = (string) ( $b['token'] ?? '' );
+		foreach ( self::asked() as $e ) {
+			if ( empty( $e['accept'] ) ) {
+				continue;
+			}
+			$ref_e = self::ref( $e );
+			foreach ( $e['langs'] as $code ) {
+				$m  = (string) ( $e['sent'][ $code ] ?? '' );
+				$tk = $ref_e . '|' . $code;
+				if ( ! isset( $faits[ $tk ] ) || ( $m !== $bid && ( '' === $jet || $m !== $jet ) ) ) {
+					continue;
+				}
+				if ( ! empty( $e['keep'][ $code ] ) ) {
+					$motif[ $ref_e ][ $code ] = __( 'Cancelled while it was being translated: it came back here instead of being published.', 'dazont-ecom' );
+				} elseif ( isset( $partiel[ $tk ] ) ) {
+					/* translators: %s: why part of the text did not come back */
+					$motif[ $ref_e ][ $code ] = sprintf( __( 'Part of it did not come back after three tries (%s): what came back is here, not published.', 'dazont-ecom' ), (string) $partiel[ $tk ] );
+				} else {
+					$sans[ $ref_e ][ $code ] = true;
+				}
+			}
+		}
 		$cle = (string) ( $b['token'] ?? $bid );
 		foreach ( $par_objet as $ref => $langs ) {
 			$o = self::from_ref( (string) $ref );
@@ -2258,7 +2341,7 @@ final class DZE_Translate {
 				continue;
 			}
 			$gardes = self::sent_read( $o );
-			self::hold_landed( $o, $langs, (array) ( $gardes[ $cle ]['src'] ?? [] ), (int) ( $qui[ $ref ] ?? -1 ) );
+			self::hold_landed( $o, $langs, (array) ( $gardes[ $cle ]['src'] ?? [] ), (int) ( $qui[ $ref ] ?? -1 ), (array) ( $sans[ $ref ] ?? [] ), (array) ( $motif[ $ref ] ?? [] ) );
 			self::clear_drain_errors( (string) $ref, array_keys( $langs ) );
 		}
 		$runs = [];
@@ -2467,32 +2550,81 @@ final class DZE_Translate {
 	 * CE QUI REVIENT REJOINT CE QUI ATTENDAIT DÉJÀ, langue par langue, chacune
 	 * contre les mots qui ont été envoyés POUR ELLE.
 	 *
+	 * Ce qui part sans relecture va dans ce qui se publie (META_PUB), le reste
+	 * dans « À relire » — avec sa raison quand une relecture n'était pas
+	 * demandée. La réponse la plus récente l'emporte : une langue rangée d'un
+	 * côté quitte l'autre.
+	 *
 	 * @param array<string,array<string,string>> $langs langue => champ => texte
 	 * @param array<string,array<string,string>> $envoye langue => champ => mots envoyés
+	 * @param array<string,bool>                 $auto  langues à publier sans relecture
+	 * @param array<string,string>               $why   langue => pourquoi elle attend quelqu'un
 	 */
-	private static function hold_landed( array $o, array $langs, array $envoye, int $by ): void {
-		$held   = self::waiting( $o );
-		$keep   = (array) ( $held['langs'] ?? [] );
-		$srcl   = (array) ( $held['srcl'] ?? [] );
-		$shared = (array) ( $held['src'] ?? [] );
-		foreach ( $langs as $lang => $champs ) {
-			$keep[ $lang ] = (array) $champs;
-			$srcl[ $lang ] = (array) ( $envoye[ $lang ] ?? [] );
-			$shared        = array_merge( $shared, $srcl[ $lang ] );
+	private static function hold_landed( array $o, array $langs, array $envoye, int $by, array $auto = [], array $why = [] ): void {
+		$parts = [
+			self::META_PUB  => array_intersect_key( $langs, $auto ),
+			self::META_WAIT => array_diff_key( $langs, $auto ),
+		];
+		foreach ( $parts as $store => $part ) {
+			if ( ! $part ) {
+				continue;
+			}
+			$held   = self::held_in( $o, $store );
+			$keep   = (array) ( $held['langs'] ?? [] );
+			$srcl   = (array) ( $held['srcl'] ?? [] );
+			$shared = (array) ( $held['src'] ?? [] );
+			foreach ( $part as $lang => $champs ) {
+				$keep[ $lang ] = (array) $champs;
+				$srcl[ $lang ] = (array) ( $envoye[ $lang ] ?? [] );
+				$shared        = array_merge( $shared, $srcl[ $lang ] );
+			}
+			self::hold( $o, $keep, $shared, $by, $srcl, 0, $store, self::META_WAIT === $store ? $why : [] );
+			$other = self::META_PUB === $store ? self::META_WAIT : self::META_PUB;
+			$there = self::held_in( $o, $other );
+			if ( array_intersect_key( (array) ( $there['langs'] ?? [] ), $part ) ) {
+				$left = array_diff_key( (array) $there['langs'], $part );
+				if ( $left ) {
+					self::hold( $o, $left, (array) ( $there['src'] ?? [] ), (int) ( $there['by'] ?? -1 ), (array) ( $there['srcl'] ?? [] ), (int) ( $there['at'] ?? 0 ), $other );
+				} else {
+					self::drop_held( $o, $other );
+				}
+			}
 		}
-		self::hold( $o, $keep, $shared, $by, $srcl );
 	}
 
 	/**
 	 * 3. PUBLIER — ce qui a été envoyé « sans relecture », écrit par tranches.
 	 *
-	 * Par le même accept() qu'un oui donné à la main. Chaque objet est PRIS
-	 * dans la file, relue dans la base, juste avant d'être écrit : une
-	 * annulation faite pendant que le passage écrivait les précédents est vue,
-	 * et respectée. Ce qui ne peut pas être écrit reste dans « À relire » avec
-	 * sa raison.
+	 * Par le même accept() qu'un oui donné à la main, depuis ce qui se publie
+	 * (META_PUB) et jamais depuis « À relire ». Les liens de chaque langue écrite
+	 * sont balayés une fois, à la fin, plutôt qu'à chaque objet.
 	 */
 	private static function publish( float $t0, int $budget ): void {
+		self::$sweep_later = [];
+		try {
+			self::pub_sweep();
+			self::publish_some( $t0, $budget );
+		} finally {
+			$langs             = array_keys( (array) self::$sweep_later );
+			self::$sweep_later = null;
+			foreach ( $langs as $dze_l ) {
+				self::relink_sweep( (string) $dze_l );
+			}
+		}
+	}
+
+	/**
+	 * RÉSERVÉE, ÉCRITE, PUIS RETIRÉE.
+	 *
+	 * La langue était retirée de la file AVANT d'être écrite : un passage mort
+	 * pendant l'écriture — dix-huit en une semaine sur Kula — laissait l'objet
+	 * dans « À relire » pour toujours, sans plus rien pour le publier. Elle est
+	 * maintenant réservée (`claim`), écrite, et retirée ensuite. Une réservation
+	 * qu'on retrouve est un passage mort : rejouée une fois, la seconde elle va
+	 * dans « À relire » en disant pourquoi. Ce qui ne s'écrit pas y va aussi,
+	 * avec sa raison — jamais rien ne reste sans personne pour le publier.
+	 */
+	private static function publish_some( float $t0, int $budget ): void {
 		$candidats = [];
 		foreach ( self::asked() as $e ) {
 			if ( array_intersect( $e['langs'], array_keys( (array) $e['land'] ) ) ) {
@@ -2503,52 +2635,175 @@ final class DZE_Translate {
 			if ( microtime( true ) - $t0 > $budget ) {
 				break; // la suite au passage suivant.
 			}
-			// PRIS DANS LA FILE, relue : encore revenue, jamais annulée.
+			// PRISE DANS LA FILE, relue : encore revenue, jamais annulée.
 			$pris = [];
+			$stop = [];
 			$qui  = null;
-			self::with_queue( static function ( array $file ) use ( $k, &$pris, &$qui ): array {
+			self::with_queue( static function ( array $file ) use ( $k, &$pris, &$stop, &$qui ): array {
 				foreach ( $file as $i => $e ) {
 					if ( self::entry_key( $e ) !== $k ) {
 						continue;
 					}
 					$reste = [];
 					foreach ( $e['langs'] as $code ) {
-						if ( isset( $e['land'][ $code ] ) ) {
-							if ( empty( $e['keep'][ $code ] ) ) {
-								$pris[] = $code;
-							}
+						if ( ! isset( $e['land'][ $code ] ) ) {
+							$reste[] = $code;
 							continue;
 						}
-						$reste[] = $code;
+						if ( ! empty( $e['keep'][ $code ] ) ) {
+							$stop[ $code ] = __( 'Taken out of the queue after it came back: it waits here instead of being published.', 'dazont-ecom' );
+							continue;
+						}
+						$n = (int) ( $e['claim'][ $code ] ?? 0 ) + 1;
+						if ( $n > self::PUB_TRIES ) {
+							$stop[ $code ] = __( 'Publishing it was interrupted twice: it waits here rather than being tried a third time.', 'dazont-ecom' );
+							continue;
+						}
+						$file[ $i ]['claim'][ $code ] = $n;
+						$pris[]                       = $code;
+						$reste[]                      = $code;
 					}
 					$file[ $i ]['langs'] = $reste;
 					$qui                 = $e;
 				}
 				return $file;
 			} );
-			if ( ! $pris || ! $qui ) {
+			if ( ! $qui ) {
 				continue;
 			}
 			$o = self::obj( $qui['kind'], $qui['id'], $qui['type'] );
 			if ( ! $o ) {
+				self::unland( $k, $pris ); // l'objet a disparu : plus rien à écrire.
 				continue;
 			}
-			$held  = (array) ( self::waiting( $o )['langs'] ?? [] );
+			if ( $stop ) {
+				self::move_held( $o, array_keys( $stop ), self::META_PUB, self::META_WAIT, $stop );
+			}
+			if ( ! $pris ) {
+				continue;
+			}
+			// REVENUE AVANT CETTE VERSION, son texte attend encore dans « À
+			// relire » : il passe dans ce qui se publie.
+			$held = (array) ( self::publishing( $o )['langs'] ?? [] );
+			$vieux = array_values( array_intersect( array_diff( $pris, array_keys( $held ) ), array_keys( (array) ( self::waiting( $o )['langs'] ?? [] ) ) ) );
+			if ( $vieux ) {
+				self::move_held( $o, $vieux, self::META_WAIT, self::META_PUB );
+				$held = (array) ( self::publishing( $o )['langs'] ?? [] );
+			}
 			$ecrit = array_intersect_key( $held, array_flip( $pris ) );
-			if ( ! $ecrit ) {
-				continue; // acceptée ou jetée à la main entre-temps.
+			$w     = [ 'written' => [], 'errors' => [] ];
+			if ( $ecrit ) {
+				try {
+					$w = self::accept( $o, $ecrit, (int) $qui['by'], self::META_PUB );
+				} catch ( \Throwable $ex ) {
+					$w['errors'] = array_fill_keys( array_keys( $ecrit ), $ex->getMessage() );
+				}
 			}
-			try {
-				$w = self::accept( $o, $ecrit, (int) $qui['by'] );
-			} catch ( \Throwable $ex ) {
-				$w = [ 'errors' => array_fill_keys( array_keys( $ecrit ), $ex->getMessage() ) ];
+			$errors = array_map( 'strval', (array) ( $w['errors'] ?? [] ) );
+			foreach ( array_keys( $ecrit ) as $code ) {
+				if ( ! isset( $w['written'][ $code ] ) && ! isset( $errors[ $code ] ) ) {
+					$errors[ $code ] = __( 'It could not be written: this language is no longer translated into, or nothing of it was left to write.', 'dazont-ecom' );
+				}
 			}
-			foreach ( (array) ( $w['errors'] ?? [] ) as $lg => $why ) {
-				self::note_drain_error( $qui, (string) $lg, (string) $why );
+			if ( $errors ) {
+				self::move_held( $o, array_keys( $errors ), self::META_PUB, self::META_WAIT, $errors );
+				foreach ( $errors as $lg => $why ) {
+					self::note_drain_error( $qui, (string) $lg, (string) $why );
+				}
+			}
+			// ÉCRITE OU RANGÉE POUR RELECTURE : elle quitte la file. Celle dont plus
+			// rien n'attendait (acceptée ou jetée à la main entre-temps) aussi.
+			self::unland( $k, $pris );
+		}
+	}
+
+	/** Des langues écrites, ou rangées pour relecture, quittent la file. */
+	private static function unland( string $k, array $codes ): void {
+		if ( ! $codes ) {
+			return;
+		}
+		self::with_queue( static function ( array $file ) use ( $k, $codes ): array {
+			foreach ( $file as $i => $e ) {
+				if ( self::entry_key( $e ) !== $k ) {
+					continue;
+				}
+				$file[ $i ]['langs'] = array_values( array_diff( $e['langs'], $codes ) );
+				foreach ( $codes as $c ) {
+					unset( $file[ $i ]['land'][ $c ], $file[ $i ]['claim'][ $c ] );
+				}
+			}
+			return $file;
+		} );
+	}
+
+	/**
+	 * LE FILET : CE QUI SE PUBLIE A TOUJOURS QUELQU'UN POUR LE PUBLIER.
+	 *
+	 * Un objet qui porte quelque chose « à publier » que la file ne marque plus
+	 * — une file vidée, un passage mort au mauvais moment — passe dans « À
+	 * relire », en disant pourquoi. Seuls ces objets-là sont relus : les autres
+	 * sont reconnus à leur référence, sans ouvrir leurs textes.
+	 */
+	private static function pub_sweep(): void {
+		$land = [];
+		foreach ( self::asked() as $e ) {
+			if ( array_intersect( $e['langs'], array_keys( (array) $e['land'] ) ) ) {
+				$land[ self::ref( $e ) ] = true;
+			}
+		}
+		// UNE FOIS, APRÈS LA MISE À JOUR : ce qui était revenu « sans relecture »
+		// avant cette version attend encore dans « À relire ». Il passe tout de
+		// suite dans ce qui se publie — la case se vide sans attendre que
+		// chaque objet ait son tour. publish_some() fait de même, objet par
+		// objet, pour ce qui serait revenu entre-temps sous l'ancienne forme.
+		if ( ! get_option( self::OPT_PUB_MOVED ) ) {
+			foreach ( self::asked() as $e ) {
+				$codes = array_values( array_filter( $e['langs'], static fn( $c ) => isset( $e['land'][ $c ] ) && empty( $e['keep'][ $c ] ) ) );
+				$o     = $codes ? self::obj( $e['kind'], $e['id'], $e['type'] ) : [];
+				if ( $o ) {
+					self::move_held( $o, $codes, self::META_WAIT, self::META_PUB );
+				}
+			}
+			update_option( self::OPT_PUB_MOVED, time(), false );
+		}
+		foreach ( self::pub_refs() as $ref ) {
+			if ( isset( $land[ $ref ] ) ) {
+				continue;
+			}
+			$o = self::from_ref( $ref );
+			if ( ! $o ) {
+				continue;
+			}
+			$langs = array_map( 'strval', array_keys( (array) ( self::publishing( $o )['langs'] ?? [] ) ) );
+			if ( $langs ) {
+				self::move_held( $o, $langs, self::META_PUB, self::META_WAIT, array_fill_keys( $langs, __( 'Nothing was left to publish it: it waits here instead.', 'dazont-ecom' ) ) );
 			}
 		}
 	}
 
+	/** Les objets qui portent quelque chose « à publier », par référence. @return string[] */
+	private static function pub_refs(): array {
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return [];
+		}
+		$out = [];
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- our own meta key, ids only.
+		foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT m.post_id AS pub_id, p.post_type AS pub_type FROM {$wpdb->postmeta} m INNER JOIN {$wpdb->posts} p ON p.ID = m.post_id WHERE m.meta_key = %s",
+			self::META_PUB
+		), ARRAY_A ) as $r ) {
+			$out[] = 'post:' . (int) $r['pub_id'] . ':' . (string) $r['pub_type'];
+		}
+		foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT m.term_id AS pub_id, tt.taxonomy AS pub_type FROM {$wpdb->termmeta} m INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = m.term_id WHERE m.meta_key = %s",
+			self::META_PUB
+		), ARRAY_A ) as $r ) {
+			$out[] = 'term:' . (int) $r['pub_id'] . ':' . (string) $r['pub_type'];
+		}
+		// phpcs:enable
+		return array_values( array_unique( $out ) );
+	}
 	/**
 	 * CE QUI A RÉSISTÉ, gardé pour l'écran plutôt que perdu en silence — sur
 	 * l'objet et la langue, pour que la ligne le montre là où on le cherche.
@@ -2647,9 +2902,14 @@ final class DZE_Translate {
 			return 0;
 		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table de WPML.
+		// LE TERM_ID, PAS L'ELEMENT_ID. WPML range un terme par son
+		// term_taxonomy_id : lu comme un term_id, il désignait une autre
+		// catégorie — sur Kula, 26 des 71 « françaises » l'étaient vraiment —
+		// et la réécriture serait tombée dans la description d'une autre.
 		$ids = $wpdb->get_col( $wpdb->prepare(
-			"SELECT element_id FROM {$wpdb->prefix}icl_translations
-			 WHERE element_type = 'tax_product_cat' AND language_code = %s AND source_language_code IS NOT NULL",
+			"SELECT tt.term_id FROM {$wpdb->prefix}icl_translations ic
+			 INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = ic.element_id AND tt.taxonomy = 'product_cat'
+			 WHERE ic.element_type = 'tax_product_cat' AND ic.language_code = %s AND ic.source_language_code IS NOT NULL",
 			$lang
 		) );
 		$faits = 0;
@@ -5209,15 +5469,60 @@ final class DZE_Translate {
 	public const META_WAIT = '_dze_tr_wait';
 
 	/**
+	 * WHAT CAME BACK « WITHOUT REVIEW » AND IS BEING WRITTEN — never « To review ».
+	 *
+	 * « Option activée, publish without review, pourtant, beaucoup arrivent dans
+	 * la case review. Je ne comprends pas. » Everything that came back was stored
+	 * as waiting for a person, and « without review » only marked it to be
+	 * written later, a few products a minute: two hundred products landing at
+	 * 07:31 filled « To review » for over an hour with work nobody had to look
+	 * at — and a step that died while writing left its object there for good,
+	 * nothing left to publish it. What is written without review now waits
+	 * HERE, the same record on the same object under its own key: the review
+	 * list, its badges and the automation's pause never see it, publish() takes
+	 * it from here, and what cannot be written moves to « To review » WITH ITS
+	 * REASON.
+	 */
+	public const META_PUB = '_dze_tr_pub';
+
+	/**
+	 * HOW MANY TIMES A LANGUAGE IS STARTED BEFORE IT IS LEFT TO A PERSON. A
+	 * start that comes back is a step that died while writing it; once is
+	 * replayed, twice goes to « To review », saying so.
+	 */
+	public const PUB_TRIES = 2;
+
+	/** Quand ce qui se publiait a quitté « À relire », une fois pour toutes. */
+	public const OPT_PUB_MOVED = 'dze_tr_pub_moved';
+
+	/**
+	 * THE LINKS OF A LANGUAGE ARE SWEPT ONCE PER STEP, not once per object
+	 * written: null outside publish(), the languages owed a sweep inside it.
+	 *
+	 * @var array<string,bool>|null
+	 */
+	private static ?array $sweep_later = null;
+
+	/**
 	 * The waiting translation of one object, as it was stored.
 	 *
 	 * @return array{at:int,langs:array<string,array<string,string>>,src:array<string,string>}|array{}
 	 */
 	public static function waiting( array $o ): array {
+		return self::held_in( $o, self::META_WAIT );
+	}
+
+	/** What came back « without review » on this object and waits to be written. */
+	public static function publishing( array $o ): array {
+		return self::held_in( $o, self::META_PUB );
+	}
+
+	/** One of the two records — « To review » or « being published » — as stored. */
+	private static function held_in( array $o, string $key ): array {
 		if ( ! $o ) {
 			return [];
 		}
-		$raw = self::raw_meta( $o, self::META_WAIT );
+		$raw = self::raw_meta( $o, $key );
 		$row = '' !== $raw ? json_decode( $raw, true ) : [];
 		return is_array( $row ) && ! empty( $row['langs'] ) ? $row : [];
 	}
@@ -5230,12 +5535,17 @@ final class DZE_Translate {
 	 *                        asked for by whoever sent it, not by « Automatic ».
 	 * @param array $per_lang Language => the words sent FOR THAT language.
 	 * @param int   $at       When it was produced; 0 for now.
+	 * @param string $store   META_WAIT (« To review ») or META_PUB (being published).
+	 * @param array  $why     Language => why it waits for a person. Kept from one
+	 *                        write to the next for the languages still there.
 	 */
-	public static function hold( array $o, array $langs, array $source, int $by = -1, array $per_lang = [], int $at = 0 ): void {
+	public static function hold( array $o, array $langs, array $source, int $by = -1, array $per_lang = [], int $at = 0, string $store = self::META_WAIT, array $why = [] ): void {
 		if ( ! $o || ! $langs ) {
 			return;
 		}
-		self::meta_write( $o, (int) $o['id'], self::META_WAIT, (string) wp_json_encode( [
+		$store = self::META_PUB === $store ? self::META_PUB : self::META_WAIT;
+		$why   = array_intersect_key( array_merge( (array) ( self::held_in( $o, $store )['why'] ?? [] ), array_filter( array_map( 'strval', $why ) ) ), $langs );
+		self::meta_write( $o, (int) $o['id'], $store, (string) wp_json_encode( [
 			'at'    => $at > 0 ? $at : time(),
 			// ET QUI L A DEMANDE. Une file partagee qui ne nomme personne fait
 			// relancer deux fois le meme objet par deux personnes, et l une des
@@ -5252,7 +5562,39 @@ final class DZE_Translate {
 			// register against words sent later, and the register then called
 			// a translation current that had been made from the old text.
 			'srcl'  => array_intersect_key( $per_lang, $langs ),
-		] ) );
+		] + ( $why ? [ 'why' => $why ] : [] ) ) );
+	}
+
+	/**
+	 * LANGUAGES MOVED FROM ONE RECORD TO THE OTHER, with the words they were
+	 * made from, their author and their date — and, into « To review », why.
+	 *
+	 * @param string[]              $langs
+	 * @param array<string,string>  $why   Language => reason, for « To review ».
+	 */
+	private static function move_held( array $o, array $langs, string $from, string $to, array $why = [] ): void {
+		$a      = self::held_in( $o, $from );
+		$moving = array_intersect_key( (array) ( $a['langs'] ?? [] ), array_flip( array_map( 'strval', $langs ) ) );
+		if ( ! $o || ! $moving || $from === $to ) {
+			return;
+		}
+		$b = self::held_in( $o, $to );
+		self::hold(
+			$o,
+			array_merge( (array) ( $b['langs'] ?? [] ), $moving ),
+			array_merge( (array) ( $a['src'] ?? [] ), (array) ( $b['src'] ?? [] ) ),
+			array_key_exists( 'by', $b ) ? (int) $b['by'] : (int) ( $a['by'] ?? -1 ),
+			array_merge( (array) ( $b['srcl'] ?? [] ), array_intersect_key( (array) ( $a['srcl'] ?? [] ), $moving ) ),
+			(int) ( $b['at'] ?? ( $a['at'] ?? 0 ) ),
+			$to,
+			self::META_WAIT === $to ? array_intersect_key( $why, $moving ) : []
+		);
+		$left = array_diff_key( (array) $a['langs'], $moving );
+		if ( $left ) {
+			self::hold( $o, $left, (array) ( $a['src'] ?? [] ), (int) ( $a['by'] ?? -1 ), (array) ( $a['srcl'] ?? [] ), (int) ( $a['at'] ?? 0 ), $from );
+		} else {
+			self::drop_held( $o, $from );
+		}
 	}
 
 	/**
@@ -5274,14 +5616,26 @@ final class DZE_Translate {
 
 	/** Throws the waiting translation away. Refusing, and accepting, both end here. */
 	public static function drop_wait( array $o ): void {
+		self::drop_held( $o, self::META_WAIT );
+	}
+
+	/** Ce qu'une description de catégorie peut viser : une catégorie, un article, une page. */
+	private static function link_target( array $o ): bool {
+		return 'term' === (string) ( $o['kind'] ?? '' )
+			? 'product_cat' === (string) ( $o['type'] ?? '' )
+			: in_array( (string) ( $o['type'] ?? '' ), [ 'post', 'page' ], true );
+	}
+
+	/** Throws one of the two records away. */
+	private static function drop_held( array $o, string $key ): void {
 		if ( ! $o ) {
 			return;
 		}
 		if ( 'term' === $o['kind'] ) {
-			delete_term_meta( (int) $o['id'], self::META_WAIT );
+			delete_term_meta( (int) $o['id'], $key );
 			return;
 		}
-		delete_post_meta( (int) $o['id'], self::META_WAIT );
+		delete_post_meta( (int) $o['id'], $key );
 	}
 
 	/**
@@ -5451,14 +5805,17 @@ final class DZE_Translate {
 	 * then claims only the fields that were really written.
 	 *
 	 * @param array<string,array<string,string>> $keep language => field => text
+	 * @param string $store The record it is written from: « To review » for a
+	 *                      person's yes, « being published » for publish().
 	 * @return array{written:array<string,int>,errors:array<string,string>}
 	 */
-	public static function accept( array $o, array $keep, int $by = -1 ): array {
+	public static function accept( array $o, array $keep, int $by = -1, string $store = self::META_WAIT ): array {
 		$out = [ 'written' => [], 'errors' => [], 'warnings' => [] ];
 		if ( ! $o || ! $keep ) {
 			return $out;
 		}
-		$held    = self::waiting( $o );
+		$store   = self::META_PUB === $store ? self::META_PUB : self::META_WAIT;
+		$held    = self::held_in( $o, $store );
 		$source  = (array) ( $held['src'] ?? [] );
 		$targets = self::obj_targets( $o );
 		// EVERY FIELD OF THIS OBJECT, variations included. Narrowed to
@@ -5548,9 +5905,19 @@ final class DZE_Translate {
 		// who said yes to it.
 		if ( $out['written'] ) {
 			self::log_add( $o, array_keys( $out['written'] ) );
-			// UNE CIBLE DE PLUS EST DISPONIBLE : voir relink_sweep().
-			foreach ( array_keys( $out['written'] ) as $dze_l ) {
-				self::relink_sweep( (string) $dze_l );
+			// UNE CIBLE DE PLUS EST DISPONIBLE : voir relink_sweep(). Seulement
+			// quand ce qui vient d'être écrit peut être visé par un lien de
+			// description — une catégorie, un article, une page — et une fois par
+			// langue et par passage quand publish() écrit. Un balayage relit toutes
+			// les catégories d'une langue, trois à cinq secondes sur Kula : fait
+			// pour chaque langue de chaque produit publié, c'était l'essentiel des
+			// quinze secondes que coûtait chacun.
+			foreach ( self::link_target( $o ) ? array_keys( $out['written'] ) : [] as $dze_l ) {
+				if ( is_array( self::$sweep_later ) ) {
+					self::$sweep_later[ (string) $dze_l ] = true;
+				} else {
+					self::relink_sweep( (string) $dze_l );
+				}
 			}
 			// ET SES MENUS LA REÇOIVENT, si l'original est dans un menu : la
 			// synchronisation de WPML, lancée pour la boutique (DZE_Menu_Sync).
@@ -5563,9 +5930,9 @@ final class DZE_Translate {
 		$left = array_diff_key( (array) ( $held['langs'] ?? [] ), $out['written'] );
 		if ( $left ) {
 			// WHAT IS STILL WAITING KEEPS ITS DATE AND ITS AUTHOR.
-			self::hold( $o, $left, $source, (int) ( $held['by'] ?? -1 ), (array) ( $held['srcl'] ?? [] ), (int) ( $held['at'] ?? 0 ) );
+			self::hold( $o, $left, $source, (int) ( $held['by'] ?? -1 ), (array) ( $held['srcl'] ?? [] ), (int) ( $held['at'] ?? 0 ), $store );
 		} else {
-			self::drop_wait( $o );
+			self::drop_held( $o, $store );
 		}
 		return $out;
 	}
@@ -5879,6 +6246,8 @@ final class DZE_Translate {
 			// ce soit garde : la clé manque, et l'écran le dit plutôt que de
 			// nommer quelqu'un au hasard.
 			'by'    => array_key_exists( 'by', (array) $held ) ? (int) $held['by'] : null,
+			// POURQUOI ELLE ATTEND QUELQU'UN, quand ce n'est pas qu'on l'a demandé.
+			'why'   => array_intersect_key( array_map( 'strval', (array) ( $held['why'] ?? [] ) ), (array) $held['langs'] ),
 		];
 	}
 

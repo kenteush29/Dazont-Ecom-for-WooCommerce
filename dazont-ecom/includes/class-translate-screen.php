@@ -2296,7 +2296,21 @@ trait DZE_Translate_Screen {
 			<?php foreach ( $rows as $r ) : ?>
 				<tr class="dze-tr-wrow dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $r ) ); ?>">
 					<th scope="row" class="check-column"><input type="checkbox" class="dze-tr-wpick" /></th>
-					<td><strong><?php echo esc_html( $r['label'] ); ?></strong></td>
+					<td><strong><?php echo esc_html( $r['label'] ); ?></strong>
+						<?php
+						// POURQUOI ELLE ATTEND, quand ce n'est pas qu'on l'a demandé :
+						// revenue incomplète, publication interrompue, annulée après
+						// son retour. « Je ne comprends pas » — une ligne qu'on ne
+						// s'explique pas, on n'ose ni l'accepter ni la jeter.
+						$dze_why = [];
+						foreach ( (array) ( $r['why'] ?? [] ) as $dze_wl => $dze_wt ) {
+							$dze_why[ (string) $dze_wt ][] = strtoupper( (string) $dze_wl );
+						}
+						foreach ( $dze_why as $dze_wt => $dze_wls ) {
+							echo '<br /><span class="description">' . esc_html( implode( ', ', $dze_wls ) . ' — ' . $dze_wt ) . '</span>';
+						}
+						?>
+					</td>
 					<?php echo wp_kses_post( DZE_Hub::id_td( (int) $r['id'] ) ); ?>
 					<td><span class="description"><?php echo esc_html( self::type_label( $r ) ); ?></span></td>
 					<td>

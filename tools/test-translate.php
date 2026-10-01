@@ -364,6 +364,18 @@ class DZE_Tr_Test_Wpdb {
 		if ( false !== stripos( $sql, 'GROUP BY pm.meta_key' ) ) { return $this->text_keys; }
 		if ( false !== stripos( $sql, 'GROUP BY p.post_type' ) ) { return $this->review_posts; }
 		if ( false !== stripos( $sql, 'GROUP BY tt.taxonomy' ) ) { return $this->review_terms; }
+		// WHAT IS BEING PUBLISHED, read from the objects themselves.
+		if ( false !== stripos( $sql, 'AS pub_id' ) ) {
+			$out = [];
+			if ( false !== stripos( $sql, 'wp_postmeta' ) ) {
+				foreach ( (array) ( $GLOBALS['meta'] ?? [] ) as $id => $m ) {
+					if ( isset( $m['_dze_tr_pub'] ) ) {
+						$out[] = [ 'pub_id' => $id, 'pub_type' => (string) ( $GLOBALS['posts'][ $id ]['type'] ?? 'post' ) ];
+					}
+				}
+			}
+			return $out;
+		}
 		if ( false !== stripos( $sql, 'wp_postmeta' ) ) { return $this->waiting_posts; }
 		if ( false !== stripos( $sql, 'wp_termmeta' ) ) { return $this->waiting_terms; }
 		// The three readings of WPML's tables, told apart by what they select.
@@ -656,6 +668,11 @@ function wp_update_term( $id, $tax, $args = [] ) {
 }
 function wp_update_post( $post ) { 
 	$id = (int) ( $post['ID'] ?? 0 );
+	// WHAT THE QUEUE HOLDS AT THE MOMENT OF THE WRITE — what a step that died
+	// right now would leave behind.
+	if ( ! empty( $GLOBALS['queue_at_write_on'] ) && class_exists( 'DZE_Translate' ) ) {
+		$GLOBALS['queue_at_write'] = DZE_Translate::asked();
+	}
 	foreach ( $post as $k => $v ) { if ( 'ID' !== $k ) { $GLOBALS['posts'][ $id ][ $k ] = $v; } }
 	return $id;
 }
@@ -2808,7 +2825,7 @@ ok( 'la demande de l editeur porte le choix',
 ok( 'et il ecrit par accept()',
 	false !== strpos( $dze_src, "\$ecrit = self::accept( \$o, (array) \$made['langs'] );" ), true );
 ok( 'la file aussi, au nom de celui qui l a envoyee',
-	false !== strpos( $dze_src, "\$w = self::accept( \$o, \$ecrit, (int) \$qui['by'] );" ), true );
+	false !== strpos( $dze_src, "\$w = self::accept( \$o, \$ecrit, (int) \$qui['by'], self::META_PUB );" ), true );
 $dze_scr = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate-screen.php' );
 ok( 'le choix est sur l ecran, relecture d abord',
 	(bool) preg_match( '#<select id="dze-trd-review">\s*<option value="review">#', $dze_scr ), true );
@@ -3313,6 +3330,140 @@ ok( 'after the last try, what came back waits for review', array_keys( (array) (
 ok( 'and the row says what is missing',                  false !== strpos( DZE_Translate::drain_errors()['post:942:post']['de'] ?? '', 'did not come back after three tries' ), true );
 $GLOBALS['model_answer_fn'] = $dze_good;
 
+echo "\n« WITHOUT REVIEW » NEVER PASSES THROUGH « TO REVIEW »\n";
+// « Option activée, publish without review, pourtant, beaucoup arrivent dans
+// la case review. Je ne comprends pas. » Every landing was stored as waiting
+// for a person and written later, a few a minute; a step that died while
+// writing left its object there for good.
+$dze_c = static function () use ( $dze_clean ) {
+	$dze_clean();
+	unset( $GLOBALS['meta'][940][ DZE_Translate::META_PUB ], $GLOBALS['meta'][942][ DZE_Translate::META_PUB ] );
+	$GLOBALS['posts'][952]['post_title'] = 'Größen';
+};
+$dze_land = static function ( array $extra = [] ) {
+	$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ array_merge( [ 'kind' => 'post', 'id' => 942, 'type' => 'post', 'langs' => [ 'de' ], 'accept' => 1, 'land' => [ 'de' => 1 ] ], $extra ) ];
+};
+$dze_pubhold = static function ( array $o, string $lang, string $title ) {
+	DZE_Translate::hold( $o, [ $lang => [ 'title' => $title ] ], [ 'title' => 'Source' ], 0, [], 0, DZE_Translate::META_PUB );
+};
+// WHAT LANDS WITHOUT REVIEW IS KEPT APART FROM « TO REVIEW ».
+$dze_c();
+$dze_hl = new ReflectionMethod( 'DZE_Translate', 'hold_landed' );
+$dze_hl->setAccessible( true );
+$dze_hl->invoke( null, $o942, [ 'de' => [ 'title' => 'Neu' ], 'fr' => [ 'title' => 'Nouveau' ] ], [], 0, [ 'de' => true ], [ 'fr' => 'Part of it did not come back.' ] );
+ok( 'a language to publish waits apart',               array_keys( DZE_Translate::publishing( $o942 )['langs'] ?? [] ), [ 'de' ] );
+ok( 'only the other one is in « To review »',          array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ), [ 'fr' ] );
+ok( 'saying why it waits there',                       DZE_Translate::waiting( $o942 )['why']['fr'] ?? '', 'Part of it did not come back.' );
+// THE NEWER ANSWER WINS: landing again without review takes it out of review.
+$dze_hl->invoke( null, $o942, [ 'fr' => [ 'title' => 'Encore' ] ], [], 0, [ 'fr' => true ], [] );
+ok( 'a language lands in one record only',             [ array_keys( DZE_Translate::publishing( $o942 )['langs'] ?? [] ), DZE_Translate::waiting( $o942 ) ], [ [ 'de', 'fr' ], [] ] );
+// THE WHOLE CYCLE: nothing is ever left in « To review ».
+$dze_c();
+DZE_Translate::ask( [ $o942 ], true, [ 'de' ], true );
+DZE_Translate::drain();
+$dze_age();
+DZE_Translate::drain();
+ok( 'published without review, it is written',         (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), '[title]' );
+ok( 'and nothing is left in either record',            [ DZE_Translate::publishing( $o942 ), DZE_Translate::waiting( $o942 ), DZE_Translate::asked() ], [ [], [], [] ] );
+// A STEP THAT DIED WHILE WRITING IS REPLAYED ONCE.
+$dze_c();
+$dze_pubhold( $o942, 'de', 'Neu' );
+$dze_land( [ 'claim' => [ 'de' => 1 ] ] );
+DZE_Translate::drain();
+ok( 'a step that died while writing is replayed once', (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), 'Neu' );
+ok( 'and nothing is left behind',                      [ DZE_Translate::publishing( $o942 ), DZE_Translate::waiting( $o942 ), DZE_Translate::asked() ], [ [], [], [] ] );
+// TWICE, AND IT IS LEFT TO A PERSON — saying so.
+$dze_c();
+$dze_pubhold( $o942, 'de', 'Neu' );
+$dze_land( [ 'claim' => [ 'de' => 2 ] ] );
+DZE_Translate::drain();
+ok( 'twice interrupted, it is not tried a third time', (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), 'Größen' );
+ok( 'it waits for a person',                           array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ), [ 'de' ] );
+ok( 'saying why',                                      false !== strpos( (string) ( DZE_Translate::waiting( $o942 )['why']['de'] ?? '' ), 'interrupted twice' ), true );
+ok( 'and nothing is left half way',                    [ DZE_Translate::publishing( $o942 ), DZE_Translate::asked() ], [ [], [] ] );
+// A LANGUAGE IS CLAIMED BEFORE IT IS WRITTEN, never taken out first.
+$dze_c();
+$dze_pubhold( $o942, 'de', 'Neu' );
+$dze_land();
+$GLOBALS['queue_at_write_on'] = true;
+$GLOBALS['queue_at_write']    = null;
+DZE_Translate::drain();
+unset( $GLOBALS['queue_at_write_on'] );
+ok( 'while it is written, it is still in the queue, claimed — a step dying now leaves it to the next',
+	[ $GLOBALS['queue_at_write'][0]['langs'] ?? [], $GLOBALS['queue_at_write'][0]['claim']['de'] ?? 0 ], [ [ 'de' ], 1 ] );
+ok( 'and once written it leaves',                      DZE_Translate::asked(), [] );
+// CANCELLED ONCE BACK: it moves to « To review », saying so.
+$dze_c();
+$dze_pubhold( $o942, 'de', 'Neu' );
+$dze_land();
+DZE_Translate::cancel( 'post:942:post', 'de' );
+DZE_Translate::drain();
+ok( 'cancelled once back, it moves to « To review »',  array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ), [ 'de' ] );
+ok( 'is not published',                                (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), 'Größen' );
+ok( 'and says why',                                    false !== strpos( (string) ( DZE_Translate::waiting( $o942 )['why']['de'] ?? '' ), 'Taken out of the queue' ), true );
+// THE QUEUE EMPTIED: the same.
+$dze_c();
+$dze_pubhold( $o942, 'de', 'Neu' );
+$dze_land();
+DZE_Translate::cancel_all();
+ok( 'the queue emptied, it moves to « To review »',    [ array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ), DZE_Translate::publishing( $o942 ) ], [ [ 'de' ], [] ] );
+// NOTHING LEFT TO PUBLISH IT: the safety net finds it.
+$dze_c();
+$dze_pubhold( $o942, 'de', 'Neu' );
+DZE_Translate::drain();
+ok( 'what nothing is left to publish moves to « To review »', array_keys( DZE_Translate::waiting( $o942 )['langs'] ?? [] ), [ 'de' ] );
+ok( 'saying why',                                      false !== strpos( (string) ( DZE_Translate::waiting( $o942 )['why']['de'] ?? '' ), 'Nothing was left to publish it' ), true );
+ok( 'and is never published behind anybody\'s back',  (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), 'Größen' );
+// LANDED BEFORE THIS VERSION, its text still in « To review »: still published.
+$dze_c();
+DZE_Translate::hold( $o942, [ 'de' => [ 'title' => 'Neu' ] ], [ 'title' => 'Source' ] );
+$dze_land();
+DZE_Translate::drain();
+ok( 'landed before this version, it is still published', (string) ( $GLOBALS['posts'][952]['post_title'] ?? '' ), 'Neu' );
+ok( 'and leaves « To review »',                        DZE_Translate::waiting( $o942 ), [] );
+// WHAT CANNOT BE WRITTEN WAITS FOR A PERSON, WITH THE REASON.
+$dze_c();
+$dze_set_keep = $GLOBALS['opts']['dze_translate_settings'] ?? [];
+$GLOBALS['opts']['dze_translate_settings']['create'] = 0;
+$dze_pubhold( $o940, 'fr', 'Un' );
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr' ], 'accept' => 1, 'land' => [ 'fr' => 1 ] ] ];
+DZE_Translate::drain();
+ok( 'what cannot be written waits for a person',       array_keys( DZE_Translate::waiting( $o940 )['langs'] ?? [] ), [ 'fr' ] );
+ok( 'with the reason it could not',                    false !== strpos( (string) ( DZE_Translate::waiting( $o940 )['why']['fr'] ?? '' ), 'creating one is switched off' ), true );
+ok( 'and the queue lets it go',                        DZE_Translate::asked(), [] );
+$GLOBALS['opts']['dze_translate_settings'] = $dze_set_keep;
+// A LANGUAGE BEING PUBLISHED IS NEVER PAID FOR TWICE.
+$dze_c();
+$dze_pubhold( $o940, 'fr', 'Un' );
+$GLOBALS['opts'][ DZE_Translate::OPT_ASKED ] = [ [ 'kind' => 'post', 'id' => 940, 'type' => 'post', 'langs' => [ 'fr' ], 'accept' => 1, 'land' => [ 'fr' => 1 ] ] ];
+DZE_Translate::ask( [ $o940 ], true, [ 'fr' ] );
+ok( 'asked again while it is being published, nothing leaves', $GLOBALS['waves'], [] );
+// A ROW OF « TO REVIEW » SAYS WHY IT WAITS.
+$dze_rf = new ReflectionMethod( 'DZE_Translate', 'row_from' );
+$dze_rf->setAccessible( true );
+$dze_row = $dze_rf->invoke( null, 'post', 942, (string) wp_json_encode( [ 'at' => 1, 'by' => 0, 'langs' => [ 'de' => [ 'title' => 'Neu' ] ], 'src' => [], 'why' => [ 'de' => 'Because.' ] ] ) );
+ok( 'a row of « To review » carries why it waits',     $dze_row['why'] ?? [], [ 'de' => 'Because.' ] );
+$dze_scr_r = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate-screen.php' );
+ok( 'and the list prints it',                          false !== strpos( $dze_scr_r, "\$r['why']" ), true );
+// THE STEP ITSELF: it goes on when its caller hangs up, books the next one
+// before working, leaves time to send, sweeps the links once per language.
+$dze_src_t = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-translate.php' );
+$dze_drain = preg_match( '/public static function drain\(.*?\n\t\}/s', $dze_src_t, $dze_dm ) ? $dze_dm[0] : '';
+ok( 'a step goes on when its caller hangs up',         false !== strpos( $dze_drain, 'ignore_user_abort( true )' ), true );
+ok( 'and books the next one before it works',
+	false !== strpos( $dze_drain, 'self::kick_drain( 3 * MINUTE_IN_SECONDS )' ) && strpos( $dze_drain, 'self::kick_drain( 3 * MINUTE_IN_SECONDS )' ) < strpos( $dze_drain, 'self::repair_marks();' ), true );
+ok( 'publishing leaves time to send',                  false !== strpos( $dze_drain, 'floor( $budget * 0.6 )' ), true );
+ok( 'the links of a language are swept once per step', false !== strpos( $dze_src_t, 'self::$sweep_later[ (string) $dze_l ] = true;' ), true );
+// AND ONLY WHEN WHAT WAS WRITTEN CAN BE THE TARGET OF A LINK: a sweep reads
+// every category of a language, three to five seconds on Kula.
+$dze_lt = new ReflectionMethod( 'DZE_Translate', 'link_target' );
+$dze_lt->setAccessible( true );
+ok( 'a product written sweeps no link, a category, an article and a page do',
+	[ $dze_lt->invoke( null, [ 'kind' => 'post', 'type' => 'product' ] ), $dze_lt->invoke( null, [ 'kind' => 'term', 'type' => 'product_cat' ] ), $dze_lt->invoke( null, [ 'kind' => 'post', 'type' => 'post' ] ), $dze_lt->invoke( null, [ 'kind' => 'post', 'type' => 'page' ] ), $dze_lt->invoke( null, [ 'kind' => 'term', 'type' => 'pa_color' ] ) ],
+	[ false, true, true, true, false ] );
+ok( 'and the sweep reads the term, not WPML\'s element id',
+	false !== strpos( $dze_src_t, 'INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = ic.element_id' ), true );
+$dze_c();
 echo "\nA LOST BATCH IS FOUND FOR WHAT IT IS, NEVER MISTAKEN FOR ANOTHER\n";
 $dze_clean();
 $dze_sent_of = static function ( int $id, string $lang ): string {
