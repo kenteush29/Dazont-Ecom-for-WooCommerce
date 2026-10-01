@@ -1950,6 +1950,7 @@ ok( 'les deux ↻ envoient l image qu ils remplacent', [
 	false !== strpos( $dze_jb, "{ aware: 1, redo: String(url || '') }" ),
 	false !== strpos( $dze_aj, "\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ), \$dze_redo );" ),
 ], [ true, true, true ] );
+ok( 'la fiche reste ouverte quand on fait defiler le prompt qu elle montre', false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' ), "if (t && t.nodeType === 1 && \$(t).closest('.dze-ai-pop').length) { return; }" ), true );
 unset( $GLOBALS['mai_view'] );
 
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
