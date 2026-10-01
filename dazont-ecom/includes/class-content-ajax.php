@@ -1420,11 +1420,39 @@ trait DZE_Content_Ajax {
 			// afterwards it would be a second answer to one question, and the
 			// two disagree.
 			$dze_paste_n = 0;
+			// Whether ✦ sends the product's main photograph ahead of the picture.
+			$dze_remake_ref = false;
 			if ( '' !== $src ) {
 				// Editing one precise image: that image is the subject, on its
 				// own. This is the ↻ on a tile — "make this one again" — and it
 				// is the only lane where the answer is allowed to look like its
 				// source, which is why it stands apart from everything below.
+				//
+				// ✦ REMAKE: THE PRODUCT ITSELF LEADS. « Sur ce produit on est sur
+				// un camo kryptek mandrake, or je n'ai que des images d'autres
+				// camo sous la main pour les détails. Il faut je pense envoyer
+				// dans tous les cas l'image 1 principale comme référence. » A
+				// detail pasted from another camouflage came back in that
+				// camouflage: nothing in the request showed the product of this
+				// page. Its main photograph now travels first — what the product
+				// looks like — and the picture to remake second — its framing and
+				// its construction (photo note « remake »). The main photograph
+				// remade itself travels alone, as before.
+				if ( $remake && $dze_main > 0 && $dze_main !== $src_att ) {
+					try {
+						$sources[]      = $this->fal_source_data_uri( $dze_main, 'large' );
+						$labels[]       = [
+							'what'  => __( 'The main photograph — this product as it is', 'dazont-ecom' ),
+							'thumb' => $dze_thumb( $dze_main ),
+							'full'  => (string) wp_get_attachment_image_url( $dze_main, 'large' ),
+							'id'    => $dze_main,
+						];
+						$dze_remake_ref = true;
+					} catch ( \Throwable $e ) {
+						// No file to read: the picture goes alone, as it did.
+						$dze_remake_ref = false;
+					}
+				}
 				$sources[] = $src;
 				$labels[]  = [ 'what' => __( 'The picture being retouched', 'dazont-ecom' ), 'thumb' => $src_thumb ];
 			} else {
@@ -1547,7 +1575,10 @@ trait DZE_Content_Ajax {
 			// in is the only lane with a subject of its own — there the answer
 			// is allowed to look like its source, and everywhere else it is the
 			// product that is being photographed afresh.
-			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, '' !== $src, 1 === $product_count && ( ! empty( $in['only_main'] ) || $src_id > 0 ) );
+			$prompt   .= $dze_remake_ref
+				// What each of the two images IS: the product, the picture to remake.
+				? "\n\n" . self::photo_note( 'remake' )
+				: self::sources_instruction( $product_count, $scene, $avoid, $variants, '' !== $src, 1 === $product_count && ( ! empty( $in['only_main'] ) || $src_id > 0 ) );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.

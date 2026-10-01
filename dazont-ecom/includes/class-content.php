@@ -1833,8 +1833,17 @@ EOT;
 			],
 			'edit'    => [
 				'label'   => __( 'A picture already made, retouched', 'dazont-ecom' ),
-				'when'    => __( 'Sent when ↻ remakes a picture that was generated: that picture is image 1.', 'dazont-ecom' ),
+				'when'    => __( 'Sent when one picture is retouched alone — ✦ on the main photograph itself: that picture is image 1.', 'dazont-ecom' ),
 				'default' => 'Image 1 is the picture to work on: keep the product in it exactly as it is.',
+			],
+			// ✦ REMAKE: THE PRODUCT ITSELF LEADS. « Sur ce produit on est sur un
+			// camo kryptek mandrake, or je n'ai que des images d'autres camo sous
+			// la main pour les détails. Il faut je pense envoyer dans tous les cas
+			// l'image 1 principale comme référence. »
+			'remake'  => [
+				'label'   => __( 'A picture remade with ✦, beside the main photograph', 'dazont-ecom' ),
+				'when'    => __( 'Sent when ✦ remakes a picture: image 1 is the product\'s main photograph, image 2 the picture to remake — a photograph of the product, one already generated, or one pasted from elsewhere (a supplier detail, another colour or camouflage).', 'dazont-ecom' ),
+				'default' => 'Image 1 is the product itself, as this shop sells it: its pattern, its colours and its materials come from image 1 and from nothing else. Image 2 is the picture to remake: keep its framing, its angle, its composition and every construction detail it shows — seams, zips, pullers, pockets, cords, lining, labels. If the product in image 2 has another pattern, colour or material, it becomes exactly the one of image 1. Add nothing that neither image shows.',
 			],
 			'colours' => [
 				'label'   => __( 'Photographs of its other colours', 'dazont-ecom' ),
@@ -2117,7 +2126,23 @@ EOT;
 		];
 	}
 
+	/**
+	 * The shipped remake words. WHAT EACH IMAGE IS — the product of this page,
+	 * the picture to remake — is said by the photo note (« remake »), so these
+	 * words only say how the remake should look. They used to say « patterns
+	 * stay exactly as they are in the photograph », which held for a picture of
+	 * the product itself and said the opposite of what was wanted for a detail
+	 * photographed on another camouflage.
+	 */
 	public static function default_remake_prompt(): string {
+		return 'Remake the picture as a better photograph of this product. Keep its framing, its angle and its composition. '
+			. 'Make it sharper and cleaner: crisp focus, soft even light, accurate colours, no noise, no compression artefacts, no dust or blemishes, a clean background. '
+			. 'Every construction detail stays exactly where it is — seams, zips, pullers, pockets, cords, labels — and nothing is added that the photographs do not show. '
+			. 'No text, no watermark.';
+	}
+
+	/** The words shipped in 4.506.0, replaced in a shop that never changed them. */
+	private static function remake_prompt_v1(): string {
 		return 'Remake this exact photograph better. Keep the same product, the same framing, the same angle and the same composition. '
 			. 'Make it sharper and cleaner: crisp focus, accurate colours, soft even light, no noise, no compression artefacts, no dust or blemishes, a clean background. '
 			. 'Do not add, remove or change any detail of the product: seams, zips, buttons, logos, patterns and proportions stay exactly as they are in the photograph. '
@@ -2135,20 +2160,30 @@ EOT;
 			return;
 		}
 		$s = self::get_settings();
-		if ( ! empty( $s['remake_seeded'] ) ) {
+		// 2: the row is there, and words shipped in 4.506.0 and never changed
+		// since were brought up to date.
+		if ( (int) ( $s['remake_seeded'] ?? 0 ) >= 2 ) {
 			return;
 		}
-		$rows = self::registry();
-		foreach ( $rows as $r ) {
-			if ( 'remake' === (string) ( $r['output'] ?? '' ) ) {
-				$s['remake_seeded'] = 1;
-				$this->write_settings_direct( $s );
-				return;
+		$rows  = self::registry();
+		$found = false;
+		foreach ( $rows as $i => $r ) {
+			if ( 'remake' !== (string) ( $r['output'] ?? '' ) ) {
+				continue;
+			}
+			$found = true;
+			// THE SHIPPED WORDS, UNTOUCHED, ARE THE PLUGIN'S TO UPDATE — the
+			// owner's own words never are.
+			if ( trim( (string) ( $r['prompt'] ?? '' ) ) === self::remake_prompt_v1() ) {
+				$rows[ $i ]['prompt'] = self::default_remake_prompt();
 			}
 		}
-		$rows[]              = self::remake_row_default();
-		$s['registry']       = $rows;
-		$s['remake_seeded']  = 1;
+		// A row the owner deleted is not brought back.
+		if ( ! $found && empty( $s['remake_seeded'] ) ) {
+			$rows[] = self::remake_row_default();
+		}
+		$s['registry']      = $rows;
+		$s['remake_seeded'] = 2;
 		$this->write_settings_direct( $s );
 		self::$registry_cache = null;
 	}
