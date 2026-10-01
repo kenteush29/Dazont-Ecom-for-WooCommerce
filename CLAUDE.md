@@ -269,6 +269,23 @@ fait" (4.499.0):
       `woocommerce_custom_orders_table_enabled` is `yes`, the posts otherwise.
   - One row per category: several addresses of one category (trailing slash,
     old slug) add up, and the position is weighted by impressions.
+  - **An address belongs to the language of its DOMAIN** (4.502.1). « Non ce
+    n'est pas espagnol. L'espagnol est sur un autre domaine. »
+    - The bug: Google keeps old addresses. `kula-tactical.es/sniper-veil` is
+      the English slug on the Spanish domain, from before the category had
+      its own. It now redirects to the Spanish category. The slug alone gave
+      it to the ENGLISH category, so its figures were added to
+      `kula-tactical.com/sniper-veil`'s. The row then took the language of
+      whichever page was read first: "ES" on a .com address, 20 rows of 595.
+    - Another language's slug now leads to the category's translation in the
+      address's own language: the same WPML trid, through the `#tid` and
+      `@trid|lang` keys of `slug_map()`. With no translation in that
+      language, it leads nowhere.
+    - The bare slug is a fallback only when the address's language is
+      unknown.
+    - A row's language is its category's. Its address is the one that
+      carries today's slug when Google has it, so never an old one that
+      redirects.
   - Status says what to do: `reach` (a link would lift it), `strong`,
     `unseen` (sells and Google showed it to nobody), `far`, `skip` (noindex
     in Rank Math, empty with its descendants, or the default category in

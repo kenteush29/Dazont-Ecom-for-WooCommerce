@@ -439,6 +439,49 @@ $neuf = DZE_Netlinking::score( [
 ] );
 ok( 'une lecture gardee est re-classee',     array_column( $neuf, 'tid' ), [ 11, 22, 33 ] );
 ok( 'avec des rangs sur 100',                array_column( $neuf, 'worth' ), [ 100, 3, 0 ] );
+echo "\nUNE ADRESSE EST A LA LANGUE DE SON DOMAINE\n";
+// « Non ce n'est pas espagnol. L'espagnol est sur un autre domaine. » Google
+// garde kula-tactical.es/sniper-veil, l ancien slug anglais sur le domaine
+// espagnol, qui redirige vers la categorie espagnole. Le slug seul la donnait
+// a la categorie anglaise, et la ligne affichait « ES » sur une adresse .com.
+$keep_wpml = $GLOBALS['opts']['icl_sitepress_settings'] ?? null;
+$GLOBALS['opts']['icl_sitepress_settings'] = [
+	'language_negotiation_type' => 2,
+	'default_language'          => 'en',
+	'language_domains'          => [ 'es' => 'kula-tactical.es', 'pl' => 'kula-tactical.pl' ],
+];
+$wm = [
+	'en|sniper-veil' => 5820, '|sniper-veil' => 5820, '#5820' => 9, '@9|en' => 5820,
+	'es|velos'       => 6000, '|velos'       => 6000, '#6000' => 9, '@9|es' => 6000,
+	'en|seule'       => 7000, '|seule'       => 7000, '#7000' => 12, '@12|en' => 7000,
+];
+ok( 'l ancien slug sur le domaine espagnol mene a la categorie espagnole',
+	DZE_Netlinking::term_of_url( 'https://kula-tactical.es/sniper-veil', $wm ), 6000 );
+ok( 'le slug anglais sur le domaine anglais reste anglais',
+	DZE_Netlinking::term_of_url( 'https://kula-tactical.com/sniper-veil', $wm ), 5820 );
+ok( 'sans traduction dans la langue du domaine, l adresse n est a personne',
+	DZE_Netlinking::term_of_url( 'https://kula-tactical.pl/seule', $wm ), 0 );
+$pg = [
+	[ 'url' => 'https://kula-tactical.es/sniper-veil', 'clicks' => 5.0, 'impr' => 900.0, 'ctr' => 5 / 900, 'pos' => 9.0, 'prop' => 'sc-domain:kula-tactical.es', 'lang' => 'es', 'terms' => [] ],
+	[ 'url' => 'https://kula-tactical.com/sniper-veil', 'clicks' => 22.0, 'impr' => 1444.0, 'ctr' => 22 / 1444, 'pos' => 14.4, 'prop' => 'sc-domain:kula-tactical.com', 'lang' => 'en', 'terms' => [] ],
+	[ 'url' => 'https://kula-tactical.es/velos', 'clicks' => 1.0, 'impr' => 40.0, 'ctr' => 1 / 40, 'pos' => 20.0, 'prop' => 'sc-domain:kula-tactical.es', 'lang' => 'es', 'terms' => [] ],
+];
+$wmeta = [ 5820 => [ 'name' => 'Sniper veils', 'lang' => 'en' ], 6000 => [ 'name' => 'Velos', 'lang' => 'es' ] ];
+$par   = array_column( DZE_Netlinking::rank( $pg, [], $wm, $wmeta ), null, 'tid' );
+ok( 'une ligne par langue',                  count( $par ), 2 );
+ok( 'la ligne anglaise est anglaise',        $par[5820]['lang'] ?? '', 'en' );
+ok( 'et ne compte que la page anglaise',     (int) ( $par[5820]['impr'] ?? 0 ), 1444 );
+ok( 'la ligne espagnole compte ses deux adresses', (int) ( $par[6000]['impr'] ?? 0 ), 940 );
+ok( 'et montre celle qui repond, pas l ancienne qui redirige', $par[6000]['url'] ?? '', 'https://kula-tactical.es/velos' );
+// LA LANGUE DE LA LIGNE EST CELLE DE LA CATEGORIE, pas celle de la premiere
+// adresse lue.
+$seul = DZE_Netlinking::rank( [ array_merge( $pg[1], [ 'lang' => 'es' ] ) ], [], $wm, $wmeta )[0];
+ok( 'la langue de la ligne est celle de la categorie', $seul['lang'], 'en' );
+if ( null === $keep_wpml ) {
+	unset( $GLOBALS['opts']['icl_sitepress_settings'] );
+} else {
+	$GLOBALS['opts']['icl_sitepress_settings'] = $keep_wpml;
+}
 echo "\nLE MODULE EST BRANCHE COMME LES AUTRES\n";
 $h = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-health.php' );
 ok( 'il a son controle de sante',        false !== strpos( $h, 'function check_searchconsole' ), true );
