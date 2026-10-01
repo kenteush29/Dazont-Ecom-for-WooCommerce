@@ -763,6 +763,17 @@ trait DZE_Content_Ajax {
 			// gallery prompt's, while its words were not.
 			$in['no_template'] = 1;
 		}
+		// THE FRAMINGS ALREADY MADE, sent as words (made_lines()): the product
+		// page makes its photographs one after another and asks for this.
+		$in['aware'] = ! empty( $_POST['aware'] ) ? 1 : 0;
+		// ONE PRESS'S MODEL, when the page named one of the catalogue. Compared
+		// with the catalogue's keys as typed: sanitize_key() would drop the dot
+		// of « gpt-image-2.5-sunburst » and name a model that does not exist.
+		$dze_model = isset( $_POST['model'] ) ? trim( (string) wp_unslash( $_POST['model'] ) ) : '';
+		self::$model_override = isset( self::image_models()[ $dze_model ] ) ? $dze_model : '';
+		// ORDER AND COME BACK: the page asks after its picture in short calls
+		// (ajax_job) instead of holding this one open past the proxy's 60 s.
+		self::$submit_only = ! empty( $_POST['async'] ) && empty( $in['dry'] );
 		// phpcs:enable
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -770,10 +781,17 @@ trait DZE_Content_Ajax {
 		try {
 			$made = $this->shoot( $in );
 		} catch ( \Throwable $e ) {
+			self::$submit_only    = false;
+			self::$model_override = '';
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
+		self::$submit_only    = false;
+		self::$model_override = '';
 		if ( ! empty( $made['dry'] ) ) {
 			wp_send_json_success( $made );
+		}
+		if ( ! empty( $made['job'] ) ) {
+			wp_send_json_success( $made + [ 'spend' => self::product_spend( $pid ) ] );
 		}
 		$main = (int) get_post_thumbnail_id( $pid );
 		wp_send_json_success( [
@@ -783,6 +801,119 @@ trait DZE_Content_Ajax {
 			// What this product has cost in images, counted after this one.
 			'spend' => $made['spend'] ?? self::product_spend( $pid ),
 		] );
+	}
+
+	/**
+	 * ASKS AFTER ONE PICTURE the product page ordered, in a call that lasts a
+	 * few seconds whatever fal is doing. Three answers: still running; done —
+	 * filed in the waiting list with its cost and its framing, exactly where a
+	 * picture made while waiting would have gone; or given up, said on the
+	 * tile and written to the log the error links to.
+	 */
+	public function ajax_job(): void {
+		$this->guard();
+		global $wpdb;
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- guard() checks the nonce.
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$id  = isset( $_POST['job'] ) ? sanitize_text_field( wp_unslash( $_POST['job'] ) ) : '';
+		// phpcs:enable
+		if ( ! $pid || '' === $id || empty( self::jobs( $pid )[ $id ] ) ) {
+			wp_send_json_error( [
+				'gone'    => 1,
+				'message' => __( 'This picture is no longer being made: it was already collected, or given up.', 'dazont-ecom' ),
+			] );
+		}
+		// ONE COLLECTOR PER PICTURE. Two tabs asking after the same job in the
+		// same second must not file it twice nor bill it twice: the second is
+		// told « still running » and finds it filed on its next look.
+		$lock = 'dze_job_' . md5( $id );
+		if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock ) ) ) {
+			wp_send_json_success( [ 'running' => 1, 'secs' => 0 ] );
+		}
+		$out = $this->job_look( $pid, $id );
+		$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );
+		if ( ! empty( $out['error'] ) ) {
+			wp_send_json_error( $out );
+		}
+		wp_send_json_success( $out );
+	}
+
+	/**
+	 * One look at one job, under its lock.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function job_look( int $pid, string $id ): array {
+		$job = self::jobs( $pid )[ $id ] ?? null;
+		if ( ! $job ) {
+			// Collected by another tab while this one waited for the lock.
+			return [ 'gone' => 1 ];
+		}
+		$secs  = max( 0, time() - (int) ( $job['t'] ?? time() ) );
+		$state = self::fal_status( $job );
+		if ( 'done' !== $state ) {
+			if ( 'failed' !== $state && $secs < self::JOB_GIVE_UP ) {
+				return [ 'running' => 1, 'secs' => $secs ];
+			}
+			self::job_remove( $pid, $id );
+			$why = 'failed' === $state
+				? __( 'fal no longer knows this job.', 'dazont-ecom' )
+				/* translators: %d: minutes */
+				: sprintf( __( 'fal has not finished it in %d minutes.', 'dazont-ecom' ), (int) round( self::JOB_GIVE_UP / 60 ) );
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log( 'fal', 'job ' . $id . ' (product ' . $pid . ')', 'given up — ' . $why );
+			}
+			/* translators: %s: why the picture was given up */
+			return [ 'error' => 1, 'gone' => 1, 'message' => sprintf( __( 'Given up: %s', 'dazont-ecom' ), $why ) ];
+		}
+		DZE_Ai_Usage::unit( 'product_img' );
+		DZE_Ai_Usage::about( $pid );
+		try {
+			$url = self::fal_fetch( $job, $pid, (string) ( $job['asked'] ?? '' ), (float) ( $job['t0'] ?? microtime( true ) ) );
+		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::about();
+			self::job_remove( $pid, $id );
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log( 'content', 'image generation (product ' . $pid . ')', $e->getMessage() );
+			}
+			return [ 'error' => 1, 'gone' => 1, 'message' => $e->getMessage() ];
+		}
+		if ( '' === $url ) {
+			// Finished and not fetched this time: fetched on the next look.
+			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::about();
+			return [ 'running' => 1, 'secs' => $secs ];
+		}
+		DZE_Ai_Usage::finished( 'product_img' );
+		self::charge_product( $pid, self::last_image_cost() );
+		// Its framing, in words, for the next order (describe_view()).
+		DZE_Ai_Usage::unit( 'img_view' );
+		$view = self::describe_view( $url, (string) get_the_title( $pid ) );
+		DZE_Ai_Usage::unit();
+		DZE_Ai_Usage::about();
+		$model = (string) ( $job['model'] ?? '' );
+		if ( ! empty( $job['stash'] ) ) {
+			self::stash( $pid, [
+				'shot'   => $url,
+				'target' => (string) ( $job['target'] ?? 'gallery' ),
+				'recipe' => (string) ( $job['recipe'] ?? '' ),
+				'model'  => $model,
+				'view'   => $view,
+			] );
+		}
+		self::job_remove( $pid, $id );
+		return [
+			'done'   => 1,
+			'url'    => $url,
+			'target' => (string) ( $job['target'] ?? 'gallery' ),
+			'recipe' => (string) ( $job['recipe'] ?? '' ),
+			'model'  => (string) ( self::image_models()[ $model ]['label'] ?? $model ),
+			'key'    => $model,
+			'view'   => $view,
+			'secs'   => $secs,
+			'spend'  => self::product_spend( $pid ),
+		];
 	}
 
 	public function ajax_image(): void {
@@ -1237,6 +1368,14 @@ trait DZE_Content_Ajax {
 			// What the owner knows and no photograph shows — about the product,
 			// and about this variation when there is one.
 			$prompt .= self::note_lines( $pid, '' !== $v_value ? $v_attr . '::' . $v_value : '', $note );
+			// WHAT THIS PROMPT HAS ALREADY MADE FOR THIS PRODUCT, IN WORDS —
+			// for the product page, where photographs are made one after
+			// another and each must not repeat the last. Never the pictures
+			// themselves (made_lines() says why), and nothing that chooses
+			// the subject: only framings not to make again.
+			if ( ! empty( $in['aware'] ) ) {
+				$prompt .= self::made_lines( $pid, (string) ( $tpl['id'] ?? '' ) );
+			}
 			// NOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS. A hint that
 			// asked the second attempt for "a detail of the material, the
 			// stitching or the fastening" is the plugin choosing the subject of
@@ -1282,6 +1421,29 @@ trait DZE_Content_Ajax {
 				];
 			}
 			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto', $pid, $dze_made );
+			// empty(): the screens that host shoot() without being DZE_Content
+			// (the gate's DZE_Shoot_Host) have no such property, and ordering is
+			// never theirs to ask.
+			if ( ! empty( self::$submit_only ) && ! empty( self::$submitted ) ) {
+				// ORDERED, NOT MADE: the page asks after it (ajax_job), which
+				// files the picture, its cost and its framing when it is done.
+				$dze_job = self::$submitted + [
+					'target' => $target,
+					'recipe' => (string) ( $tpl['id'] ?? '' ),
+					'stash'  => ! empty( $in['stash'] ) ? 1 : 0,
+					'by'     => get_current_user_id(),
+				];
+				self::$submitted = [];
+				self::job_add( $pid, $dze_job );
+				DZE_Ai_Usage::unit();
+				DZE_Ai_Usage::about();
+				return [
+					'job'    => (string) $dze_job['id'],
+					'target' => $target,
+					'recipe' => (string) ( $tpl['id'] ?? '' ),
+					'model'  => (string) ( self::image_models()[ (string) $dze_job['model'] ]['label'] ?? $dze_job['model'] ),
+				];
+			}
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::about();
 			DZE_Ai_Usage::finished( 'product_img' );
@@ -1501,6 +1663,9 @@ trait DZE_Content_Ajax {
 			// bill before the press counts what this product really sends.
 			'sources' => count( self::product_source_ids( $pid ) ),
 			'pending' => self::pending( $pid ),
+			// THE PICTURES STILL BEING MADE: a page reopened finds its tiles
+			// « being made » and goes on asking after them.
+			'jobs'    => self::jobs_public( $pid ),
 			// What this product has already cost in images.
 			'spend'   => self::product_spend( $pid ),
 			// THE BOX OPENS EMPTY. A note is for the run in front of you: read
@@ -1777,7 +1942,7 @@ trait DZE_Content_Ajax {
 		$had     = (array) ( $waiting['shots'] ?? [] );
 		$waiting['shots'] = array_values( array_diff( $had, $urls ) );
 		foreach ( $urls as $gone ) {
-			unset( $waiting['targets'][ $gone ], $waiting['recipes'][ $gone ] );
+			unset( $waiting['targets'][ $gone ], $waiting['recipes'][ $gone ], $waiting['models'][ $gone ], $waiting['views'][ $gone ] );
 		}
 		if ( empty( $waiting['shots'] ) && empty( $waiting['texts'] ) ) {
 			delete_post_meta( $pid, self::META_PENDING );
@@ -1964,6 +2129,8 @@ trait DZE_Content_Ajax {
 		$errors  = 0;
 		$why     = [];
 		$main_up = false;
+		// Which file each picture became: its framing follows it.
+		$dze_attached = [];
 		foreach ( $items as $item ) {
 			$u = (string) $item['url'];
 			if ( '' === $u || ! self::is_fal_url( $u ) ) {
@@ -1986,10 +2153,21 @@ trait DZE_Content_Ajax {
 				}
 			}
 			try {
-				$ids[] = $this->sideload_seo( $u, $pid, $t, $recipe, $keep_old );
+				$dze_aid           = $this->sideload_seo( $u, $pid, $t, $recipe, $keep_old );
+				$ids[]             = $dze_aid;
+				$dze_attached[ $u ] = (int) $dze_aid;
 			} catch ( \Throwable $e ) {
 				$errors++;
 				$why[] = $e->getMessage();
+			}
+		}
+		// ITS FRAMING STAYS WITH IT. What the photographs made after it are
+		// told not to repeat (made_views()) is read from the attachment once
+		// the waiting list has let the picture go.
+		$dze_views = (array) ( self::pending( $pid )['views'] ?? [] );
+		foreach ( $dze_attached as $dze_u => $dze_aid ) {
+			if ( ! empty( $dze_views[ $dze_u ] ) && $dze_aid > 0 ) {
+				update_post_meta( $dze_aid, self::META_VIEW, (string) $dze_views[ $dze_u ] );
 			}
 		}
 		if ( empty( $ids ) ) {

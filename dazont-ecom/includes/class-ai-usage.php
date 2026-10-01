@@ -704,6 +704,7 @@ final class DZE_Ai_Usage {
 			'cat_pick'    => __( 'Choosing which pages belong together', 'dazont-ecom' ),
 			'product_text'=> __( 'Product texts (one run)', 'dazont-ecom' ),
 			'product_img' => __( 'Product image', 'dazont-ecom' ),
+			'img_view'    => __( 'Product image: its framing, in words', 'dazont-ecom' ),
 			'feature_pick'=> __( 'Choosing the photograph of a block', 'dazont-ecom' ),
 			'translate'   => __( 'Translation (one language)', 'dazont-ecom' ),
 			'calendar'    => __( 'Marketing calendar', 'dazont-ecom' ),

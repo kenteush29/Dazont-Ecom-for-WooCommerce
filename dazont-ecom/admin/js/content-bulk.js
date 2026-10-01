@@ -1435,6 +1435,11 @@
 				b.shotTarget = b.shotTarget || {};
 				b.shotTarget[r.data.url] = r.data.target || dest;
 				delete b.shotTarget[url];
+				// THE ONE IT REPLACES LEAVES THE WAITING LIST TOO: replaced on
+				// screen and kept on the server, it came back on the next visit.
+				if (url && url !== r.data.url) {
+					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id, shots: [ String(url) ] });
+				}
 				$st.text('');
 				renderShots(id);
 			})
