@@ -1954,7 +1954,7 @@ ok( 'la fiche reste dans la fenetre : dessus quand la place manque dessous, jama
 ok( 'la fiche reste ouverte quand on fait defiler le prompt qu elle montre', false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' ), "if (t && t.nodeType === 1 && \$(t).closest('.dze-ai-pop').length) { return; }" ), true );
 // « Photographs from elsewhere — il faudrait les afficher dans la même taille que les images produit. »
 $dze_css = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/css/content.css' );
-ok( 'les photos collees ont la taille des photos du produit', [ false !== strpos( $dze_css, '.dze-cb-nowshot { display: inline-block; width: 148px; height: 148px; }' ), false !== strpos( $dze_css, '.dze-pb-tile img { display: block; width: 148px; height: 148px;' ) ], [ true, true ] );
+ok( 'les photos collees ont la taille des photos du produit', [ false !== strpos( $dze_css, '.dze-cb-nowshot { display: inline-block; width: 148px; height: 148px; }' ), false !== strpos( $dze_css, '.dze-pb-tile img { display: block; width: 148px; height: 148px;' ), false !== strpos( $dze_css, '.dze-pb-list .dze-pb-tile img { max-height: none; margin: 0; }' ) ], [ true, true, true ] );
 unset( $GLOBALS['mai_view'] );
 
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
