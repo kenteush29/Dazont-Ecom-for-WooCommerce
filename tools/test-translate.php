@@ -4074,7 +4074,7 @@ ok( 'right after WCML synchronises a product, on every write, and once over the 
 	false !== strpos( $tr_src, "add_action( 'admin_init', [ __CLASS__, 'variation_images_start' ] );" ),
 ], [ true, true, true, true ] );
 ok( 'only what is empty, from an image that exists, its own copy when there is one — and never a new copy', [
-	false !== strpos( $tr_src, "AND ( mt.meta_id IS NULL OR mt.meta_value = '' OR mt.meta_value = '0' )" ),
+	false !== strpos( $tr_src, "AND ( mt.meta_id IS NULL OR mt.meta_value IS NULL OR mt.meta_value = '' OR mt.meta_value = '0' )" ),
 	false !== strpos( $tr_src, "INNER JOIN {\$wpdb->posts} a ON a.ID = mo.meta_value AND a.post_type = 'attachment'" ),
 	false !== strpos( $tr_src, "\$copy = DZE_Wpml::translated_id( \$img, 'attachment', (string) \$r->lang );" ),
 	false !== strpos( $tr_src, 'create_duplicate_attachment' ),

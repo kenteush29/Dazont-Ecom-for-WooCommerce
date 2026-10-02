@@ -954,7 +954,10 @@ fait" (4.499.0):
     `..._variation_translations`, on every write of a product translation,
     and once over the shop. That last run is `variation_images_start()` on
     admin_init, then pages of 400 through `dze_variation_images_fill`,
-    walked by a cursor (options `dze_var_images_started` / `_filled`).
+    walked by a cursor (options `dze_var_images_started_2` / `_filled`).
+  - 4.512.1: a row holding SQL NULL (meta row present, value NULL) is
+    empty too. 4.512.0 skipped them (182 variations a language on Kula), so
+    the sweep runs once more everywhere (`_started_2`).
 - **THE ORIGINAL'S LAYOUT IS CARRIED BY US** (4.509.0, « toutes les options
   elementor et le style astra n'est pas toujours copié »).
   - WPML's saved list copies only 12 price fields (the 01/10 incident).
