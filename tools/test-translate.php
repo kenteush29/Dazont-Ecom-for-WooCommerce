@@ -4062,6 +4062,27 @@ $GLOBALS['meta'][732] = [ '_elementor_data' => json_encode( $dze_en ), 'site-con
 ok( 'an empty layout key is the same page as no key', DZE_Translate::layout_signature( 731 ) === DZE_Translate::layout_signature( 732 ), true );
 $GLOBALS['meta'][732]['site-content-layout'] = 'default';
 ok( 'a different one is not', DZE_Translate::layout_signature( 731 ) === DZE_Translate::layout_signature( 732 ), false );
+// « Il semble que les images de variations ne sont pas copiées avec le module de traduction
+// wpml. C'est un problème majeur si c'est le cas. » 11 083 variations russes sur 11 570 sans
+// leur image : WCML ne la copie que si WPML Media duplique les images mises en avant.
+echo "\nThe original's variation images, carried to its translations\n";
+$tr_src = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+ok( 'right after WCML synchronises a product, on every write, and once over the shop', [
+	false !== strpos( $tr_src, "add_action( 'wcml_synchronize_product_translations', [ __CLASS__, 'variation_images_on_sync' ], 20, 1 );" ),
+	false !== strpos( $tr_src, "add_action( 'wcml_synchronize_product_variation_translations', [ __CLASS__, 'variation_images_on_sync' ], 20, 1 );" ),
+	false !== strpos( $tr_src, "if ( 'product' === (string) ( \$o['type'] ?? '' ) ) {\n\t\t\tself::variation_images_fill( (int) \$o['id'] );" ),
+	false !== strpos( $tr_src, "add_action( 'admin_init', [ __CLASS__, 'variation_images_start' ] );" ),
+], [ true, true, true, true ] );
+ok( 'only what is empty, from an image that exists, its own copy when there is one — and never a new copy', [
+	false !== strpos( $tr_src, "AND ( mt.meta_id IS NULL OR mt.meta_value = '' OR mt.meta_value = '0' )" ),
+	false !== strpos( $tr_src, "INNER JOIN {\$wpdb->posts} a ON a.ID = mo.meta_value AND a.post_type = 'attachment'" ),
+	false !== strpos( $tr_src, "\$copy = DZE_Wpml::translated_id( \$img, 'attachment', (string) \$r->lang );" ),
+	false !== strpos( $tr_src, 'create_duplicate_attachment' ),
+], [ true, true, true, false ] );
+ok( 'the sweep walks by a cursor, so a row it cannot fill never holds it in place', [
+	false !== strpos( $tr_src, "( \$after > 0 ? \$wpdb->prepare( ' AND t.element_id > %d', \$after ) : '' )" ),
+	false !== strpos( $tr_src, "self::variation_images_queue( \$r['last'] );" ),
+], [ true, true ] );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 
