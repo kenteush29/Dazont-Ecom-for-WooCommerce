@@ -1961,6 +1961,27 @@ final class DZE_Discounts {
 	}
 
 	/**
+	 * THE MINIMUM IS TYPED IN THE SHOP'S CURRENCY; THE CART IS ADDED UP IN THE
+	 * CUSTOMER'S.
+	 *
+	 * "500" was compared, as typed, with a subtotal summed from prices WCML had
+	 * already converted. On a shop that sells in yen, zloty, kronor or pesos the
+	 * bulk-order minimum was therefore reached by almost any cart — 500 yen is
+	 * three dollars — and the wholesale tier went to everybody who bought three
+	 * things. The figure is converted into the cart's currency before it is
+	 * compared, by WCML's own conversion (`wcml_raw_price_amount`), so the shop's
+	 * rates apply. Without WCML the filter is simply not there and the figure is
+	 * left as typed, which is right for a single-currency shop.
+	 */
+	private static function in_cart_currency( float $amount ): float {
+		if ( $amount <= 0 ) {
+			return $amount;
+		}
+		$converted = apply_filters( 'wcml_raw_price_amount', $amount );
+		return is_numeric( $converted ) && (float) $converted > 0 ? (float) $converted : $amount;
+	}
+
+	/**
 	 * Winning bulk-order rule for the cart, as [ rule|null, percent ]. Each rule
 	 * gates on an optional minimum subtotal and/or minimum total quantity (0 = no
 	 * requirement; any set requirement must be met — AND). Within a rule the
@@ -1992,7 +2013,7 @@ final class DZE_Discounts {
 				continue;
 			}
 
-			$min_sub = (float) ( $rule['min_subtotal'] ?? 0 );
+			$min_sub = self::in_cart_currency( (float) ( $rule['min_subtotal'] ?? 0 ) );
 			$min_qty = (int) ( $rule['min_qty'] ?? 0 );
 			if ( $min_sub > 0 && $subtotal < $min_sub ) {
 				continue;
