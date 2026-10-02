@@ -1493,12 +1493,28 @@
 			});
 	});
 
+	// THE LINE UNDER THE NAME IS THE PRODUCT AS IT STANDS. « Gallery
+	// photographs — 3 of 5 — ne semble pas être mis à jour. » It was read once,
+	// when the page was drawn: photographs filed since — from this screen, the
+	// toolbox or the product page — left it saying what was no longer true. It
+	// is read again whenever this screen writes to the product or opens it.
+	function refreshShort(id) {
+		var $s = $row(id).find('.dze-cb-short');
+		if (!$s.length || !cfg.diagNonce) { return; }
+		$.post(cfg.ajaxUrl, { action: 'dze_diag_todo', nonce: cfg.diagNonce, post: id })
+			.done(function (r) {
+				if (!r || !r.success) { return; }
+				var said = (r.data.rows || []).map(function (x) { return x.said; }).filter(Boolean);
+				$s.toggleClass('is-ok', !said.length).text(said.length ? said.join(' · ') : i18n.nothingMissing);
+			});
+	}
 	// ---- What the product says today ----
 	// Loaded when a panel opens, never with the list: it is one product's worth
 	// of data, asked for at the moment somebody wants to compare.
 	function loadCurrent(id) {
 		var b = bucket(id);
 		if (b.current) { return $.Deferred().resolve(b.current); }
+		refreshShort(id);
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_current', nonce: cfg.nonce, post: id })
 			.then(function (res) {
 				// A product whose photographs could not be read is not a product
@@ -1913,6 +1929,7 @@
 							okCount++;
 							w.$w.find('.dze-cb-shotstate').text('✓ ' + sprintf(i18n.attached, res.data.attached));
 							w.$w.find('.dze-cb-shot').removeClass('is-sel');
+							refreshShort(w.id);
 						} else {
 							koCount++;
 							w.failed = true;
@@ -1935,7 +1952,11 @@
 		function writeTexts(w) {
 			var d = $.Deferred(), i = 0;
 			(function next() {
-				if (i >= w.texts.length) { d.resolve(); return; }
+				if (i >= w.texts.length) {
+					if (w.texts.length) { refreshShort(w.id); }
+					d.resolve();
+					return;
+				}
 				var j = w.texts[i++];
 				applyPost({ action: 'dze_content_apply', nonce: cfg.nonce, post: w.id, field: j.fid, value: j.value })
 					.done(function (res) {

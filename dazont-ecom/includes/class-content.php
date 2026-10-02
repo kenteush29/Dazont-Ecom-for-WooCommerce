@@ -4723,6 +4723,8 @@ Answer with STRICT JSON and nothing else: "
 			wp_localize_script( 'dze-content-bulk', 'dzeContentBulk', [
 				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( self::NONCE ),
+				// The line under each name, read again (refreshShort()).
+				'diagNonce' => class_exists( 'DZE_Diagnostic' ) ? wp_create_nonce( DZE_Diagnostic::NONCE ) : '',
 				'validated' => true, // gating is per-field via disabled checkboxes.
 				// Where the screen goes back to after a paste: the selection, not
 				// whatever filtered view it was opened on.
@@ -4770,6 +4772,7 @@ Answer with STRICT JSON and nothing else: "
 				'i18n'      => [
 					'working'  => __( 'Working…', 'dazont-ecom' ),
 					'done'     => __( 'Done', 'dazont-ecom' ),
+					'nothingMissing' => __( 'Nothing missing', 'dazont-ecom' ),
 					'stopped'  => __( 'Stopped.', 'dazont-ecom' ),
 					'error'    => __( 'error', 'dazont-ecom' ),
 					'progress' => __( '%1$s / %2$s tasks — %3$s', 'dazont-ecom' ),
@@ -8340,11 +8343,21 @@ Answer with STRICT JSON and nothing else: "
 		];
 		$system = 'You check the pictures an image model made of a product for an online shop. Image 1 is the made picture; the images after it are real photographs of the same product. '
 			. self::frame_rule()
-			. ' INVENTED: what image 1 shows that none of the real photographs show — added text or a label, a logo, a patch, a trim, a pocket, a fastening, an accessory, a shape the product does not have, or a side of it they never show. Short phrases naming the thing and where it is ("label with text inside the collar"). A detail the real photographs show from further away is not invented; colour, light and background are not inventions. [] when nothing is invented, or when no real photograph comes to compare with.';
+			// « Ton outil parfois flag du contenu qui est bon pour le content
+			// ugc. » A jacket worn on a mountain came back with five
+			// inventions: the hiker's backpack, a morale patch on the
+			// hook-and-loop field the description sells, the reinforced elbows
+			// it names. The reader saw two studio photographs and nothing
+			// else, so whatever they did not show was « invented » — the
+			// scene included. It now reads the shop's own words, and the
+			// scene is not the product.
+			. ' INVENTED: what image 1 shows ON THE PRODUCT that neither the real photographs nor the shop\'s description account for — added text or a label, a logo, a patch, a trim, a pocket, a fastening, a shape the product does not have, or a side of it they never show. Short phrases naming the thing and where it is ("label with text inside the collar"). NOT INVENTED: a detail the photographs show from further away; a feature the description names (hook-and-loop fields, reinforced elbows, adjustable cuffs…), even where no photograph shows it; colour, light and background; and the SCENE of a picture of the product in use — the person, their other clothes, what they carry or wear with it (a backpack, a sling, gloves), the place, and an accessory a customer attaches themselves where the description says it goes (a morale patch on a hook-and-loop field). [] when nothing is invented, or when no real photograph comes to compare with.';
+		$said = self::reader_product_text( $pid );
 		$user = 'Product: ' . wp_strip_all_tags( (string) get_the_title( $pid ) ) . '. '
 			. ( $refs
 				? sprintf( 'Image 1 is the made picture; images 2 to %d are real photographs of the product.', count( $refs ) + 1 )
-				: 'Image 1 is the made picture; no real photograph comes with it.' );
+				: 'Image 1 is the made picture; no real photograph comes with it.' )
+			. ( '' !== $said ? "\nWhat the shop says about the product: " . $said : '' );
 		try {
 			$raw = DZE_Marketing_Ai::complete_with_images( $system, $user, array_merge( [ $pic ], $refs ), self::READER, 1500, 90, self::reader_options( $schema ) );
 		} catch ( \Throwable $e ) {
@@ -8362,6 +8375,19 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 		return $out;
+	}
+
+	/** The product's own words, short and plain, for the reader: what two photographs may not show. */
+	private static function reader_product_text( int $pid ): string {
+		$p = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
+		$t = ( $p && method_exists( $p, 'get_description' ) )
+			? (string) $p->get_short_description() . "\n" . (string) $p->get_description()
+			: (string) get_post_field( 'post_content', $pid );
+		if ( function_exists( 'strip_shortcodes' ) ) {
+			$t = strip_shortcodes( $t );
+		}
+		$t = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( $t ) ) );
+		return mb_substr( $t, 0, 1500 );
 	}
 
 	/**
