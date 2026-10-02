@@ -774,7 +774,7 @@
 					.done(function (q) {
 						var x = (q && q.data) || {};
 						if (q && q.success && x.running) { misses = 0; look(); return; }
-						if (q && q.success && x.done) { d.resolve({ success: true, data: x }); return; }
+						if (q && q.success && x.done) { noteFlags(post, x); d.resolve({ success: true, data: x }); return; }
 						if (x.gone && !x.error) { d.resolve({ success: false, data: { message: i18n.jobGone || i18n.error } }); return; }
 						d.resolve(q);
 					})
@@ -782,6 +782,13 @@
 			}, misses ? 5000 : 3000);
 		}());
 		return d.promise();
+	}
+	// What a collected picture shows that the product does not: its « i » turns red.
+	function noteFlags(post, x) {
+		if (!post || !x || !x.url) { return; }
+		var b = bucket(post);
+		b.shotFlags = b.shotFlags || {};
+		b.shotFlags[x.url] = x.invented || [];
 	}
 	function shootAsync(req) {
 		var d = $.Deferred();
@@ -1240,8 +1247,40 @@
 	// destination for the batch could not express "this one is the main image,
 	// that one goes second", which is the decision actually being made in
 	// front of the strip.
-	function destLabel(v) {
+	// IN THE PLACE OF ONE OF THE PRODUCT'S PHOTOGRAPHS (4.508.0) — the same as
+	// the product popup: a ✦ or an HD of a photograph arrives headed for its
+	// place; « Replaces… » lets the photograph be picked in the panel's strip.
+	function photoRank(id, rid) {
+		var b = results[rid] || {};
+		var imgs = ((b.current && b.current.images) || []).filter(function (im) { return !im.variation; });
+		var gal = imgs.filter(function (im) { return !im.main; });
+		if (imgs.some(function (im) { return im.main && +im.id === +id; })) { return 0; }
+		for (var i = 0; i < gal.length; i++) { if (+gal[i].id === +id) { return i + 1; } }
+		return -1;
+	}
+	var picking = null;
+	function replacePick($in) {
+		$('.dze-photos.is-replacing').removeClass('is-replacing');
+		picking = $in && $in.length ? $in : null;
+		if (picking) { picking.closest('.dze-cb-preview').find('.dze-photos').addClass('is-replacing'); }
+	}
+	$(document).on('click', '.dze-cb-preview .dze-photos.is-replacing .dze-cb-nowshot', function (e) {
+		if (!picking || $(this).hasClass('is-varshot')) { return; }
+		if ($(this).closest('.dze-cb-preview')[0] !== picking.closest('.dze-cb-preview')[0]) { return; }
+		e.preventDefault();
+		e.stopPropagation();
+		var v = 'replace:' + (parseInt($(this).attr('data-id'), 10) || 0);
+		var rid = picking.closest('.dze-cb-preview').data('id');
+		picking.val(v).closest('.dze-cb-shot').find('.dze-cb-shotpos').text(destLabel(v, rid));
+		replacePick(null);
+	});
+	function destLabel(v, rid) {
 		v = String(v || '');
+		if ('replace' === v) { return i18n.toReplacePick; }
+		if (0 === v.indexOf('replace:')) {
+			var r = photoRank(v.slice(8), rid);
+			return 0 === r ? i18n.toReplaceMain : (r > 0 ? sprintf(i18n.toReplaceN, r) : i18n.toGallery);
+		}
 		// An image made for one colour says which colour, not "gallery".
 		if (isVariation(v)) {
 			var g = (varLabels[v] || '') || (v.split('::')[1] || '');
@@ -1262,10 +1301,10 @@
 				.append(
 					$('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''),
 					// THE « i »: which prompt, which model, what price (photos.js).
-					(window.dzePhotos && window.dzePhotos.aiButton) ? window.dzePhotos.aiButton(id, url) : '',
+					(window.dzePhotos && window.dzePhotos.aiButton) ? window.dzePhotos.aiButton(id, url, 0, false, (b.shotFlags || {})[url]) : '',
 					$('<span class="dze-cb-shotbar"></span>').append(
 						$('<button type="button" class="dze-cb-shotpos"></button>')
-							.attr('title', i18n.shotPos).text(destLabel(cur)),
+							.attr('title', i18n.shotPos).text(destLabel(cur, id)),
 						$('<button type="button" class="dze-cb-shotredo">↻</button>')
 							.attr('title', name ? sprintf(i18n.shotRedoOne, name) : i18n.shotRedo),
 						// ✦ and HD on THIS picture: a new one arrives beside it.
@@ -1375,10 +1414,13 @@
 		var $in = $(this).closest('.dze-cb-shot').find('.dze-cb-shotdest');
 		// An image made for one colour belongs to that colour: nothing to cycle.
 		if (isVariation($in.val())) { return; }
-		var order = [ 'gallery', 'gallery_first', 'main' ];
-		var next = order[(order.indexOf($in.val()) + 1) % order.length];
+		var order = [ 'gallery', 'gallery_first', 'main', 'replace' ];
+		var now = 0 === String($in.val()).indexOf('replace') ? 'replace' : $in.val();
+		var next = order[(order.indexOf(now) + 1) % order.length];
 		$in.val(next);
-		$(this).text(destLabel(next));
+		$(this).text(destLabel(next, $(this).closest('.dze-cb-preview').data('id')));
+		// « Replaces… »: the photograph is picked in this panel's strip.
+		replacePick('replace' === next ? $in : null);
 		if ('main' !== next) { return; }
 		var $me = $in;
 		$me.closest('.dze-cb-shots').find('.dze-cb-shotdest').not($me).each(function () {
@@ -1428,6 +1470,7 @@
 				b.shotTarget = b.shotTarget || {};
 				b.shotTarget[r.data.url] = r.data.target || dest;
 				delete b.shotTarget[url];
+				if (b.shotFlags) { delete b.shotFlags[url]; }
 				// THE ONE IT REPLACES LEAVES THE WAITING LIST TOO: replaced on
 				// screen and kept on the server, it came back on the next visit.
 				if (url && url !== r.data.url) {
@@ -1708,6 +1751,7 @@
 			// to "gallery" and a main image landed at the end of the gallery.
 			b.shotTarget = waiting.targets || {};
 			b.shotRecipe = waiting.recipes || {};
+			b.shotFlags = waiting.flags || {};
 			if (b.shots.length) { badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length); }
 			if (Object.keys(b.texts).length || b.shots.length) {
 				offerReview(id);
@@ -1801,9 +1845,11 @@
 				// ones, each to the destination chosen under it.
 				if ($w.length) {
 					$w.find('.dze-cb-shot.is-sel').each(function () {
+						var t = $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val() || 'gallery';
 						items.push({
 							url: $(this).data('url'),
-							target: $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val() || 'gallery'
+							// « Replaces… » with no photograph picked is the gallery.
+							target: 'replace' === t ? 'gallery' : t
 						});
 					});
 				} else {

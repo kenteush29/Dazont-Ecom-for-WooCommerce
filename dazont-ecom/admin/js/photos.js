@@ -42,6 +42,9 @@
 		opts = opts || {};
 		return $('<span class="dze-cb-nowshot"></span>')
 			.toggleClass('is-main', !!im.main)
+			// A colour's photograph is not one a new picture can take the place
+			// of from here: it belongs to its variations.
+			.toggleClass('is-varshot', !!im.variation)
 			.attr('data-id', im.id)
 			.append(
 				$('<img />').attr('src', im.thumb).attr('data-full', im.full || im.thumb).attr('alt', ''),
@@ -64,7 +67,7 @@
 				// pictures; this photograph is left exactly as it is.
 				// THE « i » of a photograph a model made or reworked: which
 				// prompt, which model, what price.
-				(im.ai ? aiButton(opts.post || 0, '', im.id) : ''),
+				(im.ai ? aiButton(opts.post || 0, '', im.id, false, im.flags) : ''),
 				(opts.remake ? $('<span class="dze-nowacts"></span>').append(
 					$('<button type="button" class="dze-now-make">✦</button>').attr('title', i18n.picRemake || ''),
 					$('<button type="button" class="dze-now-hd">HD</button>').attr('title', i18n.picHD || '')
@@ -147,6 +150,8 @@
 
 		$slot.empty().addClass('dze-photos').attr('data-post', opts.post || 0)
 			.append('<span class="dze-cb-nowlabel">' + esc(i18n.nowImages) + '</span>')
+			// Said while a new picture waits for the photograph it replaces.
+			.append('<p class="dze-cb-replacehint">' + esc(i18n.replaceHint || '') + '</p>')
 			.append($wrap).append($bar).append('<div class="dze-rf-out"></div>');
 		if (opts.after) { $slot.data('dze-after', opts.after); }
 	}
@@ -278,13 +283,19 @@
 	// screen that shows a picture a model made — a picture waiting is asked
 	// for by its address, a picture filed by its id — and ONE card, read from
 	// the server when it is pressed (DZE_Ai_Card).
-	function aiButton(post, url, att, asSpan) {
+	function aiButton(post, url, att, asSpan, flags) {
 		// Inside a picture that is itself a <button>, a <span> that acts as
 		// one: a button inside a button is not a button anywhere.
 		var $b = asSpan
 			? $('<span class="dze-ai-i" role="button" tabindex="0">i</span>')
 			: $('<button type="button" class="dze-ai-i">i</button>');
 		$b.attr('title', i18n.aiInfo || '');
+		// WHAT IT SHOWS THAT THE PRODUCT DOES NOT, found by the reader: the
+		// mark turns red, and says what before it is even opened.
+		if (flags && flags.length) {
+			$b.addClass('is-flagged').text('!')
+				.attr('title', (i18n.aiFlagged || '') + ' ' + flags.join(' · '));
+		}
 		if (post) { $b.attr('data-post', post); }
 		if (url) { $b.attr('data-url', url); }
 		if (att) { $b.attr('data-att', att); }
@@ -314,12 +325,22 @@
 		if (d.refs) { made += (made ? ' · ' : '') + String(i18n.aiRefs || '%d').replace('%d', d.refs); }
 		var name = d.name || '';
 		if ('remake' === d.tool && name) { name = '✦ ' + name; }
-		var html = aiRow(i18n.aiPrompt, name || '—') +
+		var bad = (d.invented || []).length
+			? '<div class="dze-ai-bad"><strong>' + esc(i18n.aiInvented || '') + '</strong><ul><li>' +
+				(d.invented || []).map(esc).join('</li><li>') + '</li></ul></div>'
+			: '';
+		var told = '';
+		if ((d.avoid || []).length) {
+			told += '<div class="dze-ai-row"><span class="dze-ai-lbl">' + esc(i18n.aiAvoid || '') + '</span><span class="dze-ai-val"><ul class="dze-ai-list"><li>' +
+				(d.avoid || []).map(esc).join('</li><li>') + '</li></ul></span></div>';
+		}
+		if (d.again) { told += aiRow(i18n.aiAgain, d.again); }
+		var html = bad + aiRow(i18n.aiPrompt, name || '—') +
 			aiRow(i18n.aiModel, d.model || (d.known ? '—' : i18n.aiNotKept)) +
 			aiRow(i18n.aiPrice, d.cost || (d.known ? '—' : i18n.aiNotKept)) +
 			aiRow(i18n.aiMade, made) +
 			aiRow(i18n.aiFraming, d.framing || '') +
-			aiRow(i18n.aiFrom, d.from || '');
+			aiRow(i18n.aiFrom, d.from || '') + told;
 		if (!d.known) { html += '<p class="dze-ai-old">' + esc(i18n.aiOld) + '</p>'; }
 		if (d.prompt) {
 			html += '<details class="dze-ai-full"><summary>' + esc(i18n.aiFull) + '</summary>' +

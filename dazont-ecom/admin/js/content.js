@@ -1006,7 +1006,7 @@
 	// which prompt, which model, what price. A <span> inside a picture that is
 	// itself a button.
 	function aiMark(url, asSpan) {
-		return (window.dzePhotos && window.dzePhotos.aiButton) ? window.dzePhotos.aiButton(PID, url, 0, asSpan) : '';
+		return (window.dzePhotos && window.dzePhotos.aiButton) ? window.dzePhotos.aiButton(PID, url, 0, asSpan, (res.shotFlags || {})[url]) : '';
 	}
 	function shotCard(url, cur) {
 		var tpl  = res.shotTpl[url];
@@ -1036,8 +1036,38 @@
 		var $card = $(this).closest('.dze-cb-shot');
 		pictureJob($(this).hasClass('dze-cb-shothd') ? 'hd' : 'remake', { url: String($card.data('url') || '') }, $card);
 	});
+	// IN THE PLACE OF ONE OF THE PRODUCT'S PHOTOGRAPHS (4.508.0). « J'aimerai une
+	// option pour remplacer des images galerie avec des images fraichement
+	// générées. Par exemple, remake, ou hd » — the ✦ or the HD of a photograph
+	// arrives headed for its place; any other picture is sent there by
+	// picking the photograph in the strip above, after « Replaces… ».
+	function photoRank(id) {
+		var imgs = ((res.current && res.current.images) || []).filter(function (im) { return !im.variation; });
+		var gal = imgs.filter(function (im) { return !im.main; });
+		if (imgs.some(function (im) { return im.main && +im.id === +id; })) { return 0; }
+		for (var i = 0; i < gal.length; i++) { if (+gal[i].id === +id) { return i + 1; } }
+		return -1;
+	}
+	var picking = null;
+	function replacePick($in) {
+		picking = $in && $in.length ? $in : null;
+		$('#dze-cx-nowshots').toggleClass('is-replacing', !!picking);
+	}
+	$(document).on('click', '#dze-cx-nowshots.is-replacing .dze-cb-nowshot', function (e) {
+		if (!picking || $(this).hasClass('is-varshot')) { return; }
+		e.preventDefault();
+		e.stopPropagation();
+		var v = 'replace:' + (parseInt($(this).attr('data-id'), 10) || 0);
+		picking.val(v).closest('.dze-cb-shot').find('.dze-cb-shotpos').text(destLabel(v));
+		replacePick(null);
+	});
 	function destLabel(v) {
 		v = String(v || '');
+		if ('replace' === v) { return i18n.toReplacePick; }
+		if (0 === v.indexOf('replace:')) {
+			var r = photoRank(v.slice(8));
+			return 0 === r ? i18n.toReplaceMain : (r > 0 ? sprintf(i18n.toReplaceN, r) : i18n.toGallery);
+		}
 		// A variation image says which colour it is for, not "gallery".
 		if (0 === v.indexOf('variation:')) {
 			var value = v.split('::')[1] || '';
@@ -1115,10 +1145,13 @@
 		// An image made for one colour belongs to that colour: there is nothing
 		// to cycle through.
 		if (isVariation($in.val())) { return; }
-		var order = [ 'gallery', 'gallery_first', 'main' ];
-		var next = order[(order.indexOf($in.val()) + 1) % order.length];
+		var order = [ 'gallery', 'gallery_first', 'main', 'replace' ];
+		var now = 0 === String($in.val()).indexOf('replace') ? 'replace' : $in.val();
+		var next = order[(order.indexOf(now) + 1) % order.length];
 		$in.val(next);
 		$(this).text(destLabel(next));
+		// « Replaces… »: the photograph is picked in the strip above.
+		replacePick('replace' === next ? $in : null);
 		if ('main' !== next) { syncOldMain($('#dze-cx-shots')); return; }
 		var $me = $in;
 		$('#dze-cx-shots .dze-cb-shotdest').not($me).each(function () {
@@ -1159,6 +1192,7 @@
 				res.shotTarget = res.shotTarget || {};
 				res.shotTarget[r.data.url] = r.data.target || dest;
 				delete res.shotTarget[url];
+				if (res.shotFlags) { delete res.shotFlags[url]; }
 				// The prompt follows the new attempt, so a second ↻ still knows
 				// what it is remaking.
 				res.shotRecipe = res.shotRecipe || {};
@@ -1273,7 +1307,7 @@
 					.done(function (q) {
 						var x = (q && q.data) || {};
 						if (q && q.success && x.running) { misses = 0; look(); return; }
-						if (q && q.success && x.done) { d.resolve({ success: true, data: x }); return; }
+						if (q && q.success && x.done) { noteFlags(post, x); d.resolve({ success: true, data: x }); return; }
 						if (x.gone && !x.error) { d.resolve({ success: false, data: { message: i18n.jobGone || i18n.error } }); return; }
 						d.resolve(q);
 					})
@@ -1282,6 +1316,13 @@
 			}, misses ? 5000 : 3000);
 		}());
 		return d.promise();
+	}
+	// WHAT A COLLECTED PICTURE SHOWS THAT THE PRODUCT DOES NOT, as the
+	// reader found it: its « i » turns red.
+	function noteFlags(post, x) {
+		if (+post !== +PID || !x || !x.url) { return; }
+		res.shotFlags = res.shotFlags || {};
+		res.shotFlags[x.url] = x.invented || [];
 	}
 	function shootAsync(req) {
 		var d = $.Deferred();
@@ -1558,9 +1599,11 @@
 		var $st = $('#dze-cx-result .dze-cb-panelstate').removeClass('is-ko').text(i18n.applying);
 		var items = [];
 		$('#dze-cx-shots .dze-cb-shot.is-sel').each(function () {
+			var t = $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val() || 'gallery';
 			items.push({
 				url: $(this).data('url'),
-				target: $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val() || 'gallery'
+				// « Replaces… » with no photograph picked is the gallery.
+				target: 'replace' === t ? 'gallery' : t
 			});
 		});
 		// Only the blocks still ticked are written; the rest is simply dropped.
@@ -1676,6 +1719,7 @@
 		res.shots = (waiting.shots || []).slice();
 		// What each waiting image was made for, and by which prompt.
 		res.shotTarget = waiting.targets || {};
+		res.shotFlags = waiting.flags || {};
 		res.shotRecipe = waiting.recipes || {};
 		res.open = {};
 		if (Object.keys(res.texts).length) { drawDrawers(); }

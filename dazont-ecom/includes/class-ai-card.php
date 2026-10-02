@@ -81,6 +81,21 @@ final class DZE_Ai_Card {
 						$c['base'] = self::slim( $value );
 					}
 					break;
+				// WHAT IT WAS TOLD (made_lines()): the framings on the page and
+				// already made, to avoid; the one to make again, on a ↻.
+				case 'told':
+					if ( is_array( $value ) && $value ) {
+						$c['told'] = [
+							'page'  => array_values( array_map( 'strval', (array) ( $value['page'] ?? [] ) ) ),
+							'made'  => array_values( array_map( 'strval', (array) ( $value['made'] ?? [] ) ) ),
+							'again' => (string) ( $value['again'] ?? '' ),
+						];
+					}
+					break;
+				// WHAT IT SHOWS THAT THE PRODUCT DOES NOT (read_picture()).
+				case 'invented':
+					$c['invented'] = array_values( array_map( 'strval', (array) $value ) );
+					break;
 				case 'model':
 				case 'recipe':
 				case 'tool':
@@ -267,9 +282,10 @@ final class DZE_Ai_Card {
 	 *
 	 * @param array<string,mixed> $c    The card, or [].
 	 * @param array<string,string> $old What the picture kept without a card: recipe, model.
+	 * @param string[]              $invented What the reader found invented, when the card does not say.
 	 * @return array<string,mixed>
 	 */
-	public static function view( array $c, array $old, string $framing ): array {
+	public static function view( array $c, array $old, string $framing, array $invented = [] ): array {
 		$known = ! empty( $c );
 		$c     = self::named( $known ? $c : array_filter( $old ) );
 		$tool  = (string) ( $c['tool'] ?? '' );
@@ -292,6 +308,14 @@ final class DZE_Ai_Card {
 			] ) );
 		}
 		$at = (int) ( $c['at'] ?? 0 );
+		// WHAT IT WAS TOLD TO AVOID, and what to make again: kept by the card
+		// since 4.508.0, read back from the words sent before that.
+		$told  = (array) ( $c['told'] ?? [] );
+		$avoid = array_merge( (array) ( $told['page'] ?? [] ), (array) ( $told['made'] ?? [] ) );
+		$again = (string) ( $told['again'] ?? '' );
+		if ( ! $told && '' !== (string) ( $c['prompt'] ?? '' ) ) {
+			[ $avoid, $again ] = self::told_in( (string) $c['prompt'] );
+		}
 		return [
 			'known'   => $known,
 			'tool'    => $tool,
@@ -303,15 +327,47 @@ final class DZE_Ai_Card {
 			'prompt'  => (string) ( $c['prompt'] ?? '' ),
 			'framing' => $framing,
 			'from'    => $from,
+			'avoid'   => array_values( array_unique( array_filter( array_map( 'strval', $avoid ) ) ) ),
+			'again'   => $again,
+			'invented'=> array_values( array_map( 'strval', isset( $c['invented'] ) ? (array) $c['invented'] : $invented ) ),
 		];
+	}
+
+	/**
+	 * The framings an order was told to avoid, and the one to make again,
+	 * read from the words it sent — for the cards written before they were
+	 * kept apart.
+	 *
+	 * @return array{0:string[],1:string}
+	 */
+	public static function told_in( string $prompt ): array {
+		$avoid = [];
+		foreach ( [ 'ON THE PRODUCT PAGE ALREADY', 'ALREADY MADE FOR THIS PRODUCT' ] as $head ) {
+			$at = strpos( $prompt, $head );
+			if ( false === $at ) {
+				continue;
+			}
+			foreach ( array_slice( explode( "\n", substr( $prompt, $at ) ), 1 ) as $line ) {
+				if ( 0 !== strpos( $line, '- ' ) ) {
+					break;
+				}
+				$avoid[] = trim( substr( $line, 2 ) );
+			}
+		}
+		$again = preg_match( '/THE PHOTOGRAPH THIS ONE REPLACES was framed: (.+?)\. Make that framing again/s', $prompt, $m ) ? trim( $m[1] ) : '';
+		return [ $avoid, $again ];
 	}
 
 	/** The card of a filed picture, or what it kept without one. @return array<string,mixed> */
 	public static function of_attachment( int $att ): array {
 		$c = get_post_meta( $att, self::META, true );
 		$r = class_exists( 'DZE_Content' ) ? (string) get_post_meta( $att, DZE_Content::META_RECIPE, true ) : '';
-		$v = class_exists( 'DZE_Content' ) ? (string) get_post_meta( $att, DZE_Content::META_VIEW, true ) : '';
-		return self::view( is_array( $c ) ? $c : [], [ 'recipe' => $r ], $v );
+		$v = class_exists( 'DZE_Content' ) ? (string) get_post_meta( $att, DZE_Content::META_FRAME, true ) : '';
+		if ( '' === $v && class_exists( 'DZE_Content' ) ) {
+			$v = (string) get_post_meta( $att, DZE_Content::META_VIEW, true );
+		}
+		$bad = class_exists( 'DZE_Content' ) ? get_post_meta( $att, DZE_Content::META_FLAGS, true ) : [];
+		return self::view( is_array( $c ) ? $c : [], [ 'recipe' => $r ], $v, is_array( $bad ) ? $bad : [] );
 	}
 
 	/** True when the attachment was made or reworked by a model. */
@@ -360,7 +416,8 @@ final class DZE_Ai_Card {
 				'recipe' => (string) ( $w['recipes'][ $url ] ?? '' ),
 				'model'  => (string) ( $w['models'][ $url ] ?? '' ),
 			],
-			(string) ( $w['views'][ $url ] ?? '' )
+			(string) ( $w['frames'][ $url ] ?? ( $w['views'][ $url ] ?? '' ) ),
+			(array) ( $w['flags'][ $url ] ?? [] )
 		) );
 	}
 
@@ -382,6 +439,7 @@ final class DZE_Ai_Card {
 			__( 'Price', 'dazont-ecom' )  => (string) $v['cost'],
 			__( 'Made', 'dazont-ecom' )   => (string) $v['when'],
 			__( 'From', 'dazont-ecom' )   => (string) $v['from'],
+			__( '⚠ Invented', 'dazont-ecom' ) => implode( ' · ', (array) $v['invented'] ),
 		];
 		$html = '';
 		foreach ( $rows as $label => $value ) {

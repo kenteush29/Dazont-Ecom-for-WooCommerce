@@ -2354,12 +2354,18 @@ EOT;
 				$by[ (string) $add['shot'] ] = (string) $add['model'];
 				$cur['models'] = $by;
 			}
-			// ITS FRAMING, IN WORDS (describe_view): what the next order is
-			// told not to repeat.
-			if ( ! empty( $add['view'] ) ) {
-				$seen = (array) ( $cur['views'] ?? [] );
-				$seen[ (string) $add['shot'] ] = (string) $add['view'];
-				$cur['views'] = $seen;
+			// ITS FRAMING, READ (read_picture()): what the next order is told
+			// not to repeat — and what it shows that the product does not, an
+			// empty list meaning « read, nothing invented ».
+			if ( ! empty( $add['frame'] ) ) {
+				$seen = (array) ( $cur['frames'] ?? [] );
+				$seen[ (string) $add['shot'] ] = (string) $add['frame'];
+				$cur['frames'] = $seen;
+			}
+			if ( isset( $add['flags'] ) && is_array( $add['flags'] ) ) {
+				$bad = (array) ( $cur['flags'] ?? [] );
+				$bad[ (string) $add['shot'] ] = array_values( array_map( 'strval', $add['flags'] ) );
+				$cur['flags'] = $bad;
 			}
 		}
 		// WHO LAUNCHED THE WORK ON THIS PRODUCT, kept from the FIRST piece and
@@ -4843,6 +4849,10 @@ Answer with STRICT JSON and nothing else: "
 					'tickFirst' => __( 'Tick the products you want to work on first.', 'dazont-ecom' ),
 					'tickNoContent' => __( 'None of the ticked products is holding content to write. Generate first, or tick a product that shows a Review button.', 'dazont-ecom' ),
 					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+					'toReplaceMain' => __( '⇄ Replaces the main image', 'dazont-ecom' ),
+					/* translators: %s: the rank of the gallery photograph */
+					'toReplaceN'    => __( '⇄ Replaces photo %s', 'dazont-ecom' ),
+					'toReplacePick' => __( '⇄ Replaces… pick it ↑', 'dazont-ecom' ),
 					'compare'  => __( 'Current', 'dazont-ecom' ),
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
 					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
@@ -5480,6 +5490,11 @@ Answer with STRICT JSON and nothing else: "
 					// THE « i » of a picture a model made (DZE_Ai_Card).
 					'aiInfo'    => __( 'Which prompt, which model and what price made this picture', 'dazont-ecom' ),
 					'aiTitle'   => __( 'AI picture', 'dazont-ecom' ),
+					'aiFlagged' => __( 'Shows what the product does not have:', 'dazont-ecom' ),
+					'aiInvented'=> __( '⚠ Shows what the product does not have', 'dazont-ecom' ),
+					'aiAvoid'   => __( 'Told to avoid', 'dazont-ecom' ),
+					'aiAgain'   => __( 'Asked to make again', 'dazont-ecom' ),
+					'replaceHint' => __( 'Click the photograph the new picture takes the place of. It leaves the page, stays in the media library, and goes on being sent to the model as a photograph of the product.', 'dazont-ecom' ),
 					'aiLoading' => __( 'Reading…', 'dazont-ecom' ),
 					'aiPrompt'  => __( 'Prompt', 'dazont-ecom' ),
 					'aiModel'   => __( 'Model', 'dazont-ecom' ),
@@ -6017,6 +6032,10 @@ Answer with STRICT JSON and nothing else: "
 				'toGallery'  => __( 'Product gallery', 'dazont-ecom' ),
 				'toMain'     => __( 'Main image', 'dazont-ecom' ),
 				'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+				'toReplaceMain' => __( '⇄ Replaces the main image', 'dazont-ecom' ),
+				/* translators: %s: the rank of the gallery photograph */
+				'toReplaceN'    => __( '⇄ Replaces photo %s', 'dazont-ecom' ),
+				'toReplacePick' => __( '⇄ Replaces… pick it ↑', 'dazont-ecom' ),
 				'sendToEach' => __( 'Each image goes where its own menu says.', 'dazont-ecom' ),
 				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
 				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
@@ -6659,7 +6678,78 @@ Answer with STRICT JSON and nothing else: "
 			$value = sanitize_title( $value );
 			return ( '' !== $attr && '' !== $value ) ? 'variation:' . $attr . '::' . $value : 'gallery';
 		}
+		// IN THE PLACE OF ONE OF THE PRODUCT'S PHOTOGRAPHS (replace_in_place()).
+		if ( preg_match( '/^replace:(\d+)$/', $t, $m ) && (int) $m[1] > 0 ) {
+			return 'replace:' . (int) $m[1];
+		}
 		return in_array( $t, [ 'main', 'gallery_first' ], true ) ? $t : 'gallery';
+	}
+
+	/** Product meta: made pictures => the real photographs they took the place of. */
+	public const META_STANDS = '_dze_stands_for';
+
+	/**
+	 * A NEW PICTURE IN THE VERY PLACE OF ONE OF THE PRODUCT'S PHOTOGRAPHS.
+	 *
+	 * « J'aimerai une option pour remplacer des images galerie avec des images
+	 * fraichement générées. Par exemple, remake, ou hd » — the ✦ or the HD of
+	 * a gallery photograph used to land at the end of the gallery, beside the
+	 * photograph it was made to replace. It takes its slot now: the main
+	 * image's, or the same rank in the gallery, and the colours that showed
+	 * the old one show the new one.
+	 *
+	 * The old photograph leaves the PAGE, not the shop (« option B »): it stays
+	 * in the media library, and a real photograph replaced by a made picture
+	 * goes on being sent to the model in its place (product_source_ids()). No
+	 * made picture is ever a reference, so every replacement would otherwise
+	 * take one real photograph away from every later picture of the product.
+	 */
+	public static function replace_in_place( int $pid, int $old, int $new ): void {
+		if ( $pid < 1 || $old < 1 || $new < 1 || $old === $new ) {
+			return;
+		}
+		// Filed as a gallery picture first: it is taken out of the end of the
+		// gallery before it is put where the old one stood.
+		$ids = array_values( array_diff( array_filter( array_map( 'absint', explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) ) ) ), [ $new ] ) );
+		if ( (int) get_post_thumbnail_id( $pid ) === $old ) {
+			set_post_thumbnail( $pid, $new );
+			$ids = array_values( array_diff( $ids, [ $old ] ) );
+		} else {
+			$at = array_search( $old, $ids, true );
+			if ( false === $at ) {
+				$ids[] = $new;
+			} else {
+				$ids[ $at ] = $new;
+			}
+		}
+		update_post_meta( $pid, '_product_image_gallery', implode( ',', array_values( array_unique( $ids ) ) ) );
+		// A colour that showed the old photograph shows the new one.
+		self::replace_variation_image( $pid, $old, $new );
+		// The real photograph behind it — itself, or the one it already stood
+		// for — goes on being the model's reference.
+		$stands = self::stand_ins( $pid );
+		$real   = '' === (string) get_post_meta( $old, self::META_RECIPE, true ) ? $old : (int) ( $stands[ $old ] ?? 0 );
+		unset( $stands[ $old ] );
+		if ( $real > 0 && '' !== (string) get_post_meta( $new, self::META_RECIPE, true ) ) {
+			$stands[ $new ] = $real;
+		}
+		update_post_meta( $pid, self::META_STANDS, $stands );
+		clean_post_cache( $pid );
+		if ( function_exists( 'wc_delete_product_transients' ) ) {
+			wc_delete_product_transients( $pid );
+		}
+	}
+
+	/** Made picture => the real photograph it stands for on the page. @return array<int,int> */
+	public static function stand_ins( int $pid ): array {
+		$m   = get_post_meta( $pid, self::META_STANDS, true );
+		$out = [];
+		foreach ( is_array( $m ) ? $m : [] as $k => $v ) {
+			if ( (int) $k > 0 && (int) $v > 0 ) {
+				$out[ (int) $k ] = (int) $v;
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -7391,6 +7481,16 @@ Answer with STRICT JSON and nothing else: "
 	 */
 	public static function product_source_ids( int $pid ): array {
 		$all  = self::product_own_image_ids( $pid );
+		// A MADE PICTURE THAT REPLACED A REAL PHOTOGRAPH (replace_in_place())
+		// is sent as that photograph, at its rank — while the photograph is
+		// still in the library.
+		$stands = self::stand_ins( $pid );
+		if ( $stands ) {
+			$all = array_values( array_unique( array_map( static function ( $id ) use ( $stands ) {
+				$orig = (int) ( $stands[ (int) $id ] ?? 0 );
+				return ( $orig > 0 && 'attachment' === get_post_type( $orig ) ) ? $orig : (int) $id;
+			}, $all ) ) );
+		}
 		$real = array_values( array_filter( $all, static fn( $id ) => '' === (string) get_post_meta( (int) $id, self::META_RECIPE, true ) ) );
 		return array_slice( $real ? $real : $all, 0, self::source_cap() );
 	}
@@ -7825,58 +7925,270 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/**
-	 * WHAT A PICTURE SHOWS, IN ONE LINE — its framing, never its quality.
+	 * THE READER: a model that SEES each picture and never makes one.
 	 *
-	 * « Aucune nouvelle image n'a vu la précédente. » Handing the model the
-	 * pictures it had already made is what CLAUDE.md forbids (« no picture the
-	 * model made is ever a reference for the next one »): an edit model
-	 * conditions on every picture it is given, and the third image was built on
-	 * the second, its smoothed camouflage and guessed geometry compounding
-	 * (« le slop commence à partir de la 2e image »). So the pictures stay out,
-	 * and their FRAMING travels as words: a line like « whole jacket, front
-	 * three-quarter view, hood up » keeps the next one from repeating it
-	 * without giving it anything to copy. Haiku reads it for a fraction of a
-	 * cent; '' when it cannot, and the picture is filed all the same.
+	 * « Attention les instructions haiku sont parfois eux même du slop
+	 * textuel » — « Hood and collar open, showing interior lining and brand
+	 * label » on a jacket that carries no branding. Haiku had read it right:
+	 * the picture HAD a « VETER » label, sewn in by the image model from the
+	 * product's title, and the next one a ribbed cuff no photograph shows.
+	 * Written into the next order as « already made », each invention went
+	 * on travelling, in words.
+	 *
+	 * So the reader (4.508.0) answers in a fixed shape — a part, a distance,
+	 * an angle, never a detail that could carry an invention — and, holding
+	 * the picture against the product's real photographs, names what it shows
+	 * that they do not. A picture that invents is flagged on its tile and
+	 * leaves the list the next order hears. Sonnet 5.5, about a cent with the
+	 * comparison, against $0.08 for the picture itself.
 	 */
-	public static function describe_view( string $url, string $title ): string {
-		if ( '' === $url || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+	public const READER = 'claude-sonnet-5-5';
+
+	/** Attachment meta: a photograph's framing, read by READER. */
+	public const META_FRAME = '_dze_frame';
+
+	/** Attachment meta: what a made picture shows that the product does not. */
+	public const META_FLAGS = '_dze_flags';
+
+	/** The distances and the angles a framing is said in — and nothing else. */
+	private const FRAME_DISTANCES = [ 'whole product', 'half', 'close-up', 'macro' ];
+	private const FRAME_ANGLES    = [ 'front', 'front three-quarter left', 'front three-quarter right', 'side', 'back', 'from above', 'from below', 'inside' ];
+
+	/** What a framing is made of, as the reader's answer has to give it. */
+	private static function frame_props(): array {
+		return [
+			'part'     => [ 'type' => 'string' ],
+			'distance' => [ 'type' => 'string', 'enum' => self::FRAME_DISTANCES ],
+			'angle'    => [ 'type' => 'string', 'enum' => self::FRAME_ANGLES ],
+			'worn'     => [ 'type' => 'boolean' ],
+		];
+	}
+
+	/** The reader's request: little thinking, the answer's shape, another model on a refusal. */
+	private static function reader_options( array $schema ): array {
+		return [
+			'output_config' => [
+				'effort' => 'low',
+				'format' => [ 'type' => 'json_schema', 'schema' => $schema ],
+			],
+			// A safety classifier misreading a product photograph is answered
+			// by another model instead of leaving the picture unread.
+			'fallbacks'     => 'default',
+			'_betas'        => [ 'server-side-fallback-2026-07-01' ],
+		];
+	}
+
+	/** How every framing is said: the region plainly, never a detail on it. */
+	private static function frame_rule(): string {
+		return 'A framing is said in four things. PART: the part of the product the photograph is framed on, in one to five plain words — "whole jacket", "hood", "left sleeve cuff", "chest", "sole". Name a region of the product, never a detail on it: no text, label, logo, patch, trim, material, pocket, zip or fastening unless that is the very region shown. DISTANCE and ANGLE: one of the values offered. WORN: true when a person wears or holds the product.';
+	}
+
+	/** One framing as the next order reads it — « left sleeve cuff — close-up, side ». '' when incomplete. */
+	public static function frame_line( array $f ): string {
+		$part  = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( (string) ( $f['part'] ?? '' ) ) ) );
+		$part  = mb_substr( trim( $part, " .,;:\"'«»" ), 0, 60 );
+		$dist  = (string) ( $f['distance'] ?? '' );
+		$angle = (string) ( $f['angle'] ?? '' );
+		if ( '' === $part || ! in_array( $dist, self::FRAME_DISTANCES, true ) || ! in_array( $angle, self::FRAME_ANGLES, true ) ) {
 			return '';
 		}
-		$got = wp_remote_get( $url, [ 'timeout' => 15 ] );
-		if ( is_wp_error( $got ) || 200 !== (int) wp_remote_retrieve_response_code( $got ) ) {
-			return '';
-		}
-		$bytes = (string) wp_remote_retrieve_body( $got );
-		if ( '' === $bytes || strlen( $bytes ) > 4 * MB_IN_BYTES ) {
-			return '';
-		}
-		$media = strtolower( trim( explode( ';', (string) wp_remote_retrieve_header( $got, 'content-type' ) )[0] ) );
-		if ( ! in_array( $media, [ 'image/jpeg', 'image/png', 'image/webp', 'image/gif' ], true ) ) {
-			$media = 'image/jpeg';
-		}
-		try {
-			$line = DZE_Marketing_Ai::complete_with_images(
-				'You write the shot list of a product photo session. You describe the FRAMING of one photograph in one line of at most 14 words: which part of the product it shows, how close, from which side or angle. Never colours, never quality, never opinions. Answer with the line only.',
-				'Image 1 is a photograph of this product: ' . wp_strip_all_tags( $title ) . '. Its framing, in one line:',
-				[ [ 'media' => $media, 'data' => base64_encode( $bytes ) ] ], // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- an image payload for the API.
-				'claude-haiku-4-5-20251001',
-				80,
-				30
-			);
-		} catch ( \Throwable $e ) {
-			return '';
-		}
-		$line = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( $line ) ) );
-		$line = trim( $line, " \t\n\r\0\x0B\"'«».-*" );
-		// No backslash: the line lives in post meta, which unslashes.
-		return mb_substr( str_replace( '\\', '/', $line ), 0, 160 );
+		// No backslash: the line lives in meta, which unslashes.
+		return str_replace( '\\', '/', $part ) . ' — ' . $dist . ', ' . $angle . ( ! empty( $f['worn'] ) ? ', worn' : '' );
 	}
 
 	/**
-	 * THE FRAMINGS ALREADY MADE for this product by this prompt, as lines for
-	 * the next order: the pictures waiting for a decision and the AI
-	 * photographs already on the product — never one thrown away, whose
-	 * framing is free again.
+	 * One picture as the reader receives it — base64 and its type, small
+	 * enough to travel. [] when it cannot be read.
+	 *
+	 * @return array{media:string,data:string}|array{}
+	 */
+	private static function picture_payload( string $url, int $att = 0 ): array {
+		$bytes = '';
+		$media = '';
+		if ( $att > 0 ) {
+			// The « large » size when there is one: a 4,000-pixel original is
+			// tokens the reader does not need to say where the camera stood.
+			$size = function_exists( 'image_get_intermediate_size' ) ? image_get_intermediate_size( $att, 'large' ) : false;
+			$file = '';
+			if ( is_array( $size ) && ! empty( $size['path'] ) ) {
+				$up   = wp_get_upload_dir();
+				$file = trailingslashit( (string) $up['basedir'] ) . $size['path'];
+			}
+			if ( '' === $file || ! file_exists( $file ) ) {
+				$file = (string) get_attached_file( $att );
+			}
+			if ( '' !== $file && file_exists( $file ) ) {
+				$bytes = (string) file_get_contents( $file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local file.
+			}
+		} elseif ( '' !== $url ) {
+			$got = wp_remote_get( $url, [ 'timeout' => 15 ] );
+			if ( ! is_wp_error( $got ) && 200 === (int) wp_remote_retrieve_response_code( $got ) ) {
+				$bytes = (string) wp_remote_retrieve_body( $got );
+				$media = strtolower( trim( explode( ';', (string) wp_remote_retrieve_header( $got, 'content-type' ) )[0] ) );
+			}
+		}
+		if ( '' === $bytes || strlen( $bytes ) > 4 * MB_IN_BYTES ) {
+			return [];
+		}
+		$ok = [ 'image/jpeg', 'image/png', 'image/webp', 'image/gif' ];
+		if ( ! in_array( $media, $ok, true ) ) {
+			$info  = @getimagesizefromstring( $bytes ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$media = ( is_array( $info ) && in_array( (string) ( $info['mime'] ?? '' ), $ok, true ) ) ? (string) $info['mime'] : 'image/jpeg';
+		}
+		return [ 'media' => $media, 'data' => base64_encode( $bytes ) ]; // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- an image payload for the API.
+	}
+
+	/**
+	 * A PICTURE THE MODEL MADE, read: its framing, and what it shows that the
+	 * product's real photographs do not.
+	 *
+	 * @return array{frame:string,invented:string[]}
+	 */
+	public static function read_picture( string $url, int $pid ): array {
+		$out = [ 'frame' => '', 'invented' => [] ];
+		if ( '' === $url || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return $out;
+		}
+		$pic = self::picture_payload( $url );
+		if ( ! $pic ) {
+			return $out;
+		}
+		// Two real photographs, the main one first: what the product IS.
+		$refs = [];
+		foreach ( array_slice( self::product_source_ids( $pid ), 0, 2 ) as $aid ) {
+			$p = self::picture_payload( '', (int) $aid );
+			if ( $p ) {
+				$refs[] = $p;
+			}
+		}
+		$schema = [
+			'type'                 => 'object',
+			'properties'           => self::frame_props() + [ 'invented' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ] ],
+			'required'             => [ 'part', 'distance', 'angle', 'worn', 'invented' ],
+			'additionalProperties' => false,
+		];
+		$system = 'You check the pictures an image model made of a product for an online shop. Image 1 is the made picture; the images after it are real photographs of the same product. '
+			. self::frame_rule()
+			. ' INVENTED: what image 1 shows that none of the real photographs show — added text or a label, a logo, a patch, a trim, a pocket, a fastening, an accessory, a shape the product does not have, or a side of it they never show. Short phrases naming the thing and where it is ("label with text inside the collar"). A detail the real photographs show from further away is not invented; colour, light and background are not inventions. [] when nothing is invented, or when no real photograph comes to compare with.';
+		$user = 'Product: ' . wp_strip_all_tags( (string) get_the_title( $pid ) ) . '. '
+			. ( $refs
+				? sprintf( 'Image 1 is the made picture; images 2 to %d are real photographs of the product.', count( $refs ) + 1 )
+				: 'Image 1 is the made picture; no real photograph comes with it.' );
+		try {
+			$raw = DZE_Marketing_Ai::complete_with_images( $system, $user, array_merge( [ $pic ], $refs ), self::READER, 1500, 90, self::reader_options( $schema ) );
+		} catch ( \Throwable $e ) {
+			return $out;
+		}
+		$j = json_decode( (string) $raw, true );
+		if ( ! is_array( $j ) ) {
+			return $out;
+		}
+		$out['frame'] = self::frame_line( $j );
+		foreach ( array_slice( (array) ( $j['invented'] ?? [] ), 0, 5 ) as $one ) {
+			$one = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( (string) $one ) ) );
+			if ( '' !== $one ) {
+				$out['invented'][] = str_replace( '\\', '/', mb_substr( $one, 0, 100 ) );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * PHOTOGRAPHS ON THE PRODUCT, framed once and remembered on each — one
+	 * call for all those not read yet (eight at most), never one call per
+	 * photograph in an order that has a proxy's sixty seconds to leave.
+	 *
+	 * @param int[] $ids
+	 */
+	public static function frame_photos( int $pid, array $ids ): void {
+		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return;
+		}
+		$todo = [];
+		$imgs = [];
+		foreach ( array_map( 'intval', $ids ) as $aid ) {
+			if ( count( $todo ) >= 8 || $aid < 1 || '' !== (string) get_post_meta( $aid, self::META_FRAME, true ) ) {
+				continue;
+			}
+			$p = self::picture_payload( '', $aid );
+			if ( $p ) {
+				$todo[] = $aid;
+				$imgs[] = $p;
+			}
+		}
+		if ( ! $todo ) {
+			return;
+		}
+		$schema = [
+			'type'                 => 'object',
+			'properties'           => [
+				'photos' => [
+					'type'  => 'array',
+					'items' => [
+						'type'                 => 'object',
+						'properties'           => self::frame_props(),
+						'required'             => [ 'part', 'distance', 'angle', 'worn' ],
+						'additionalProperties' => false,
+					],
+				],
+			],
+			'required'             => [ 'photos' ],
+			'additionalProperties' => false,
+		];
+		try {
+			$raw = DZE_Marketing_Ai::complete_with_images(
+				'You write the shot list of a product photo session: the framing of each photograph, in the order given, one entry per image. ' . self::frame_rule(),
+				sprintf( 'Product: %s. %d photographs.', wp_strip_all_tags( (string) get_the_title( $pid ) ), count( $imgs ) ),
+				$imgs,
+				self::READER,
+				2000,
+				90,
+				self::reader_options( $schema )
+			);
+		} catch ( \Throwable $e ) {
+			return;
+		}
+		$j = json_decode( (string) $raw, true );
+		foreach ( array_values( (array) ( is_array( $j ) ? ( $j['photos'] ?? [] ) : [] ) ) as $i => $f ) {
+			$line = is_array( $f ) ? self::frame_line( $f ) : '';
+			if ( '' !== $line && isset( $todo[ $i ] ) ) {
+				update_post_meta( $todo[ $i ], self::META_FRAME, $line );
+			}
+		}
+	}
+
+	/**
+	 * THE PRODUCT'S OWN PHOTOGRAPHS, as framings — what the page already
+	 * shows. « Full jacket front-facing view […] Quand l'image principale
+	 * remplit déjà ce rôle »: the list held only the pictures made from the
+	 * same prompt, so nothing ever told the model the main photograph WAS
+	 * that view.
+	 *
+	 * @return string[]
+	 */
+	public static function page_frames( int $pid, bool $read = true ): array {
+		$own  = self::product_own_image_ids( $pid );
+		$real = array_values( array_filter( $own, static fn( $id ) => '' === (string) get_post_meta( (int) $id, self::META_RECIPE, true ) ) );
+		if ( $read ) {
+			// The made pictures of the page are read in the same call: their
+			// lines feed made_views(), and one call is one wait.
+			self::frame_photos( $pid, array_merge( $real, array_values( array_diff( $own, $real ) ) ) );
+		}
+		$lines = [];
+		foreach ( $real as $aid ) {
+			$v = (string) get_post_meta( (int) $aid, self::META_FRAME, true );
+			if ( '' !== $v ) {
+				$lines[] = $v;
+			}
+		}
+		return array_values( array_unique( $lines ) );
+	}
+
+	/**
+	 * THE FRAMINGS ALREADY MADE for this product by this prompt: the pictures
+	 * waiting for a decision and the made pictures already on the product —
+	 * never one thrown away, whose framing is free again, and never one
+	 * flagged as inventing: its framing is no example to steer by.
 	 *
 	 * @return string[]
 	 */
@@ -7893,28 +8205,33 @@ Answer with STRICT JSON and nothing else: "
 			if ( (string) ( $waiting['recipes'][ $u ] ?? '' ) !== $recipe ) {
 				continue;
 			}
-			$v = (string) ( $waiting['views'][ $u ] ?? '' );
-			// A PICTURE MADE BEFORE ITS FRAMING WAS WRITTEN DOWN is read now,
-			// once, and the line kept with it: the three identical
-			// three-quarter views waiting on a product when this arrived are
-			// exactly what the next order must hear about. A handful at most.
-			if ( '' === $v && $describe && $read < 8 ) {
+			$v    = (string) ( $waiting['frames'][ $u ] ?? '' );
+			$flag = (array) ( $waiting['flags'][ $u ] ?? [] );
+			// A PICTURE MADE BEFORE THE READER (4.508.0): its line, if it had
+			// one, was free text and could carry an invention. Read again
+			// now — two at most per order — and kept.
+			if ( '' === $v && $describe && $read < 2 && ! isset( $waiting['flags'][ $u ] ) ) {
 				$read++;
 				$was = DZE_Ai_Usage::unit_now();
 				DZE_Ai_Usage::unit( 'img_view' );
-				$v = self::describe_view( (string) $u, (string) get_the_title( $pid ) );
+				$r = self::read_picture( (string) $u, $pid );
 				DZE_Ai_Usage::unit( $was );
-				if ( '' !== $v ) {
-					self::stash( $pid, [ 'shot' => (string) $u, 'view' => $v ] );
+				if ( '' !== $r['frame'] ) {
+					self::stash( $pid, [ 'shot' => (string) $u, 'frame' => $r['frame'], 'flags' => $r['invented'] ] );
 				}
+				$v    = $r['frame'];
+				$flag = $r['invented'];
 			}
-			if ( '' !== $v ) {
+			if ( '' !== $v && ! $flag ) {
 				$lines[] = $v;
 			}
 		}
 		foreach ( self::product_image_ids( $pid ) as $aid ) {
-			$v = (string) get_post_meta( (int) $aid, self::META_VIEW, true );
-			if ( '' !== $v && (string) get_post_meta( (int) $aid, self::META_RECIPE, true ) === $recipe ) {
+			if ( (string) get_post_meta( (int) $aid, self::META_RECIPE, true ) !== $recipe ) {
+				continue;
+			}
+			$v = (string) get_post_meta( (int) $aid, self::META_FRAME, true );
+			if ( '' !== $v && ! get_post_meta( (int) $aid, self::META_FLAGS, true ) ) {
 				$lines[] = $v;
 			}
 		}
@@ -7924,48 +8241,67 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/**
-	 * The paragraph made_views() becomes in the order. '' when nothing was made yet.
+	 * What the last made_lines() put in the order, for the picture's card:
+	 * « Avait pour consigne d'éviter » — the lines were sent and could not be
+	 * seen anywhere but at the bottom of the full prompt.
+	 *
+	 * @var array<string,mixed>
+	 */
+	public static array $made_said = [];
+
+	/**
+	 * The paragraph made_views() becomes in the order. '' when nothing is
+	 * on the page or made yet.
 	 *
 	 * ↻ MAKES ITS OWN FRAMING AGAIN. « La fonction recommencer sur les images
 	 * générées me semble comporter une lacune. Ces images relancées sont
 	 * particulièrement sujettes au slop. » The picture being redone was still
 	 * waiting, so its own framing was in the list of framings never to make
 	 * again: the second attempt was told to avoid exactly what it had been
-	 * asked for, one framing more than the first attempt, and had to find yet
-	 * another — which, on a product shown from one side, means inventing.
-	 * $redo is that picture's address: left out of the list, and its framing
-	 * named as the one to make.
+	 * asked for. $redo is that picture's address: left out of the list, and
+	 * its framing named as the one to make.
 	 */
 	public static function made_lines( int $pid, string $recipe, string $redo = '' ): string {
+		self::$made_said = [];
 		$again = '';
 		if ( '' !== $redo ) {
 			$waiting = self::pending( $pid );
 			if ( in_array( $redo, array_map( 'strval', (array) ( $waiting['shots'] ?? [] ) ), true ) ) {
-				$again = (string) ( $waiting['views'][ $redo ] ?? '' );
+				$again = (string) ( $waiting['frames'][ $redo ] ?? '' );
 				if ( '' === $again ) {
-					// Made before its framing was written down: read now, once.
+					// Made before its framing was read: read now, once.
 					$was = DZE_Ai_Usage::unit_now();
 					DZE_Ai_Usage::unit( 'img_view' );
-					$again = self::describe_view( $redo, (string) get_the_title( $pid ) );
+					$r = self::read_picture( $redo, $pid );
 					DZE_Ai_Usage::unit( $was );
+					$again = $r['frame'];
 					if ( '' !== $again ) {
-						self::stash( $pid, [ 'shot' => $redo, 'view' => $again ] );
+						self::stash( $pid, [ 'shot' => $redo, 'frame' => $again, 'flags' => $r['invented'] ] );
 					}
 				}
 			}
 		}
+		$was = DZE_Ai_Usage::unit_now();
+		DZE_Ai_Usage::unit( 'img_view' );
+		$page = self::page_frames( $pid );
+		DZE_Ai_Usage::unit( $was );
 		$views = self::made_views( $pid, $recipe, true, $redo );
+		self::$made_said = [ 'page' => $page, 'made' => $views, 'again' => $again ];
+		$out = '';
+		if ( $page ) {
+			$out .= "\n\nON THE PRODUCT PAGE ALREADY — the product's own photographs, described in words:\n- " . implode( "\n- ", $page );
+		}
+		if ( $views ) {
+			$out .= "\n\nALREADY MADE FOR THIS PRODUCT — photographs that exist already, described in words (they are not sent):\n- " . implode( "\n- ", $views );
+		}
 		if ( '' !== $again ) {
-			return ( $views
-				? "\n\nALREADY MADE FOR THIS PRODUCT — photographs that exist already, described in words (they are not sent):\n- " . implode( "\n- ", $views ) . "\nThis photograph is none of them."
-				: '' )
+			return $out . ( '' !== $out ? "\nThis photograph is none of them." : '' )
 				. "\n\nTHE PHOTOGRAPH THIS ONE REPLACES was framed: " . $again . '. Make that framing again — the same part of the product, as close, from the same side — as a better photograph. What the product looks like still comes from the photographs you are given, and nothing they do not show is added.';
 		}
-		if ( ! $views ) {
+		if ( '' === $out ) {
 			return '';
 		}
-		return "\n\nALREADY MADE FOR THIS PRODUCT — photographs that exist already, described in words (they are not sent):\n- "
-			. implode( "\n- ", $views )
+		return $out
 			// HOW TO DIFFER, AND HOW NOT TO. Told only « framed differently »,
 			// GPT Image turned the jacket round and drew a back no photograph
 			// shows (01/10/2026, Kryptek Mandrake). Coming closer to what the
