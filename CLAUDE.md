@@ -907,19 +907,45 @@ fait" (4.499.0):
     Pages also stayed on the EN structure they were translated from:
     32/61 pages in FR/DE/ES/PL lag the current EN.
   - `DZE_Translate::layout_from( $src, $dst, $seed )` gives the translation
-    the original tree with the translation's own words put back by path. It
-    also mirrors `layout_key()` meta (Elementor page switches, `site-*`,
-    `ast-*`…) and regenerates the Elementor CSS.
+    the original's STRUCTURE (`merge_layout()`): its elements, nested and in
+    order. A new widget arrives with the original's words; one the original
+    dropped goes. A widget both have keeps every setting of the
+    translation's own and takes only the original's LAYOUT settings
+    (`style_key()`: a setting name holding one of `STYLE_WORDS` — margin,
+    padding, width, align, color, typography, stretch, `__globals__`…).
+    It also mirrors `layout_key()` meta (Elementor page switches, `site-*`,
+    `ast-*`, `_astra_*`), regenerates the Elementor CSS, and purges the page
+    (`clean_post_cache()`, `litespeed_purge_post`).
+  - **Never the translation's own content** (4.510.1). 4.509.0 wrote the
+    original tree over everything but the words this module translates.
+    Measured on Kula before anything was marked: 905 image captions, the
+    « related products » titles, form messages, ribbons and per-language
+    category ids (`query_include_term_ids`) differed between originals and
+    their translations, and would have turned English. Nothing had been
+    written yet: no translation was written on any site under 4.509.0.
   - It runs in `create_translation()` (seed) and on every write, before
     `elementor_put()` (seed only when widgets are translated in that pass).
   - **No repair pass** (4.510.0, « Réparer les traductions existantes : non
     si le code est clean et que les pages sont marqués dans le module wpml
     "à mettre à jour" alors ça se fera »). `mark_layout_drift()` compares
-    `layout_signature()` (words blanked, pictures and links as `~`, page
-    settings without `post_*`) and raises WPML's own `needs_update`
-    (`DZE_Wpml::mark_needs_update()`, an existing row only). It runs on
-    every save of an original (`save_post` at 99, and
-    `elementor/document/after_save`), and was run once over Kula.
+    `layout_signature()` — exactly what `layout_from()` carries
+    (`layout_only()`: the elements and their layout settings, pictures as
+    `~`; the layout meta, page settings without `post_*`) — and raises
+    WPML's own `needs_update` (`DZE_Wpml::mark_needs_update()`, an existing
+    row only). Content never makes a page « behind ».
+    - Only on the post types the shop picked for translation
+      (`picked_scope()`, products aside): a template or a checkout marked
+      « to update » would be a promise nobody keeps.
+    - It wakes the original from the automation's month of rest
+      (`DZE_Automation::wake_translation()`): 51 Kula pages translated on
+      30/09–01/10 were resting until the end of October.
+    - It runs on every save of an original (`save_post` at 99, and
+      `elementor/document/after_save`), and was run once over Kula.
+    - Kula on 02/10: 301 of 659 page translations marked. 128 lagged in
+      structure (32 pages × FR/DE/ES/PL: the old sections, a missing
+      carousel). The rest differed by Astra's `_astra_content_layout_flag`
+      and `ast-title-bar-display`, `disabled` on EN and empty on the
+      translation: that is the RU banner « pas étirée ».
   - **A widget the translation lacks is owed, whatever the register says**
     (`stale_from()`). The 30/09 pass wrote the words into the old layouts,
     skipped every widget they lacked, and registered them all as done.
