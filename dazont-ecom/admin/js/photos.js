@@ -65,9 +65,6 @@
 				// « J'aimerais pouvoir cliquer sur une image pour que l'outil la
 				// regénère en mieux. » What they make arrives among the new
 				// pictures; this photograph is left exactly as it is.
-				// THE « i » of a photograph a model made or reworked: which
-				// prompt, which model, what price.
-				(im.ai ? aiButton(opts.post || 0, '', im.id, false, im.flags) : ''),
 				(opts.remake ? $('<span class="dze-nowacts"></span>').append(
 					$('<button type="button" class="dze-now-make">✦</button>').attr('title', i18n.picRemake || ''),
 					$('<button type="button" class="dze-now-hd">HD</button>').attr('title', i18n.picHD || '')
@@ -427,44 +424,6 @@
 			window.getSelection().removeAllRanges();
 			window.getSelection().addRange(r);
 		}
-	});
-
-	// THE PRODUCT'S OWN BOXES — « Product image » and « Product gallery » on
-	// the product's page — carry it too: that is where the pictures are seen
-	// most. Put back whenever WooCommerce redraws them.
-	function decorateBoxes() {
-		var ids = (cfg.galleryAi || []).map(String);
-		$('#product_images_container li.image').each(function () {
-			var $li = $(this), id = String($li.attr('data-attachment_id') || '');
-			if (ids.indexOf(id) >= 0 && !$li.children('.dze-ai-i').length) {
-				$li.append(aiButton(cfg.post || 0, '', id).addClass('dze-ai-i-wc'));
-			}
-		});
-		var thumb = String($('#_thumbnail_id').val() || '');
-		var $host = $('#set-post-thumbnail').has('img').parent();
-		var $has = $host.children('.dze-ai-i');
-		if (ids.indexOf(thumb) >= 0 && $host.length) {
-			if (!$has.length || String($has.attr('data-att')) !== thumb) {
-				$has.remove();
-				$host.addClass('dze-ai-host').append(aiButton(cfg.post || 0, '', thumb).addClass('dze-ai-i-wc'));
-			}
-		} else if ($has.length) {
-			$has.remove();
-		}
-	}
-	$(function () {
-		if (!(cfg.galleryAi || []).length) { return; }
-		decorateBoxes();
-		if (!window.MutationObserver) { return; }
-		var later = null;
-		['product_images_container', 'postimagediv'].forEach(function (id) {
-			var el = document.getElementById(id);
-			if (!el) { return; }
-			new MutationObserver(function () {
-				clearTimeout(later);
-				later = setTimeout(decorateBoxes, 60);
-			}).observe(el, { childList: true, subtree: true });
-		});
 	});
 
 	// ---- « Which photograph does this picture replace? » ----

@@ -888,9 +888,9 @@ fait" (4.499.0):
     and `frame_line()` builds « part — distance, angle ». No detail word can
     travel.
   - `invented` lists what the picture shows that the photographs do not.
-    It is stored as `flags` (waiting list) or `_dze_flags` (attachment). A
-    flagged picture leaves made_views() and gets a red « ! » instead of its
-    « i ».
+    It is stored as `flags` on the waiting list only: since 4.510.0 nothing
+    of it is written on a filed picture. A flagged picture leaves
+    made_views() and gets a red « ! » instead of its « i ».
   - The product's REAL photographs are framed once, in one batch call
     (`frame_photos()`, `_dze_frame`). made_lines() opens with « ON THE PRODUCT
     PAGE ALREADY », so the first picture of a prompt no longer redoes the
@@ -912,25 +912,60 @@ fait" (4.499.0):
     `ast-*`…) and regenerates the Elementor CSS.
   - It runs in `create_translation()` (seed) and on every write, before
     `elementor_put()` (seed only when widgets are translated in that pass).
-  - `relayout_all()` repairs existing translations and keeps
-    `_dze_layout_before` once.
+  - **No repair pass** (4.510.0, « Réparer les traductions existantes : non
+    si le code est clean et que les pages sont marqués dans le module wpml
+    "à mettre à jour" alors ça se fera »). `mark_layout_drift()` compares
+    `layout_signature()` (words blanked, pictures and links as `~`, page
+    settings without `post_*`) and raises WPML's own `needs_update`
+    (`DZE_Wpml::mark_needs_update()`, an existing row only). It runs on
+    every save of an original (`save_post` at 99, and
+    `elementor/document/after_save`), and was run once over Kula.
+  - **A widget the translation lacks is owed, whatever the register says**
+    (`stale_from()`). The 30/09 pass wrote the words into the old layouts,
+    skipped every widget they lacked, and registered them all as done.
+    `layout_from()` also takes the widgets it hands over in the original's
+    words off the register (`forget()`), so they stay owed after a rebase.
+  - **Nothing owed still gets the layout.** A page marked for its layout
+    alone owes no word; it is closed by `settle_unchanged()`, which runs
+    `layout_from( …, false )` first. Never in `obj_adopt()`: adopting keeps
+    the words as they are, and the layout would bring English with it.
 - **THE ⇄ BUTTON** (4.509.0, « C'est maladroit »). The destination cycle is
   gallery / first / main again. ⇄ on a waiting picture opens
   `dzePhotos.pickReplace()` (the product's photographs, large), and
-  `replaceChip()` shows the target on the picture. Waiting cards are 220 px.
+  `replaceChip()` shows the target on the picture.
+- **ONE SIZE FOR EVERY PICTURE** (4.510.0, « toutes les images soient de la
+  même taille pour une meilleur lisibilité »). `--dze-pic` (200 px) sizes the
+  product's photographs, the waiting pictures, the sources, the pasted
+  photographs and the tries, on both screens.
 - **« REPLACES THIS PHOTO » (4.508.0, option B).** Target `replace:<id>`
   (`attach_target()`).
   - A ✦ or HD made from one of the product's photographs is stashed with
     that target (`job['replaces']`).
-  - Any waiting picture can cycle to « Replaces… » and pick a tile in the
-    strip.
+  - Any waiting picture gets its target with ⇄ (4.509.0). A target that is
+    not one of the product's own pictures falls back to the gallery
+    (`ajax_image_attach()`).
   - `replace_in_place()` puts the new picture in the exact slot (main or
-    gallery rank) and moves the colours that used the old photo.
-  - The old photo stays in the library and is recorded in
-    `_dze_stands_for` (new => real original). product_source_ids() sends the
-    original at that rank: no made picture is a reference, so each
-    replacement would otherwise remove a real reference. The legacy
-    `replace` param (one-image popup) still deletes, unchanged.
+    gallery rank), then `replace_everywhere()`.
+  - **REPLACED EVERYWHERE, THEN DELETED** (4.510.0, « les images remplacées
+    doivent être supprimées. Et si elles sont utilisées ailleurs […] le
+    remplacement doit aussi être effectif pour la nouvelle image »).
+    - At once, by indexed lookups, for the picture and its WPML copies
+      (`picture_family()`): `_thumbnail_id` of any post (variations and
+      translations included), any `_product_image_gallery` at the same
+      rank, category `thumbnail_id`.
+    - In the background (`dze_replace_sweep`, Action Scheduler):
+      `replace_sweep()` reads every post's content and excerpt and every
+      postmeta. It swaps the path of every size on any domain
+      (`picture_paths()`, JSON-escaped too), `wp-image-ID`, Elementor's
+      `"id":ID`, and a bare id only in a picture field (`picture_field()`,
+      ACF image/gallery/file). It writes raw `$wpdb->update`, never
+      `update_post_meta()` on JSON.
+    - Then the whole family is deleted with its files, and only if no copy
+      is still shown (`picture_shown()`): the copies share one file.
+  - 4.508.0's `_dze_stands_for` (the old photograph kept as the reference)
+    is gone. **The cost:** a ✦ remake that replaces a real photograph
+    removes one real reference for the next orders.
+  - The legacy `replace` param (one-image popup) still deletes, unchanged.
 - **Image prompt payload: 3,000 characters** (was 800, which cut a
   1,134-character description).
 - **EVERY AI PICTURE CARRIES ITS « i »** (4.507.0, « au clic, un text doit
@@ -941,15 +976,18 @@ fait" (4.499.0):
     screen passes there once. The caller adds the prompt that made it
     (`recipe`, name kept as it was that day), the `tool` (generate, remake,
     enlarge) and what a ✦ or an HD started from (`base`).
-  - **Never on the product.** A product's meta is read whole on every visit
-    to its page. A waiting card is a non-autoloaded option `dze_aic_<md5>`
-    with an index (45 days, 600 at most). Filed, it moves to the attachment
-    (`_dze_ai_card`, slashed) in `sideload_seo()`; thrown away, it goes in
-    `settle_shots()`.
+  - **Only while the picture waits** (4.510.0, « Dans product gallery, pas
+    besoin d'y ajouter le I pour les infos IA. Je parie que tu stockes ça
+    bettement en meta data. A dégager. »). A card is a non-autoloaded
+    option `dze_aic_<md5>` with an index (45 days, 600 at most). Filed
+    (`DZE_Ai_Card::file()`) or thrown away (`settle_shots()`), it is
+    dropped. Nothing is written on an attachment.
+    `forget_attached_info()` deleted once what 4.507–4.509 had written
+    (`_dze_ai_card`, `_dze_flags`, `_dze_stands_for`; option
+    `dze_ai_meta_forgotten`).
   - **Drawn by photos.js** (`dzePhotos.aiButton`, one card for every
-    screen). It appears on the strips (`ai` in `dze_content_current`), the
-    waiting pictures, the tries, WooCommerce's Product image and gallery
-    boxes (`galleryAi`), and as a field in the media library.
+    screen), on the waiting pictures and the tries only. It is never on the
+    product's photographs, where it covered their zoom button.
   - Pictures from before 4.507.0 say what they kept: the prompt's name.
 - **NO PICTURE THE MODEL MADE IS EVER A REFERENCE FOR THE NEXT ONE.** « Le
   slop commence à partir de la 2e image générée. La première est mieux en

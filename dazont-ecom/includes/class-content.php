@@ -348,6 +348,9 @@ final class DZE_Content {
 		add_action( 'admin_init',     [ $this, 'register_settings' ] );
 		add_action( 'admin_init',     [ $this, 'migrate_quick_recipe' ] );
 		add_action( 'admin_init',     [ $this, 'seed_remake_recipe' ] );
+		// THE OLD PICTURE REPLACED EVERYWHERE, then deleted — in the background.
+		add_action( self::SWEEP_HOOK, [ self::class, 'replace_sweep' ], 10, 2 );
+		add_action( 'admin_init',     [ self::class, 'forget_attached_info' ] );
 		add_action( 'admin_menu',     [ $this, 'register_bulk_page' ], 20 );
 		// A bookmark on the old page still lands: it goes to the tab that
 		// shows it now. On admin_init, which is before a byte of the page is
@@ -1010,23 +1013,6 @@ EOT;
 		}
 		self::write_setting( 'registry', $rows );
 		return true;
-	}
-
-	/**
-	 * The product's photographs a model made or reworked — main image and
-	 * gallery — for the « i » on its own boxes.
-	 *
-	 * @return int[]
-	 */
-	public static function ai_photo_ids( int $pid ): array {
-		if ( $pid < 1 || ! class_exists( 'DZE_Ai_Card' ) ) {
-			return [];
-		}
-		$ids = self::product_image_ids( $pid );
-		if ( $ids ) {
-			_prime_post_caches( $ids, false, true );
-		}
-		return array_values( array_filter( array_map( 'intval', $ids ), [ 'DZE_Ai_Card', 'is_ai' ] ) );
 	}
 
 	/** A prompt's name as the shop wrote it, '' when no prompt has that id. */
@@ -5520,10 +5506,6 @@ Answer with STRICT JSON and nothing else: "
 					'aiOld'     => __( 'Made before Dazont Ecom 4.507.0: only what the picture kept is known — its prompt\'s name, and its model while it waits.', 'dazont-ecom' ),
 					'close'     => __( 'Close', 'dazont-ecom' ),
 				],
-				// THE PRODUCT'S OWN BOXES (« Product image », « Product gallery »)
-				// put the « i » on the pictures a model made.
-				'post'      => $on_product ? (int) get_the_ID() : 0,
-				'galleryAi' => $on_product ? self::ai_photo_ids( (int) get_the_ID() ) : [],
 			] );
 		}
 		// The zoom viewer travels with it: every grid of product images in the
@@ -6694,24 +6676,22 @@ Answer with STRICT JSON and nothing else: "
 		return in_array( $t, [ 'main', 'gallery_first' ], true ) ? $t : 'gallery';
 	}
 
-	/** Product meta: made pictures => the real photographs they took the place of. */
-	public const META_STANDS = '_dze_stands_for';
-
 	/**
 	 * A NEW PICTURE IN THE VERY PLACE OF ONE OF THE PRODUCT'S PHOTOGRAPHS.
 	 *
 	 * « J'aimerai une option pour remplacer des images galerie avec des images
-	 * fraichement générées. Par exemple, remake, ou hd » — the ✦ or the HD of
-	 * a gallery photograph used to land at the end of the gallery, beside the
-	 * photograph it was made to replace. It takes its slot now: the main
-	 * image's, or the same rank in the gallery, and the colours that showed
-	 * the old one show the new one.
+	 * fraichement générées. Par exemple, remake, ou hd » — it takes the old
+	 * one's slot: the main image's, or the same rank in the gallery.
 	 *
-	 * The old photograph leaves the PAGE, not the shop (« option B »): it stays
-	 * in the media library, and a real photograph replaced by a made picture
-	 * goes on being sent to the model in its place (product_source_ids()). No
-	 * made picture is ever a reference, so every replacement would otherwise
-	 * take one real photograph away from every later picture of the product.
+	 * « Les images remplacées doivent être supprimées. Et si elles sont
+	 * utilisées ailleurs par exemple sur custom description image, ou
+	 * ailleurs, le remplacement doit aussi être effectif pour la nouvelle
+	 * image. » So the old picture is then replaced EVERYWHERE and deleted
+	 * (replace_everywhere()): what can be found at once — main images,
+	 * galleries, colours, category pictures, in every language — while the
+	 * shop presses Apply; what needs reading every field of every post
+	 * (descriptions, custom blocks, Elementor), in the background a moment
+	 * later (replace_sweep()), which is also when the old picture goes.
 	 */
 	public static function replace_in_place( int $pid, int $old, int $new ): void {
 		if ( $pid < 1 || $old < 1 || $new < 1 || $old === $new ) {
@@ -6732,33 +6712,283 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 		update_post_meta( $pid, '_product_image_gallery', implode( ',', array_values( array_unique( $ids ) ) ) );
-		// A colour that showed the old photograph shows the new one.
-		self::replace_variation_image( $pid, $old, $new );
-		// The real photograph behind it — itself, or the one it already stood
-		// for — goes on being the model's reference.
-		$stands = self::stand_ins( $pid );
-		$real   = '' === (string) get_post_meta( $old, self::META_RECIPE, true ) ? $old : (int) ( $stands[ $old ] ?? 0 );
-		unset( $stands[ $old ] );
-		if ( $real > 0 && '' !== (string) get_post_meta( $new, self::META_RECIPE, true ) ) {
-			$stands[ $new ] = $real;
-		}
-		update_post_meta( $pid, self::META_STANDS, $stands );
+		self::replace_everywhere( $pid, $old, $new );
 		clean_post_cache( $pid );
 		if ( function_exists( 'wc_delete_product_transients' ) ) {
 			wc_delete_product_transients( $pid );
 		}
 	}
 
-	/** Made picture => the real photograph it stands for on the page. @return array<int,int> */
-	public static function stand_ins( int $pid ): array {
-		$m   = get_post_meta( $pid, self::META_STANDS, true );
-		$out = [];
-		foreach ( is_array( $m ) ? $m : [] as $k => $v ) {
-			if ( (int) $k > 0 && (int) $v > 0 ) {
-				$out[ (int) $k ] = (int) $v;
+	/** Background hook: the old picture replaced in every field, then deleted. */
+	public const SWEEP_HOOK = 'dze_replace_sweep';
+
+	/**
+	 * Everywhere the old picture is found AT ONCE — indexed lookups only — then
+	 * the slow sweep queued.
+	 *
+	 * @return array{meta:int,terms:int}
+	 */
+	public static function replace_everywhere( int $pid, int $old, int $new ): array {
+		global $wpdb;
+		$out = [ 'meta' => 0, 'terms' => 0 ];
+		if ( $old < 1 || $new < 1 || $old === $new || ! $wpdb ) {
+			return $out;
+		}
+		foreach ( self::picture_family( $old ) as $o ) {
+			// The main image of any product, colour, post or translation.
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery -- an indexed key, a fixed value.
+			foreach ( (array) $wpdb->get_col( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_thumbnail_id' AND meta_value = %s", (string) $o ) ) as $p ) {
+				update_post_meta( (int) $p, '_thumbnail_id', $new );
+				$out['meta']++;
+			}
+			// Any gallery, at the same rank.
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_product_image_gallery' AND CONCAT( ',', meta_value, ',' ) LIKE %s", '%,' . $o . ',%' ) ) as $r ) {
+				$list = array_map( 'absint', explode( ',', (string) $r->meta_value ) );
+				$list = array_map( static fn( $x ) => $x === $o ? $new : $x, $list );
+				update_post_meta( (int) $r->post_id, '_product_image_gallery', implode( ',', array_values( array_unique( array_filter( $list ) ) ) ) );
+				$out['meta']++;
+			}
+			// A category's picture.
+			foreach ( (array) $wpdb->get_col( $wpdb->prepare( "SELECT term_id FROM {$wpdb->termmeta} WHERE meta_key = 'thumbnail_id' AND meta_value = %s", (string) $o ) ) as $t ) {
+				update_term_meta( (int) $t, 'thumbnail_id', $new );
+				$out['terms']++;
+			}
+			// phpcs:enable
+		}
+		// THE REST — words and fields that only a full read can find — a
+		// moment later, never inside the request that files the pictures.
+		self::queue_sweep( $old, $new );
+		return $out;
+	}
+
+	private static function queue_sweep( int $old, int $new ): void {
+		if ( function_exists( 'as_enqueue_async_action' ) ) {
+			as_enqueue_async_action( self::SWEEP_HOOK, [ $old, $new ], 'dazont-ecom' );
+		} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
+			wp_schedule_single_event( time() + 5, self::SWEEP_HOOK, [ $old, $new ] );
+		}
+	}
+
+	/**
+	 * THE OLD PICTURE, OUT OF EVERY WORD AND EVERY FIELD — then deleted.
+	 *
+	 * Its addresses (every size, on every language domain: matched by path,
+	 * not by host) and its id where a field holds it (`wp-image-ID`, an
+	 * Elementor image, an image field of ACF) become the new picture's,
+	 * in the content of every post and every custom field, serialised or
+	 * not. Then the picture and its WPML copies are deleted, files with them,
+	 * unless something still shows them.
+	 *
+	 * @return array{fields:int,posts:int,deleted:int}
+	 */
+	public static function replace_sweep( $old, $new ): array {
+		global $wpdb;
+		$old = (int) $old;
+		$new = (int) $new;
+		$out = [ 'fields' => 0, 'posts' => 0, 'deleted' => 0 ];
+		if ( $old < 1 || $new < 1 || $old === $new || ! $wpdb || 'attachment' !== get_post_type( $new ) ) {
+			return $out;
+		}
+		$family = self::picture_family( $old );
+		$paths  = self::picture_paths( $family, $new );
+		foreach ( $family as $o ) {
+			$file = (string) get_post_meta( $o, '_wp_attached_file', true );
+			$stem = '' !== $file ? pathinfo( $file, PATHINFO_FILENAME ) : '';
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- one full read, in the background, of WordPress's own tables.
+			$like = '%' . $wpdb->esc_like( '' !== $stem ? $stem : 'wp-image-' . $o ) . '%';
+			// Every post's words.
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT ID, post_content, post_excerpt FROM {$wpdb->posts} WHERE ( post_content LIKE %s OR post_content LIKE %s OR post_excerpt LIKE %s ) AND post_type NOT IN ( 'revision', 'attachment' )", $like, '%wp-image-' . $o . '%', $like ) ) as $p ) {
+				$c = self::swap_picture( (string) $p->post_content, $o, $new, $paths );
+				$e = self::swap_picture( (string) $p->post_excerpt, $o, $new, $paths );
+				if ( $c !== $p->post_content || $e !== $p->post_excerpt ) {
+					$wpdb->update( $wpdb->posts, [ 'post_content' => $c, 'post_excerpt' => $e ], [ 'ID' => (int) $p->ID ] );
+					clean_post_cache( (int) $p->ID );
+					$out['posts']++;
+				}
+			}
+			// Every custom field that names it — by its address, or by its id
+			// in a field that holds pictures.
+			$rows = (array) $wpdb->get_results( $wpdb->prepare( "SELECT meta_id, post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE ( meta_value LIKE %s OR meta_value = %s ) AND post_id NOT IN ( " . implode( ',', array_map( 'intval', $family ) ) . " )", $like, (string) $o ) );
+			// phpcs:enable
+			foreach ( $rows as $r ) {
+				$key = (string) $r->meta_key;
+				if ( in_array( $key, [ '_wp_attached_file', '_wp_attachment_metadata', '_thumbnail_id', '_product_image_gallery' ], true ) ) {
+					continue;
+				}
+				$raw = (string) $r->meta_value;
+				if ( (string) $o === $raw ) {
+					// A bare id is a picture only in a field made to hold one.
+					if ( ! self::picture_field( (int) $r->post_id, $key ) ) {
+						continue;
+					}
+					$now = (string) $new;
+				} else {
+					$val = maybe_unserialize( $raw );
+					$val = self::swap_deep( $val, $o, $new, $paths );
+					$now = is_string( $val ) ? $val : maybe_serialize( $val );
+				}
+				if ( $now !== $raw ) {
+					// Written as it is read: never through update_post_meta(),
+					// which unslashes JSON and would break an Elementor tree.
+					$wpdb->update( $wpdb->postmeta, [ 'meta_value' => $now ], [ 'meta_id' => (int) $r->meta_id ] );
+					wp_cache_delete( (int) $r->post_id, 'post_meta' );
+					if ( '_elementor_data' === $key ) {
+						delete_post_meta( (int) $r->post_id, '_elementor_element_cache' );
+						delete_post_meta( (int) $r->post_id, '_elementor_css' );
+					}
+					$out['fields']++;
+				}
+			}
+		}
+		// GONE — the picture and its copies, while nothing shows ANY of them:
+		// the copies of one picture share its file, and deleting one deletes
+		// what the others show.
+		foreach ( $family as $o ) {
+			if ( self::picture_shown( $o ) ) {
+				return $out;
+			}
+		}
+		foreach ( $family as $o ) {
+			if ( wp_delete_attachment( $o, true ) ) {
+				$out['deleted']++;
 			}
 		}
 		return $out;
+	}
+
+	/** The picture and its WPML copies (one per language on some shops). @return int[] */
+	private static function picture_family( int $att ): array {
+		global $wpdb;
+		$out = [ $att ];
+		$tr  = $wpdb->prefix . 'icl_translations';
+		if ( class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table.
+			$trid = (int) $wpdb->get_var( $wpdb->prepare( "SELECT trid FROM {$tr} WHERE element_type = 'post_attachment' AND element_id = %d", $att ) );
+			if ( $trid ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table.
+				$out = array_merge( $out, array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( "SELECT element_id FROM {$tr} WHERE element_type = 'post_attachment' AND trid = %d", $trid ) ) ) );
+			}
+		}
+		return array_values( array_unique( array_filter( $out ) ) );
+	}
+
+	/**
+	 * Old path => new path, for every size of every copy: a path, not an
+	 * address, so ru.kula-tactical.com/wp-content/… is found as surely as
+	 * the shop's own domain.
+	 *
+	 * @param int[] $family
+	 * @return array<string,string>
+	 */
+	private static function picture_paths( array $family, int $new ): array {
+		$new_meta = (array) wp_get_attachment_metadata( $new );
+		$new_full = (string) wp_parse_url( (string) wp_get_attachment_url( $new ), PHP_URL_PATH );
+		$new_dir  = trailingslashit( dirname( $new_full ) );
+		$map      = [];
+		foreach ( $family as $o ) {
+			$full = (string) wp_parse_url( (string) wp_get_attachment_url( $o ), PHP_URL_PATH );
+			if ( '' === $full || '/' === $full ) {
+				continue;
+			}
+			$dir          = trailingslashit( dirname( $full ) );
+			$map[ $full ] = $new_full;
+			$meta         = (array) wp_get_attachment_metadata( $o );
+			if ( ! empty( $meta['original_image'] ) ) {
+				$map[ $dir . $meta['original_image'] ] = $new_full;
+			}
+			foreach ( (array) ( $meta['sizes'] ?? [] ) as $size => $s ) {
+				if ( empty( $s['file'] ) ) {
+					continue;
+				}
+				$to = ! empty( $new_meta['sizes'][ $size ]['file'] ) ? $new_dir . $new_meta['sizes'][ $size ]['file'] : $new_full;
+				$map[ $dir . $s['file'] ] = $to;
+			}
+		}
+		// The longest first: a size's path holds the full one's stem.
+		uksort( $map, static fn( $a, $b ) => strlen( $b ) <=> strlen( $a ) );
+		return $map;
+	}
+
+	/** The old picture's addresses and ids, in one text, made the new one's. */
+	private static function swap_picture( string $text, int $old, int $new, array $paths ): string {
+		if ( '' === $text ) {
+			return $text;
+		}
+		foreach ( $paths as $from => $to ) {
+			if ( false !== strpos( $text, $from ) ) {
+				$text = str_replace( $from, $to, $text );
+			}
+			// In JSON (an Elementor tree) the slashes are escaped.
+			$jf = str_replace( '/', '\\/', $from );
+			if ( false !== strpos( $text, $jf ) ) {
+				$text = str_replace( $jf, str_replace( '/', '\\/', $to ), $text );
+			}
+		}
+		$text = str_replace( 'wp-image-' . $old . '"', 'wp-image-' . $new . '"', $text );
+		$text = str_replace( 'wp-image-' . $old . ' ', 'wp-image-' . $new . ' ', $text );
+		// An Elementor image: {"url": …, "id": 123}.
+		$text = preg_replace( '/("id"\s*:\s*"?)' . $old . '("?\s*[,}])/', '${1}' . $new . '${2}', $text );
+		return (string) $text;
+	}
+
+	/** The same, through arrays and objects as a serialised field holds them. */
+	private static function swap_deep( $v, int $old, int $new, array $paths ) {
+		if ( is_string( $v ) ) {
+			return self::swap_picture( $v, $old, $new, $paths );
+		}
+		if ( is_array( $v ) ) {
+			foreach ( $v as $k => $x ) {
+				$v[ $k ] = ( is_int( $x ) || ( is_string( $x ) && ctype_digit( $x ) ) ) && (int) $x === $old && preg_match( '/image|img|photo|picture|thumb|logo|banner|icon|gallery/i', (string) $k )
+					? ( is_int( $x ) ? $new : (string) $new )
+					: self::swap_deep( $x, $old, $new, $paths );
+			}
+		}
+		return $v;
+	}
+
+	/** A field made to hold a picture: an ACF image field, or a key that says so. */
+	private static function picture_field( int $post_id, string $key ): bool {
+		if ( preg_match( '/image|img|photo|picture|thumb|logo|banner|icon|gallery/i', $key ) ) {
+			return true;
+		}
+		$ref = (string) get_post_meta( $post_id, '_' . $key, true );
+		if ( 0 === strpos( $ref, 'field_' ) && function_exists( 'acf_get_field' ) ) {
+			$f = acf_get_field( $ref );
+			return is_array( $f ) && in_array( (string) ( $f['type'] ?? '' ), [ 'image', 'gallery', 'file' ], true );
+		}
+		return false;
+	}
+
+	/**
+	 * WHAT WAS WRITTEN ON THE PRODUCT'S PICTURES BY 4.507–4.508, TAKEN OFF.
+	 *
+	 * « Dans product gallery, pas besoin d'y ajouter le I pour les infos IA. Je
+	 * parie que tu stockes ça bettement en meta data. A dégager. Je veux juste
+	 * l'info temporairement sur les images générées pas encore sur le
+	 * produit. » The card of a picture lives only while it waits; once filed
+	 * it is dropped (DZE_Ai_Card::file()). What earlier versions had written
+	 * on attachments — the card, the invented details, the photographs a
+	 * picture « stood for » — is deleted once.
+	 */
+	public static function forget_attached_info(): void {
+		if ( '1' === (string) get_option( 'dze_ai_meta_forgotten', '' ) ) {
+			return;
+		}
+		foreach ( [ '_dze_ai_card', '_dze_flags', '_dze_stands_for' ] as $k ) {
+			delete_post_meta_by_key( $k );
+		}
+		update_option( 'dze_ai_meta_forgotten', '1', false );
+	}
+
+	/** Does anything still show this picture? */
+	private static function picture_shown( int $att ): bool {
+		global $wpdb;
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery -- indexed keys, a fixed value.
+		$thumb = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_thumbnail_id' AND meta_value = %s", (string) $att ) );
+		$gal   = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_product_image_gallery' AND CONCAT( ',', meta_value, ',' ) LIKE %s", '%,' . $att . ',%' ) );
+		$term  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->termmeta} WHERE meta_key = 'thumbnail_id' AND meta_value = %s", (string) $att ) );
+		// phpcs:enable
+		return ( $thumb + $gal + $term ) > 0;
 	}
 
 	/**
@@ -7490,16 +7720,6 @@ Answer with STRICT JSON and nothing else: "
 	 */
 	public static function product_source_ids( int $pid ): array {
 		$all  = self::product_own_image_ids( $pid );
-		// A MADE PICTURE THAT REPLACED A REAL PHOTOGRAPH (replace_in_place())
-		// is sent as that photograph, at its rank — while the photograph is
-		// still in the library.
-		$stands = self::stand_ins( $pid );
-		if ( $stands ) {
-			$all = array_values( array_unique( array_map( static function ( $id ) use ( $stands ) {
-				$orig = (int) ( $stands[ (int) $id ] ?? 0 );
-				return ( $orig > 0 && 'attachment' === get_post_type( $orig ) ) ? $orig : (int) $id;
-			}, $all ) ) );
-		}
 		$real = array_values( array_filter( $all, static fn( $id ) => '' === (string) get_post_meta( (int) $id, self::META_RECIPE, true ) ) );
 		return array_slice( $real ? $real : $all, 0, self::source_cap() );
 	}
@@ -7956,9 +8176,6 @@ Answer with STRICT JSON and nothing else: "
 	/** Attachment meta: a photograph's framing, read by READER. */
 	public const META_FRAME = '_dze_frame';
 
-	/** Attachment meta: what a made picture shows that the product does not. */
-	public const META_FLAGS = '_dze_flags';
-
 	/** The distances and the angles a framing is said in — and nothing else. */
 	private const FRAME_DISTANCES = [ 'whole product', 'half', 'close-up', 'macro' ];
 	private const FRAME_ANGLES    = [ 'front', 'front three-quarter left', 'front three-quarter right', 'side', 'back', 'from above', 'from below', 'inside' ];
@@ -8240,7 +8457,7 @@ Answer with STRICT JSON and nothing else: "
 				continue;
 			}
 			$v = (string) get_post_meta( (int) $aid, self::META_FRAME, true );
-			if ( '' !== $v && ! get_post_meta( (int) $aid, self::META_FLAGS, true ) ) {
+			if ( '' !== $v ) {
 				$lines[] = $v;
 			}
 		}

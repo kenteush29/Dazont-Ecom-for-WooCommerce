@@ -359,6 +359,24 @@ final class DZE_Wpml {
 		);
 	}
 
+	/**
+	 * WPML's own « needs update » mark, raised on one translation — the mark
+	 * the translation screens and the translation pass already read. Only an
+	 * existing status row is written: WPML makes those rows, we never invent one.
+	 */
+	public static function mark_needs_update( int $translation_id ): bool {
+		global $wpdb;
+		if ( ! self::is_active() || ! $wpdb || ! $translation_id ) {
+			return false;
+		}
+		$table = $wpdb->prefix . 'icl_translation_status';
+		if ( ! self::has_table( $table ) ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WPML's own table.
+		return (int) $wpdb->update( $table, [ 'needs_update' => 1 ], [ 'translation_id' => $translation_id, 'needs_update' => 0 ], [ '%d' ], [ '%d', '%d' ] ) > 0;
+	}
+
 	public static function ids_in_language( string $element_type, string $language ): ?array {
 		global $wpdb;
 		if ( ! self::is_active() || '' === $language || ! $wpdb ) {

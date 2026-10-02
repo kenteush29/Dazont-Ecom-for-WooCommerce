@@ -21,9 +21,6 @@ defined( 'ABSPATH' ) || exit;
 
 final class DZE_Ai_Card {
 
-	/** Attachment meta: the card of a picture filed on the shop. */
-	public const META = '_dze_ai_card';
-
 	/** Option prefix of a card still waiting, followed by the md5 of its address. */
 	private const OPT = 'dze_aic_';
 
@@ -41,9 +38,6 @@ final class DZE_Ai_Card {
 
 	public static function init(): void {
 		add_action( 'wp_ajax_dze_ai_card', [ self::class, 'ajax' ] );
-		// The media library and its modal: the same answer, written in the
-		// attachment's details instead of behind an « i ».
-		add_filter( 'attachment_fields_to_edit', [ self::class, 'media_field' ], 10, 2 );
 	}
 
 	private static function key( string $url ): string {
@@ -131,21 +125,11 @@ final class DZE_Ai_Card {
 	}
 
 	/**
-	 * The picture became an attachment: its card goes with it. Meta is
-	 * unslashed on the way in, so the words are slashed first — a prompt
-	 * quoting a path would otherwise lose its backslashes.
+	 * The picture is on the product now: its card ends with the waiting. « Je
+	 * veux juste l'info temporairement sur les images générées pas encore sur
+	 * le produit » — nothing is written on the attachment.
 	 */
-	public static function file( string $url, int $att, string $recipe = '' ): void {
-		$c = self::get( $url );
-		if ( ! $c || $att < 1 ) {
-			return;
-		}
-		if ( empty( $c['recipe'] ) && '' !== $recipe ) {
-			$c['recipe'] = $recipe;
-			$c['name']   = self::recipe_name( $recipe );
-		}
-		unset( $c['pid'] );
-		update_post_meta( $att, self::META, wp_slash( $c ) );
+	public static function file( string $url, int $att = 0, string $recipe = '' ): void {
 		self::drop( [ $url ] );
 	}
 
@@ -225,10 +209,6 @@ final class DZE_Ai_Card {
 			return self::slim( [ 'kind' => 'ai' ] + self::named( $c ) );
 		}
 		if ( $att > 0 ) {
-			$c = get_post_meta( $att, self::META, true );
-			if ( is_array( $c ) && $c ) {
-				return self::slim( [ 'kind' => 'ai' ] + $c );
-			}
 			$r = class_exists( 'DZE_Content' ) ? (string) get_post_meta( $att, DZE_Content::META_RECIPE, true ) : '';
 			return '' !== $r ? self::slim( self::named( [ 'kind' => 'ai', 'recipe' => $r ] ) ) : [ 'kind' => 'photo' ];
 		}
@@ -358,31 +338,7 @@ final class DZE_Ai_Card {
 		return [ $avoid, $again ];
 	}
 
-	/** The card of a filed picture, or what it kept without one. @return array<string,mixed> */
-	public static function of_attachment( int $att ): array {
-		$c = get_post_meta( $att, self::META, true );
-		$r = class_exists( 'DZE_Content' ) ? (string) get_post_meta( $att, DZE_Content::META_RECIPE, true ) : '';
-		$v = class_exists( 'DZE_Content' ) ? (string) get_post_meta( $att, DZE_Content::META_FRAME, true ) : '';
-		if ( '' === $v && class_exists( 'DZE_Content' ) ) {
-			$v = (string) get_post_meta( $att, DZE_Content::META_VIEW, true );
-		}
-		$bad = class_exists( 'DZE_Content' ) ? get_post_meta( $att, DZE_Content::META_FLAGS, true ) : [];
-		return self::view( is_array( $c ) ? $c : [], [ 'recipe' => $r ], $v, is_array( $bad ) ? $bad : [] );
-	}
-
-	/** True when the attachment was made or reworked by a model. */
-	public static function is_ai( int $att ): bool {
-		if ( $att < 1 ) {
-			return false;
-		}
-		if ( class_exists( 'DZE_Content' ) && '' !== (string) get_post_meta( $att, DZE_Content::META_RECIPE, true ) ) {
-			return true;
-		}
-		$c = get_post_meta( $att, self::META, true );
-		return is_array( $c ) && ! empty( $c );
-	}
-
-	/** The « i »: one picture's card, by its address (waiting) or its id (filed). */
+	/** The « i »: one waiting picture's card, by its address. */
 	public static function ajax(): void {
 		// The content module's nonce (DZE_Content::NONCE), which photos.js carries.
 		check_ajax_referer( 'dze_content', 'nonce' );
@@ -391,15 +347,8 @@ final class DZE_Ai_Card {
 		}
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked above.
 		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$att = isset( $_POST['att'] ) ? absint( $_POST['att'] ) : 0;
 		$url = isset( $_POST['url'] ) ? esc_url_raw( (string) wp_unslash( $_POST['url'] ) ) : '';
 		// phpcs:enable
-		if ( $att > 0 ) {
-			if ( 'attachment' !== get_post_type( $att ) ) {
-				wp_send_json_error( [ 'message' => __( 'This picture no longer exists.', 'dazont-ecom' ) ] );
-			}
-			wp_send_json_success( self::of_attachment( $att ) );
-		}
 		if ( '' === $url ) {
 			wp_send_json_error( [ 'message' => __( 'Which picture?', 'dazont-ecom' ) ] );
 		}
@@ -419,45 +368,5 @@ final class DZE_Ai_Card {
 			(string) ( $w['frames'][ $url ] ?? ( $w['views'][ $url ] ?? '' ) ),
 			(array) ( $w['flags'][ $url ] ?? [] )
 		) );
-	}
-
-	/**
-	 * The card in the media library's details, for a picture made by a model.
-	 *
-	 * @param array<string,array<string,mixed>> $fields
-	 * @param WP_Post                            $post
-	 * @return array<string,array<string,mixed>>
-	 */
-	public static function media_field( $fields, $post ) {
-		if ( ! is_array( $fields ) || ! is_object( $post ) || ! self::is_ai( (int) $post->ID ) ) {
-			return $fields;
-		}
-		$v    = self::of_attachment( (int) $post->ID );
-		$rows = [
-			__( 'Prompt', 'dazont-ecom' ) => (string) $v['name'],
-			__( 'Model', 'dazont-ecom' )  => (string) $v['model'],
-			__( 'Price', 'dazont-ecom' )  => (string) $v['cost'],
-			__( 'Made', 'dazont-ecom' )   => (string) $v['when'],
-			__( 'From', 'dazont-ecom' )   => (string) $v['from'],
-			__( '⚠ Invented', 'dazont-ecom' ) => implode( ' · ', (array) $v['invented'] ),
-		];
-		$html = '';
-		foreach ( $rows as $label => $value ) {
-			if ( '' !== $value ) {
-				$html .= '<div><strong>' . esc_html( $label ) . '</strong> ' . esc_html( $value ) . '</div>';
-			}
-		}
-		if ( ! $v['known'] ) {
-			$html .= '<div><em>' . esc_html__( 'Made before Dazont Ecom 4.507.0: only the prompt\'s name was kept with the picture.', 'dazont-ecom' ) . '</em></div>';
-		}
-		if ( '' !== (string) $v['prompt'] ) {
-			$html .= '<details><summary>' . esc_html__( 'Full prompt sent', 'dazont-ecom' ) . '</summary><pre style="white-space:pre-wrap;max-height:240px;overflow:auto;font-size:11px;">' . esc_html( (string) $v['prompt'] ) . '</pre></details>';
-		}
-		$fields['dze_ai_card'] = [
-			'label' => __( 'AI picture', 'dazont-ecom' ),
-			'input' => 'html',
-			'html'  => '<div class="dze-ai-media">' . $html . '</div>',
-		];
-		return $fields;
 	}
 }

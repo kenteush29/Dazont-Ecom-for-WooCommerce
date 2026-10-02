@@ -203,7 +203,7 @@ function wp_get_attachment_image_url( ...$a ) { return ''; }
 function get_post_thumbnail_id( ...$a ) { return (int) ( $GLOBALS['thumbs'][ (int) ( $a[0] ?? 0 ) ] ?? 0 ); }
 function get_the_post_thumbnail_url( ...$a ) { return ''; }
 $GLOBALS['wpdb'] = new class {
-	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
+	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_'; public $termmeta = 'wp_termmeta';
 	public function prepare( $q, ...$a ) { $GLOBALS['sql_args'] = $a; return $q; }
 	public function get_var( $q ) { return 0; }
 	public function get_results( $q, $m = null ) { return []; }
@@ -1878,19 +1878,15 @@ $_POST = [ 'post' => 80, 'url' => $dze_cu ];
 try { DZE_Ai_Card::ajax(); $dze_j = null; } catch ( DZE_Json_Sent $e ) { $dze_j = $e; }
 $_POST = [];
 ok( 'la fiche d un produit ne se lit pas par un autre', $dze_j->payload['known'] ?? null, false );
-// RANGEE SUR LE PRODUIT : la fiche passe sur la piece jointe.
+// RANGEE SUR LE PRODUIT : la fiche s'arrete avec l'attente, rien n'est ecrit sur
+// la piece jointe. « Je veux juste l'info temporairement sur les images
+// générées pas encore sur le produit. »
 DZE_Ai_Card::file( $dze_cu, 5001, 'rx' );
-$dze_m = get_post_meta( 5001, DZE_Ai_Card::META, true );
-ok( 'rangee, la fiche passe sur la piece jointe et quitte l attente', [ $dze_m['model'] ?? '', $dze_m['recipe'] ?? '', isset( $dze_m['pid'] ), DZE_Ai_Card::get( $dze_cu ), isset( get_option( 'dze_aic_index', [] )[ 'dze_aic_' . md5( $dze_cu ) ] ) ], [ 'nano-banana-2', 'rx', false, [], false ] );
-$GLOBALS['dze_types'][5001] = 'attachment';
+ok( 'rangee, la fiche s arrete : rien sur la piece jointe, plus rien en attente', [ get_post_meta( 5001, '_dze_ai_card', true ), DZE_Ai_Card::get( $dze_cu ), isset( get_option( 'dze_aic_index', [] )[ 'dze_aic_' . md5( $dze_cu ) ] ) ], [ '', [], false ] );
 $_POST = [ 'att' => 5001 ];
 try { DZE_Ai_Card::ajax(); $dze_j = null; } catch ( DZE_Json_Sent $e ) { $dze_j = $e; }
 $_POST = [];
-ok( 'le « i » d une image rangee', [ $dze_j->payload['known'] ?? null, $dze_j->payload['name'] ?? '', DZE_Ai_Card::is_ai( 5001 ) ], [ true, 'Details shoot', true ] );
-// AVANT 4.507.0 : seul le nom du prompt restait avec l image. Une vraie photo n a pas de « i ».
-update_post_meta( 5002, DZE_Content::META_RECIPE, 'rx' );
-$dze_v = DZE_Ai_Card::of_attachment( 5002 );
-ok( 'une image d avant dit ce qu elle a garde, et le dit', [ DZE_Ai_Card::is_ai( 5002 ), $dze_v['known'], $dze_v['name'], $dze_v['cost'], DZE_Ai_Card::is_ai( 5003 ) ], [ true, false, 'Details shoot', '', false ] );
+ok( 'une image rangee n a plus de « i »', $dze_j ? $dze_j->ok : null, false );
 // JETEE OU REMPLACEE : sa fiche part avec elle.
 $dze_cu2 = 'https://v3b.fal.media/files/b/x/card2.jpg';
 DZE_Ai_Card::put( 79, $dze_cu2, [ 'model' => 'nano-banana-2', 'cost' => 0.08, 'prompt' => 'p' ] );
@@ -1903,6 +1899,7 @@ DZE_Ai_Card::put( 79, 'https://v3b.fal.media/files/b/x/card3.jpg', [ 'model' => 
 ok( 'les fiches de plus de 45 jours partent', [ isset( $GLOBALS['opts']['dze_aic_old'] ), isset( $GLOBALS['opts']['dze_aic_index']['dze_aic_old'] ), count( $GLOBALS['opts']['dze_aic_index'] ) ], [ false, false, 1 ] );
 // CE QU UN ✦ OU UN HD REFAIT : une image faite ici, une vraie photo, une photo collee.
 DZE_Ai_Card::put( 79, $dze_cu2, [ 'model' => 'gpt-image-2.5-sunburst', 'cost' => 0.06, 'recipe' => 'rx' ] );
+update_post_meta( 5001, DZE_Content::META_RECIPE, 'rx' );
 ok( 'la source d un ✦ ou d un HD est nommee', [ DZE_Ai_Card::source_of( 79, $dze_cu2, 0, false )['name'] ?? '', DZE_Ai_Card::source_of( 79, '', 5003, false ), DZE_Ai_Card::source_of( 79, '', 0, true ), DZE_Ai_Card::source_of( 79, '', 5001, false )['kind'] ?? '' ], [ 'Details shoot', [ 'kind' => 'photo' ], [ 'kind' => 'pasted' ], 'ai' ] );
 $dze_v = DZE_Ai_Card::view( [ 'tool' => 'enlarge', 'model' => DZE_Content::UPSCALER, 'cost' => 0.0125, 'base' => [ 'kind' => 'photo' ] ], [], '' );
 ok( 'un agrandissement dit ce qu il a agrandi', [ $dze_v['name'], $dze_v['cost'], $dze_v['from'] ], [ 'HD enlargement', '$0.013', 'a photograph of the product' ] );
@@ -1917,17 +1914,20 @@ ok( 'la fiche s ecrit la ou le prix est connu, et suit l image rangee', [
 	false !== strpos( $dze_cs, "DZE_Ai_Card::file( \$url, (int) \$att, \$recipe_id );" ),
 	false !== strpos( $dze_aj, "DZE_Ai_Card::drop( \$urls );" ),
 	false !== strpos( $dze_aj, "'tool'   => \$remake ? 'remake' : 'generate',\n\t\t\t\t\t'base'   => \$dze_base," ),
-	false !== strpos( $dze_aj, "'ai'    => class_exists( 'DZE_Ai_Card' ) && DZE_Ai_Card::is_ai( (int) \$aid )," ),
-], [ true, true, true, true, true ] );
-ok( 'le « i » est dessine partout ou une image faite par un modele se montre', [
-	false !== strpos( $dze_ph, "(im.ai ? aiButton(opts.post || 0, '', im.id, false, im.flags) : '')," ),
+	false !== strpos( $dze_aj, 'DZE_Ai_Card::is_ai(' ),
+], [ true, true, true, true, false ] );
+ok( 'le « i » n est que sur les images en attente, jamais sur celles du produit', [
+	false !== strpos( $dze_ph, 'aiButton(opts.post' ),
 	false !== strpos( $dze_ph, "action: 'dze_ai_card'" ),
 	false !== strpos( $dze_ph, "\$pop.find('.dze-ai-words').text(d.prompt || '');" ),
 	false !== strpos( $dze_js, "\t\t\t\t\taiMark(url),\n" ),
 	false !== strpos( $dze_js, "\t\t\t\t\t\taiMark(u, true),\n" ),
 	false !== strpos( $dze_jb, "window.dzePhotos.aiButton(id, url, 0, false, (b.shotFlags || {})[url])" ),
-	false !== strpos( $dze_cs, "'galleryAi' => \$on_product ? self::ai_photo_ids( (int) get_the_ID() ) : []," ),
-], [ true, true, true, true, true, true, true ] );
+	false !== strpos( $dze_cs, "'galleryAi'" ),
+	false !== strpos( $dze_ph, 'function decorateBoxes' ),
+	false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-ai-card.php' ), 'attachment_fields_to_edit' ),
+], [ false, true, true, true, true, true, false, false, false ] );
+ok( 'ce que 4.507-4.508 avaient ecrit sur les pieces jointes part une fois', false !== strpos( $dze_cs, "foreach ( [ '_dze_ai_card', '_dze_flags', '_dze_stands_for' ] as \$k ) {\n\t\t\tdelete_post_meta_by_key( \$k );" ), true );
 // ↻ REFAIT SON PROPRE CADRAGE, au lieu de se l interdire.
 $GLOBALS['dze_meta'][81] = [];
 DZE_Content::stash( 81, [ 'shot' => 'https://v3b.fal.media/files/b/x/one.jpg', 'recipe' => 'rx', 'frame' => 'V-ONE whole jacket, front three-quarter', 'flags' => [] ] );
@@ -1954,7 +1954,9 @@ ok( 'la fiche reste dans la fenetre : dessus quand la place manque dessous, jama
 ok( 'la fiche reste ouverte quand on fait defiler le prompt qu elle montre', false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' ), "if (t && t.nodeType === 1 && \$(t).closest('.dze-ai-pop').length) { return; }" ), true );
 // « Photographs from elsewhere — il faudrait les afficher dans la même taille que les images produit. »
 $dze_css = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/css/content.css' );
-ok( 'les photos collees ont la taille des photos du produit', [ false !== strpos( $dze_css, '.dze-cb-nowshot { display: inline-block; width: 148px; height: 148px; }' ), false !== strpos( $dze_css, '.dze-pb-tile img { display: block; width: 148px; height: 148px;' ), false !== strpos( $dze_css, '.dze-pb-list .dze-pb-tile img { max-height: none; margin: 0; }' ) ], [ true, true, true ] );
+// « Il faut que toutes les images soient de la même taille pour une meilleur lisibilité
+// et un affichage plus standardisé. »
+ok( 'toutes les images d un produit ont une seule taille', [ false !== strpos( $dze_css, '--dze-pic: 200px;' ), false !== strpos( $dze_css, '.dze-cb-nowshot { display: inline-block; width: var(--dze-pic); height: var(--dze-pic); }' ), false !== strpos( $dze_css, '.dze-pb-tile img { display: block; width: var(--dze-pic); height: var(--dze-pic);' ), false !== strpos( $dze_css, 'position: relative; width: var(--dze-pic); height: var(--dze-pic); flex: 0 0 var(--dze-pic);' ), false !== strpos( $dze_css, '.dze-cb-srcs .dze-one-srcpick { width: var(--dze-pic); height: var(--dze-pic); }' ), false !== strpos( $dze_css, '.dze-pb-list .dze-pb-tile img { max-height: none; margin: 0; }' ) ], [ true, true, true, true, true, true ] );
 unset( $GLOBALS['mai_view'] );
 
 // 4.508.0 — LE LECTEUR (Sonnet 5.5), LES PHOTOS DE LA PAGE, ET « REMPLACE CETTE PHOTO ».
@@ -2028,15 +2030,30 @@ $GLOBALS['dze_types'][9004] = 'attachment';
 $GLOBALS['dze_meta'][90]['_product_image_gallery'] = '9002,9003,9004';
 DZE_Content::replace_in_place( 90, 9002, 9004 );
 ok( 'elle prend la place exacte de la photo de galerie', get_post_meta( 90, '_product_image_gallery', true ), '9004,9003' );
-ok( 'la vraie photo remplacee reste la reference, a son rang', DZE_Content::stand_ins( 90 ), [ 9004 => 9002 ] );
 $GLOBALS['gallery'][90] = [ 9004, 9003 ];
-ok( 'la photo remplacee part toujours au modele, a la place de l image faite', DZE_Content::product_source_ids( 90 ), [ 9001, 9002 ] );
+ok( 'la photo remplacee ne sert plus de reference : elle va etre supprimee', DZE_Content::product_source_ids( 90 ), [ 9001 ] );
 // The main image, replaced by its HD (a real photograph stays real: no recipe).
 $GLOBALS['dze_meta'][90]['_product_image_gallery'] = '9004,9003,9005';
 $GLOBALS['dze_types'][9005] = 'attachment';
 DZE_Content::replace_in_place( 90, 9001, 9005 );
 ok( 'une image principale remplacee : la nouvelle prend sa place, l ancienne quitte la page', [ $GLOBALS['thumbs'][90] ?? 0, get_post_meta( 90, '_product_image_gallery', true ) ], [ 9005, '9004,9003' ] );
-ok( 'une vraie photo en remplace une autre : rien a retenir, elle sert elle-meme', DZE_Content::stand_ins( 90 ), [ 9004 => 9002 ] );
+// « les images remplacées doivent être supprimées. Et si elles sont utilisées
+// ailleurs […] le remplacement doit aussi être effectif pour la nouvelle image »
+$dze_sw = new ReflectionMethod( 'DZE_Content', 'swap_picture' );
+$dze_sw->setAccessible( true );
+$dze_paths = [ '/wp-content/uploads/2026/10/old-300x300.jpg' => '/wp-content/uploads/2026/10/new-300x300.jpg', '/wp-content/uploads/2026/10/old.jpg' => '/wp-content/uploads/2026/10/new.jpg' ];
+$dze_txt = '<img class="wp-image-9002 size-medium" src="https://ru.kula-tactical.com/wp-content/uploads/2026/10/old-300x300.jpg"> {"image":{"url":"https:\/\/kula-tactical.com\/wp-content\/uploads\/2026\/10\/old.jpg","id":9002}}';
+ok( 'l ancienne image est remplacee partout : adresses de toutes les tailles, sur tous les domaines, et son id', $dze_sw->invoke( null, $dze_txt, 9002, 9004, $dze_paths ),
+	'<img class="wp-image-9004 size-medium" src="https://ru.kula-tactical.com/wp-content/uploads/2026/10/new-300x300.jpg"> {"image":{"url":"https:\/\/kula-tactical.com\/wp-content\/uploads\/2026\/10\/new.jpg","id":9004}}' );
+$dze_cs = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+ok( 'le remplacement va partout : tout de suite ce qui s indexe, le reste en arriere-plan, puis la suppression', [
+	false !== strpos( $dze_cs, "self::replace_everywhere( \$pid, \$old, \$new );" ),
+	false !== strpos( $dze_cs, "as_enqueue_async_action( self::SWEEP_HOOK, [ \$old, \$new ], 'dazont-ecom' );" ),
+	false !== strpos( $dze_cs, "add_action( self::SWEEP_HOOK, [ self::class, 'replace_sweep' ], 10, 2 );" ),
+	// Les copies WPML partagent le fichier : aucune n est supprimee tant qu une seule est encore affichee.
+	false !== strpos( $dze_cs, "if ( self::picture_shown( \$o ) ) {\n\t\t\t\treturn \$out;\n\t\t\t}\n\t\t}\n\t\tforeach ( \$family as \$o ) {\n\t\t\tif ( wp_delete_attachment( \$o, true ) ) {" ),
+	false !== strpos( $dze_cs, 'META_STANDS' ),
+], [ true, true, true, true, false ] );
 
 // LE BRANCHEMENT.
 $dze_cs = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
@@ -2073,14 +2090,14 @@ ok( 'il ouvre les photos du produit en grand, et la photo choisie se voit sur l 
 ok( 'le cycle de destination redevient simple, et les images sont plus grandes', [
 	substr_count( $dze_js . $dze_jb, "var order = [ 'gallery', 'gallery_first', 'main' ];" ),
 	false !== strpos( $dze_js . $dze_jb, 'replacePick' ),
-	false !== strpos( $dze_css, "position: relative; width: 220px; height: 220px; flex: 0 0 220px;" ),
+	false !== strpos( $dze_css, "position: relative; width: var(--dze-pic); height: var(--dze-pic); flex: 0 0 var(--dze-pic);" ),
 	false !== strpos( $dze_js, "target: 'replace' === t ? 'gallery' : t" ),
 ], [ 2, false, true, true ] );
 ok( 'une image qui invente a un « ! » rouge, sur les deux ecrans et dans la bande', [
 	false !== strpos( $dze_ph, "\$b.addClass('is-flagged').text('!')" ),
 	false !== strpos( $dze_js, "res.shotFlags[x.url] = x.invented || [];" ),
 	false !== strpos( $dze_jb, "b.shotFlags[x.url] = x.invented || [];" ),
-	false !== strpos( $dze_aj, "'flags' => array_values( (array) ( get_post_meta( (int) \$aid, self::META_FLAGS, true ) ?: [] ) )," ),
+	false !== strpos( $dze_js, "res.shotFlags = waiting.flags || {};" ),
 ], [ true, true, true, true ] );
 // LES PRIX D AUJOURD HUI (reference claude-api, 25/09/2026).
 ok( 'les prix de chaque famille sont ceux d aujourd hui', [
