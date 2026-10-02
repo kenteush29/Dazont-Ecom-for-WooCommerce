@@ -3902,6 +3902,49 @@ $dze_back = $dze_asm->invoke( null, [ 'jobs' => [ [ 'description~p0' ] ], 'parts
 ok( 'the description comes back whole, image included', $dze_back['description'] ?? '', '<p>Équipement tactique.</p>' . $dze_img );
 ok( 'and the figure as it was',                    $dze_back['meta:width'] ?? '', '120' );
 
+// 4.509.0 — LA MISE EN PAGE DE L'ORIGINAL, PORTÉE PAR NOUS.
+// « Il semble que toutes les options elementor et le style astra n'est pas
+// toujours copié de la page d'origine. » — WPML n'avait plus que les douze
+// champs de prix marqués « copier » : la traduction gardait son vieil arbre.
+echo "\nThe original's layout, carried by the plugin\n";
+$dze_src_tree = [ [ 'id' => 's1', 'elType' => 'section', 'settings' => [ 'stretch_section' => 'section-stretched', 'layout' => 'full_width' ], 'elements' => [
+	[ 'id' => 'w1', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Gear up now', 'align' => 'left' ], 'elements' => [] ],
+	[ 'id' => 'w2', 'elType' => 'widget', 'widgetType' => 'text-editor', 'settings' => [ 'editor' => '<p>Built for the field.</p>' ], 'elements' => [] ],
+	[ 'id' => 'w3', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'A block added later' ], 'elements' => [] ],
+] ] ];
+$dze_old_tree = [ [ 'id' => 's1', 'elType' => 'section', 'settings' => [ 'layout' => 'boxed' ], 'elements' => [
+	[ 'id' => 'w1', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Снаряжайтесь сейчас', 'align' => 'center' ], 'elements' => [] ],
+	[ 'id' => 'w2', 'elType' => 'widget', 'widgetType' => 'text-editor', 'settings' => [ 'editor' => '<p>Built for the field.</p>' ], 'elements' => [] ],
+] ] ];
+$GLOBALS['meta'][701] = [
+	'_elementor_data' => json_encode( $dze_src_tree ), '_elementor_edit_mode' => 'builder', '_wp_page_template' => 'elementor_header_footer',
+	'_elementor_page_settings' => [ 'hide_title' => 'yes', 'post_title' => 'Home' ], 'site-content-layout' => 'page-builder', 'ast-main-header-display' => 'disabled', '_yoast_wpseo_title' => 'Gear',
+];
+$GLOBALS['meta'][702] = [
+	'_elementor_data' => json_encode( $dze_old_tree ), '_elementor_edit_mode' => 'builder', 'site-content-layout' => 'default', 'site-sidebar-layout' => 'right-sidebar', '_yoast_wpseo_title' => 'Снаряжение',
+];
+$dze_did = DZE_Translate::layout_from( 701, 702, false );
+$dze_t   = json_decode( (string) $GLOBALS['meta'][702]['_elementor_data'], true );
+ok( 'the translation takes the original structure and settings', [ $dze_t[0]['settings']['stretch_section'] ?? '', $dze_t[0]['settings']['layout'] ?? '', $dze_t[0]['elements'][0]['settings']['align'] ?? '', count( $dze_t[0]['elements'] ?? [] ) ], [ 'section-stretched', 'full_width', 'left', 3 ] );
+ok( 'and keeps its own words wherever the same widget still speaks', [ $dze_t[0]['elements'][0]['settings']['title'] ?? '', $dze_t[0]['elements'][1]['settings']['editor'] ?? '', $dze_t[0]['elements'][2]['settings']['title'] ?? '' ], [ 'Снаряжайтесь сейчас', '<p>Built for the field.</p>', 'A block added later' ] );
+ok( 'the page settings and the theme switches are the original ones, the post its own', [
+	$GLOBALS['meta'][702]['_wp_page_template'] ?? '', $GLOBALS['meta'][702]['site-content-layout'] ?? '', $GLOBALS['meta'][702]['ast-main-header-display'] ?? '',
+	$GLOBALS['meta'][702]['_elementor_page_settings'] ?? null, isset( $GLOBALS['meta'][702]['site-sidebar-layout'] ), $GLOBALS['meta'][702]['_yoast_wpseo_title'] ?? '',
+], [ 'elementor_header_footer', 'page-builder', 'disabled', [ 'hide_title' => 'yes' ], false, 'Снаряжение' ] );
+ok( 'and it says what it changed', [ $dze_did['tree'], $dze_did['meta'] > 0 ], [ true, true ] );
+ok( 'run again, nothing moves', DZE_Translate::layout_from( 701, 702, false ), [ 'meta' => 0, 'tree' => false ] );
+$GLOBALS['meta'][703] = [ 'site-content-layout' => 'default' ];
+DZE_Translate::layout_from( 701, 703, false );
+ok( 'a repair never gives a tree to a translation that renders its own content', isset( $GLOBALS['meta'][703]['_elementor_data'] ), false );
+DZE_Translate::layout_from( 701, 703, true );
+ok( 'a page whose widgets are being translated gets the original tree', ( json_decode( (string) ( $GLOBALS['meta'][703]['_elementor_data'] ?? '' ), true )[0]['settings']['stretch_section'] ?? '' ), 'section-stretched' );
+ok( 'only layout keys, never words', [ DZE_Translate::layout_key( 'site-sidebar-layout' ), DZE_Translate::layout_key( 'ast-site-content-layout' ), DZE_Translate::layout_key( 'theme-transparent-header-meta' ), DZE_Translate::layout_key( '_elementor_page_settings' ), DZE_Translate::layout_key( '_elementor_data' ), DZE_Translate::layout_key( '_yoast_wpseo_title' ), DZE_Translate::layout_key( 'site_title' ) ], [ true, true, true, true, false, false, false ] );
+$tr_src = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+ok( 'every write and every new translation carries the layout', [
+	false !== strpos( $tr_src, "self::layout_from( (int) \$o['id'], \$target_id, (bool) \$el );\n\t\tif ( \$el ) {" ),
+	false !== strpos( $tr_src, "self::layout_from( \$pid, \$new_id, true );" ),
+	false !== strpos( $tr_src, "update_post_meta( \$dst, '_dze_layout_before', wp_slash( (string) wp_json_encode( \$keep ) ) );" ),
+], [ true, true, true ] );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 

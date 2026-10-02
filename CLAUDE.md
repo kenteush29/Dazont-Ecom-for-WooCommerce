@@ -901,6 +901,23 @@ fait" (4.499.0):
     avoid ».
   - Live probe: 4,940 tokens in, 81 out, about $0.011, 3.3 s. It flagged
     the VETER label.
+- **THE ORIGINAL'S LAYOUT IS CARRIED BY US** (4.509.0, « toutes les options
+  elementor et le style astra n'est pas toujours copié »).
+  - WPML's saved list copies only 12 price fields (the 01/10 incident).
+    Pages also stayed on the EN structure they were translated from:
+    32/61 pages in FR/DE/ES/PL lag the current EN.
+  - `DZE_Translate::layout_from( $src, $dst, $seed )` gives the translation
+    the original tree with the translation's own words put back by path. It
+    also mirrors `layout_key()` meta (Elementor page switches, `site-*`,
+    `ast-*`…) and regenerates the Elementor CSS.
+  - It runs in `create_translation()` (seed) and on every write, before
+    `elementor_put()` (seed only when widgets are translated in that pass).
+  - `relayout_all()` repairs existing translations and keeps
+    `_dze_layout_before` once.
+- **THE ⇄ BUTTON** (4.509.0, « C'est maladroit »). The destination cycle is
+  gallery / first / main again. ⇄ on a waiting picture opens
+  `dzePhotos.pickReplace()` (the product's photographs, large), and
+  `replaceChip()` shows the target on the picture. Waiting cards are 220 px.
 - **« REPLACES THIS PHOTO » (4.508.0, option B).** Target `replace:<id>`
   (`attach_target()`).
   - A ✦ or HD made from one of the product's photographs is stashed with

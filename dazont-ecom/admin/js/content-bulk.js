@@ -1258,25 +1258,33 @@
 		for (var i = 0; i < gal.length; i++) { if (+gal[i].id === +id) { return i + 1; } }
 		return -1;
 	}
-	var picking = null;
-	function replacePick($in) {
-		$('.dze-photos.is-replacing').removeClass('is-replacing');
-		picking = $in && $in.length ? $in : null;
-		if (picking) { picking.closest('.dze-cb-preview').find('.dze-photos').addClass('is-replacing'); }
+	// The photograph a waiting picture replaces, shown on it (photos.js).
+	function swapChip(v, rid) {
+		v = String(v || '');
+		if (0 !== v.indexOf('replace:') || !window.dzePhotos || !window.dzePhotos.replaceChip) { return ''; }
+		return window.dzePhotos.replaceChip((((results[rid] || {}).current || {}).images || []), v.slice(8));
 	}
-	$(document).on('click', '.dze-cb-preview .dze-photos.is-replacing .dze-cb-nowshot', function (e) {
-		if (!picking || $(this).hasClass('is-varshot')) { return; }
-		if ($(this).closest('.dze-cb-preview')[0] !== picking.closest('.dze-cb-preview')[0]) { return; }
-		e.preventDefault();
+	// One destination, said on the button and shown on the picture.
+	function setDest($card, v, rid) {
+		$card.find('.dze-cb-shotdest').val(v);
+		$card.find('.dze-cb-shotpos').text(destLabel(v, rid));
+		$card.find('.dze-cb-shotrepl').remove();
+		$card.append(swapChip(v, rid));
+	}
+	// ⇄ — which of the product's photographs this picture replaces, picked
+	// among them, large (photos.js pickReplace()).
+	$(document).on('click', '.dze-cb-shots .dze-cb-shotswap', function (e) {
 		e.stopPropagation();
-		var v = 'replace:' + (parseInt($(this).attr('data-id'), 10) || 0);
-		var rid = picking.closest('.dze-cb-preview').data('id');
-		picking.val(v).closest('.dze-cb-shot').find('.dze-cb-shotpos').text(destLabel(v, rid));
-		replacePick(null);
+		var $card = $(this).closest('.dze-cb-shot');
+		var rid = $card.closest('.dze-cb-preview').data('id');
+		var now = String($card.find('.dze-cb-shotdest').val() || '');
+		if (!window.dzePhotos || !window.dzePhotos.pickReplace) { return; }
+		window.dzePhotos.pickReplace((((results[rid] || {}).current || {}).images || []), 0 === now.indexOf('replace:') ? now.slice(8) : 0, function (pid) {
+			setDest($card, pid ? 'replace:' + pid : 'gallery', rid);
+		});
 	});
 	function destLabel(v, rid) {
 		v = String(v || '');
-		if ('replace' === v) { return i18n.toReplacePick; }
 		if (0 === v.indexOf('replace:')) {
 			var r = photoRank(v.slice(8), rid);
 			return 0 === r ? i18n.toReplaceMain : (r > 0 ? sprintf(i18n.toReplaceN, r) : i18n.toGallery);
@@ -1309,9 +1317,12 @@
 							.attr('title', name ? sprintf(i18n.shotRedoOne, name) : i18n.shotRedo),
 						// ✦ and HD on THIS picture: a new one arrives beside it.
 						$('<button type="button" class="dze-cb-shotmake">✦</button>').attr('title', i18n.picRemake || ''),
-						$('<button type="button" class="dze-cb-shothd">HD</button>').attr('title', i18n.picHD || '')
+						$('<button type="button" class="dze-cb-shothd">HD</button>').attr('title', i18n.picHD || ''),
+						// ⇄: which of the product's photographs this picture replaces.
+						$('<button type="button" class="dze-cb-shotswap">⇄</button>').attr('title', i18n.shotSwap || '')
 					),
 					$('<input type="hidden" class="dze-cb-shotdest" />').val(cur),
+					swapChip(cur, id),
 					// THE SAME CROSS THE TOOLBOX HAS. This screen could only
 					// untick a photograph — which decides nothing: the image
 					// stayed in the product's waiting list, kept it counted as
@@ -1414,13 +1425,10 @@
 		var $in = $(this).closest('.dze-cb-shot').find('.dze-cb-shotdest');
 		// An image made for one colour belongs to that colour: nothing to cycle.
 		if (isVariation($in.val())) { return; }
-		var order = [ 'gallery', 'gallery_first', 'main', 'replace' ];
-		var now = 0 === String($in.val()).indexOf('replace') ? 'replace' : $in.val();
-		var next = order[(order.indexOf(now) + 1) % order.length];
-		$in.val(next);
-		$(this).text(destLabel(next, $(this).closest('.dze-cb-preview').data('id')));
-		// « Replaces… »: the photograph is picked in this panel's strip.
-		replacePick('replace' === next ? $in : null);
+		// A picture headed for one of the photographs (⇄) comes back to the gallery.
+		var order = [ 'gallery', 'gallery_first', 'main' ];
+		var next = order[(order.indexOf($in.val()) + 1) % order.length];
+		setDest($in.closest('.dze-cb-shot'), next, $(this).closest('.dze-cb-preview').data('id'));
 		if ('main' !== next) { return; }
 		var $me = $in;
 		$me.closest('.dze-cb-shots').find('.dze-cb-shotdest').not($me).each(function () {

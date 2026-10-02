@@ -1025,9 +1025,12 @@
 							.attr('title', name ? sprintf(i18n.shotRedoOne, name) : i18n.shotRedo),
 						// ✦ and HD on THIS picture: a new one arrives beside it.
 						$('<button type="button" class="dze-cb-shotmake">✦</button>').attr('title', i18n.picRemake || ''),
-						$('<button type="button" class="dze-cb-shothd">HD</button>').attr('title', i18n.picHD || '')
+						$('<button type="button" class="dze-cb-shothd">HD</button>').attr('title', i18n.picHD || ''),
+						// ⇄: which of the product's photographs this picture replaces.
+						$('<button type="button" class="dze-cb-shotswap">⇄</button>').attr('title', i18n.shotSwap || '')
 					),
-					$('<input type="hidden" class="dze-cb-shotdest" />').val(cur)
+					$('<input type="hidden" class="dze-cb-shotdest" />').val(cur),
+					swapChip(cur)
 				)
 		);
 	}
@@ -1048,22 +1051,33 @@
 		for (var i = 0; i < gal.length; i++) { if (+gal[i].id === +id) { return i + 1; } }
 		return -1;
 	}
-	var picking = null;
-	function replacePick($in) {
-		picking = $in && $in.length ? $in : null;
-		$('#dze-cx-nowshots').toggleClass('is-replacing', !!picking);
+	// The photograph a waiting picture replaces, shown on it (photos.js).
+	function swapChip(v) {
+		v = String(v || '');
+		if (0 !== v.indexOf('replace:') || !window.dzePhotos || !window.dzePhotos.replaceChip) { return ''; }
+		return window.dzePhotos.replaceChip(((res.current && res.current.images) || []), v.slice(8));
 	}
-	$(document).on('click', '#dze-cx-nowshots.is-replacing .dze-cb-nowshot', function (e) {
-		if (!picking || $(this).hasClass('is-varshot')) { return; }
-		e.preventDefault();
+	// One destination, said on the button and shown on the picture.
+	function setDest($card, v) {
+		$card.find('.dze-cb-shotdest').val(v);
+		$card.find('.dze-cb-shotpos').text(destLabel(v));
+		$card.find('.dze-cb-shotrepl').remove();
+		$card.append(swapChip(v));
+		syncOldMain($('#dze-cx-shots'));
+	}
+	// ⇄ — which of the product's photographs this picture replaces, picked
+	// among them, large (photos.js pickReplace()).
+	$(document).on('click', '#dze-cx-shots .dze-cb-shotswap', function (e) {
 		e.stopPropagation();
-		var v = 'replace:' + (parseInt($(this).attr('data-id'), 10) || 0);
-		picking.val(v).closest('.dze-cb-shot').find('.dze-cb-shotpos').text(destLabel(v));
-		replacePick(null);
+		var $card = $(this).closest('.dze-cb-shot');
+		var now = String($card.find('.dze-cb-shotdest').val() || '');
+		if (!window.dzePhotos || !window.dzePhotos.pickReplace) { return; }
+		window.dzePhotos.pickReplace(((res.current && res.current.images) || []), 0 === now.indexOf('replace:') ? now.slice(8) : 0, function (pid) {
+			setDest($card, pid ? 'replace:' + pid : 'gallery');
+		});
 	});
 	function destLabel(v) {
 		v = String(v || '');
-		if ('replace' === v) { return i18n.toReplacePick; }
 		if (0 === v.indexOf('replace:')) {
 			var r = photoRank(v.slice(8));
 			return 0 === r ? i18n.toReplaceMain : (r > 0 ? sprintf(i18n.toReplaceN, r) : i18n.toGallery);
@@ -1145,14 +1159,11 @@
 		// An image made for one colour belongs to that colour: there is nothing
 		// to cycle through.
 		if (isVariation($in.val())) { return; }
-		var order = [ 'gallery', 'gallery_first', 'main', 'replace' ];
-		var now = 0 === String($in.val()).indexOf('replace') ? 'replace' : $in.val();
-		var next = order[(order.indexOf(now) + 1) % order.length];
-		$in.val(next);
-		$(this).text(destLabel(next));
-		// « Replaces… »: the photograph is picked in the strip above.
-		replacePick('replace' === next ? $in : null);
-		if ('main' !== next) { syncOldMain($('#dze-cx-shots')); return; }
+		// A picture headed for one of the photographs (⇄) comes back to the gallery.
+		var order = [ 'gallery', 'gallery_first', 'main' ];
+		var next = order[(order.indexOf($in.val()) + 1) % order.length];
+		setDest($in.closest('.dze-cb-shot'), next);
+		if ('main' !== next) { return; }
 		var $me = $in;
 		$('#dze-cx-shots .dze-cb-shotdest').not($me).each(function () {
 			if ($(this).val() === 'main') {
