@@ -4466,6 +4466,12 @@ final class DZE_Translate {
 				continue;
 			}
 			$v = get_post_meta( $pid, $k, true );
+			// EMPTY IS ABSENT, as layout_from() reads it: an original holding
+			// `ast-disable-related-posts` = '' and a translation without the key
+			// are the same page — and were marked « behind » after every pass.
+			if ( '' === $v || null === $v || [] === $v ) {
+				continue;
+			}
 			$meta[ $k ] = self::without_media( '_elementor_page_settings' === $k ? self::page_settings( $v ) : $v );
 		}
 		ksort( $meta );
