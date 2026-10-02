@@ -8337,8 +8337,15 @@ Answer with STRICT JSON and nothing else: "
 		}
 		$schema = [
 			'type'                 => 'object',
-			'properties'           => self::frame_props() + [ 'invented' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ] ],
-			'required'             => [ 'part', 'distance', 'angle', 'worn', 'invented' ],
+			// THE SCENE HAS ITS OWN LIST. Told in words only that the scene is
+			// not the product, the reader still put the hiker's backpack strap
+			// among the inventions; given somewhere to put it, it does (tested
+			// on the khaki « Veter », 02/10/2026). Nothing reads `scene`.
+			'properties'           => self::frame_props() + [
+				'scene'    => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+				'invented' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+			],
+			'required'             => [ 'part', 'distance', 'angle', 'worn', 'scene', 'invented' ],
 			'additionalProperties' => false,
 		];
 		$system = 'You check the pictures an image model made of a product for an online shop. Image 1 is the made picture; the images after it are real photographs of the same product. '
@@ -8351,7 +8358,8 @@ Answer with STRICT JSON and nothing else: "
 			// else, so whatever they did not show was « invented » — the
 			// scene included. It now reads the shop's own words, and the
 			// scene is not the product.
-			. ' INVENTED: what image 1 shows ON THE PRODUCT that neither the real photographs nor the shop\'s description account for — added text or a label, a logo, a patch, a trim, a pocket, a fastening, a shape the product does not have, or a side of it they never show. Short phrases naming the thing and where it is ("label with text inside the collar"). NOT INVENTED: a detail the photographs show from further away; a feature the description names (hook-and-loop fields, reinforced elbows, adjustable cuffs…), even where no photograph shows it; colour, light and background; and the SCENE of a picture of the product in use — the person, their other clothes, what they carry or wear with it (a backpack, a sling, gloves), the place, and an accessory a customer attaches themselves where the description says it goes (a morale patch on a hook-and-loop field). [] when nothing is invented, or when no real photograph comes to compare with.';
+			. ' SCENE: first list what in image 1 is NOT the product — the person, their other clothes, what they carry or wear with it (a backpack and its straps, a sling, gloves, a phone), the place, the light, and any accessory a customer would attach themselves where the description says it goes (a morale patch on a hook-and-loop field). Nothing in SCENE is ever an invention.'
+			. ' INVENTED: then list what is ON THE PRODUCT ITSELF that neither the real photographs nor the shop\'s description account for — added text or a label, a logo printed or sewn on the fabric, a trim, a pocket, a fastening, a shape the product does not have, or a side of it they never show. A feature the description names (hook-and-loop fields, reinforced elbows, adjustable cuffs, pockets with zips…) is not invented even where no photograph shows it; a detail the photographs show from further away is not invented. Each entry is ONE thing in a few words with where it is ("label with text inside the collar") — never a judgement. [] when nothing is invented, or when no real photograph comes to compare with.';
 		$said = self::reader_product_text( $pid );
 		$user = 'Product: ' . wp_strip_all_tags( (string) get_the_title( $pid ) ) . '. '
 			. ( $refs

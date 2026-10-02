@@ -2009,7 +2009,7 @@ $GLOBALS['mai_view']   = '{"part":"hood and collar","distance":"close-up","angle
 $dze_rp = DZE_Content::read_picture( 'https://v3b.fal.media/files/b/x/veter.jpg', 90 );
 $dze_a  = $GLOBALS['mai_vision'][0] ?? [];
 ok( 'le lecteur rend un cadrage sans detail, et ce que l image invente', [ $dze_rp['frame'], $dze_rp['invented'] ], [ 'hood and collar — close-up, front three-quarter right', [ 'label with the text VETER inside the collar' ] ] );
-ok( 'il voit l image faite ET les vraies photos du produit, la principale d abord', [ count( $dze_a[2] ?? [] ), $dze_a[3] ?? '', $dze_a[6]['output_config']['format']['schema']['required'] ?? [], in_array( 'server-side-fallback-2026-07-01', (array) ( $dze_a[6]['_betas'] ?? [] ), true ) ], [ 3, 'claude-sonnet-5-5', [ 'part', 'distance', 'angle', 'worn', 'invented' ], true ] );
+ok( 'il voit l image faite ET les vraies photos du produit, la principale d abord', [ count( $dze_a[2] ?? [] ), $dze_a[3] ?? '', $dze_a[6]['output_config']['format']['schema']['required'] ?? [], in_array( 'server-side-fallback-2026-07-01', (array) ( $dze_a[6]['_betas'] ?? [] ), true ) ], [ 3, 'claude-sonnet-5-5', [ 'part', 'distance', 'angle', 'worn', 'scene', 'invented' ], true ] );
 ok( 'distances et angles sont des listes fermees', [ $dze_a[6]['output_config']['format']['schema']['properties']['distance']['enum'] ?? [], count( $dze_a[6]['output_config']['format']['schema']['properties']['angle']['enum'] ?? [] ) ], [ [ 'whole product', 'half', 'close-up', 'macro' ], 8 ] );
 // « Ton outil parfois flag du contenu qui est bon pour le content ugc. » Le sac a dos du
 // randonneur et les renforts de coudes que la description annonce etaient « inventes ».
@@ -2018,8 +2018,8 @@ $GLOBALS['wc_desc'][90] = '<p>Reinforced Elbows and Shoulders. Hook and Loop Fie
 DZE_Content::read_picture( 'https://v3b.fal.media/files/b/x/veter.jpg', 90 );
 $dze_a = $GLOBALS['mai_vision'][0] ?? [];
 ok( 'le lecteur lit aussi la description, et la scene n est jamais le produit', [
-	false !== strpos( (string) ( $dze_a[0] ?? '' ), 'the SCENE of a picture of the product in use — the person, their other clothes, what they carry or wear with it (a backpack' ),
-	false !== strpos( (string) ( $dze_a[0] ?? '' ), 'a feature the description names' ),
+	false !== strpos( (string) ( $dze_a[0] ?? '' ), 'SCENE: first list what in image 1 is NOT the product — the person, their other clothes, what they carry or wear with it (a backpack and its straps' ),
+	false !== strpos( (string) ( $dze_a[0] ?? '' ), 'A feature the description names' ),
 	false !== strpos( (string) ( $dze_a[1] ?? '' ), "What the shop says about the product: Reinforced Elbows and Shoulders. Hook and Loop Fields: for unit, flag and morale patches." ),
 ], [ true, true, true ] );
 unset( $GLOBALS['wc_desc'][90] );
