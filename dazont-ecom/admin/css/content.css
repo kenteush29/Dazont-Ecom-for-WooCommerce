@@ -446,6 +446,10 @@
    96 px, a supplier's detail shot could not be compared with the photographs
    it is meant to complete. */
 .dze-pb-tile img { display: block; width: 148px; height: 148px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; }
+/* The drop zone around them caps any picture at 140 px and pushes it down
+   (.dze-qm-drop img, written for the single preview it once held): a tile
+   is not that preview. */
+.dze-pb-list .dze-pb-tile img { max-height: none; margin: 0; }
 /* The tiles are photographs and nothing else: no badge, no rank, no arrow to
    promote one. Which photograph the model starts from is the prompt's job,
    not a question to put to somebody writing a product page. */
