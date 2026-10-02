@@ -659,6 +659,7 @@ button.dze-auto-chip:hover { border-color: #2271b1; color: #2271b1; }
 .dze-prb-line label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .dze-prb-line label > span { color: #646970; }
 .dze-prb-tk input { width: 90px; }
+.dze-prb-tk input[type="checkbox"] { width: auto; margin: 0; }
 
 /* "Make this the default" travels with every prompt field: on a settings row
    next to "Restore default", and inside the prompt editor. Same wording, same

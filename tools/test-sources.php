@@ -1603,7 +1603,23 @@ ok( 'une seule fois : la ligne gardee sert aux suivantes', count( $GLOBALS['mai_
 ok( 'pas celle d un autre prompt', DZE_Content::made_lines( 77, 'r2' ), '' );
 ok( 'et la seule facon de differer est de se rapprocher de ce qui est montre, jamais de tourner le produit', [ false !== strpos( $dze_ml, 'by coming closer to a part the photographs show' ), false !== strpos( $dze_ml, 'Never by turning the product round' ) ], [ true, true ] );
 $dze_aj = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' );
-ok( 'seulement quand la fiche le demande, apres les notes', false !== strpos( $dze_aj, "if ( ! empty( \$in['aware'] ) ) {\n\t\t\t\t\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ), \$dze_redo );" ), true );
+ok( 'seulement quand la fiche le demande, pour un prompt qui change de vue, apres les notes', false !== strpos( $dze_aj, "if ( ! empty( \$in['aware'] ) && ! empty( \$tpl['vary'] ) ) {\n\t\t\t\t\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ), \$dze_redo );" ), true );
+// « La dernière image générée devait être UGC style. Le modèle textuel a demandé un zoom
+// sur du détail. Ce n'est pas bon. » Seul un prompt fait pour montrer une autre vue
+// entend les cadrages ; les autres choisissent leur sujet eux-mêmes.
+ok( 'le prompt de detail change de vue, les autres non, sauf choix sur la carte', [
+	DZE_Content::prompt_varies( [ 'id' => 'img_another_angle_of_the_same_product' ] ),
+	DZE_Content::prompt_varies( [ 'id' => 'img_scene_in_use' ] ),
+	DZE_Content::prompt_varies( [ 'id' => 'img_main_image' ] ),
+	DZE_Content::prompt_varies( [ 'id' => 'img_scene_in_use', 'vary' => 1 ] ),
+	DZE_Content::prompt_varies( [ 'id' => 'img_another_angle_of_the_same_product', 'vary' => 0 ] ),
+], [ true, false, false, true, false ] );
+$dze_cs = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+ok( 'la carte du prompt le dit, et une carte dessinee avant ne l eteint pas', [
+	false !== strpos( $dze_cs, "'vary'        => (int) self::prompt_varies( \$r )," ),
+	substr_count( $dze_cs, "[pr_vary_seen]" ),
+	false !== strpos( $dze_cs, "'vary'        => array_key_exists( \$i, (array) ( \$in['pr_vary_seen'] ?? [] ) )" ),
+], [ true, 2, true ] );
 ok( 'et aucune image faite ne repart vers le modele', false !== strpos( $dze_aj, '$avoid = 0;' ), true );
 // JETEE, ELLE PART AVEC TOUT CE QUI LA DECRIT.
 DZE_Content::settle_shots( 77, [ $dze_u ] );
@@ -1928,23 +1944,21 @@ ok( 'le « i » n est que sur les images en attente, jamais sur celles du produi
 	false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-ai-card.php' ), 'attachment_fields_to_edit' ),
 ], [ false, true, true, true, true, true, false, false, false ] );
 ok( 'ce que 4.507-4.508 avaient ecrit sur les pieces jointes part une fois', false !== strpos( $dze_cs, "foreach ( [ '_dze_ai_card', '_dze_flags', '_dze_stands_for' ] as \$k ) {\n\t\t\tdelete_post_meta_by_key( \$k );" ), true );
-// ↻ REFAIT SON PROPRE CADRAGE, au lieu de se l interdire.
+// ↻ NE S INTERDIT PLUS SON CADRAGE — ET NE SE L IMPOSE PLUS NON PLUS : refaire une image
+// ratee parce que son cadrage etait faux redemandait ce cadrage (02/10/2026).
 $GLOBALS['dze_meta'][81] = [];
 DZE_Content::stash( 81, [ 'shot' => 'https://v3b.fal.media/files/b/x/one.jpg', 'recipe' => 'rx', 'frame' => 'V-ONE whole jacket, front three-quarter', 'flags' => [] ] );
 DZE_Content::stash( 81, [ 'shot' => 'https://v3b.fal.media/files/b/x/two.jpg', 'recipe' => 'rx', 'frame' => 'V-TWO close-up of the cuff', 'flags' => [] ] );
 $dze_ml = DZE_Content::made_lines( 81, 'rx' );
 ok( 'sans ↻, rien ne change : tous les cadrages sont a eviter', [ false !== strpos( $dze_ml, 'V-ONE' ), false !== strpos( $dze_ml, 'V-TWO' ), false !== strpos( $dze_ml, 'Do not make any of them again' ) ], [ true, true, true ] );
 $dze_ml = DZE_Content::made_lines( 81, 'rx', 'https://v3b.fal.media/files/b/x/two.jpg' );
-ok( '↻ : son propre cadrage est demande, plus interdit ; les autres restent a eviter', [
-	substr_count( $dze_ml, 'V-TWO' ), false !== strpos( $dze_ml, "THE PHOTOGRAPH THIS ONE REPLACES was framed: V-TWO close-up of the cuff. Make that framing again" ),
-	false !== strpos( $dze_ml, "- V-ONE whole jacket, front three-quarter\nThis photograph is none of them." ), false !== strpos( $dze_ml, 'Do not make any of them again' ),
-], [ 1, true, true, false ] );
+ok( '↻ : son cadrage n est ni interdit ni impose ; les autres restent a eviter', [
+	substr_count( $dze_ml, 'V-TWO' ), false !== strpos( $dze_ml, 'THE PHOTOGRAPH THIS ONE REPLACES' ),
+	false !== strpos( $dze_ml, 'V-ONE whole jacket, front three-quarter' ), false !== strpos( $dze_ml, 'Do not make any of them again' ),
+	array_key_exists( 'again', DZE_Content::$made_said ),
+], [ 0, false, true, true, false ] );
 $dze_ml = DZE_Content::made_lines( 81, 'rx', 'https://v3b.fal.media/files/b/x/elsewhere.jpg' );
-ok( 'une adresse qui n attend pas sur ce produit ne change rien', [ false !== strpos( $dze_ml, 'THE PHOTOGRAPH THIS ONE REPLACES' ), false !== strpos( $dze_ml, 'Do not make any of them again' ) ], [ false, true ] );
-DZE_Content::stash( 81, [ 'shot' => 'https://v3b.fal.media/files/b/x/three.jpg', 'recipe' => 'rx' ] );
-$GLOBALS['mai_view'] = '{"part":"hood toggle","distance":"close-up","angle":"front","worn":false,"invented":[]}';
-$dze_ml = DZE_Content::made_lines( 81, 'rx', 'https://v3b.fal.media/files/b/x/three.jpg' );
-ok( 'une image refaite sans cadrage ecrit est lue d abord, et son cadrage demande', [ false !== strpos( $dze_ml, 'was framed: hood toggle — close-up, front.' ), DZE_Content::pending( 81 )['frames']['https://v3b.fal.media/files/b/x/three.jpg'] ?? '' ], [ true, 'hood toggle — close-up, front' ] );
+ok( 'une adresse qui n attend pas sur ce produit ne change rien', [ false !== strpos( $dze_ml, 'V-TWO' ), false !== strpos( $dze_ml, 'Do not make any of them again' ) ], [ true, true ] );
 ok( 'les deux ↻ envoient l image qu ils remplacent', [
 	false !== strpos( $dze_js, "{ aware: 1, model: cxModel(), redo: String(url || '') }" ),
 	false !== strpos( $dze_jb, "{ aware: 1, redo: String(url || '') }" ),

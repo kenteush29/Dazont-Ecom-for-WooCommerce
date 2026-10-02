@@ -2059,6 +2059,28 @@ EOT;
 	}
 
 	/**
+	 * DOES THIS PROMPT MAKE ANOTHER VIEW OF THE PRODUCT EACH TIME?
+	 *
+	 * Only such a prompt is told which views the product page and its earlier
+	 * pictures show, and to frame its own differently (made_lines()). Every
+	 * other prompt sets its subject itself — the main image, the product in
+	 * use, a variation — and those lines fought it: « La dernière image
+	 * générée devait être UGC style. Le modèle textuel a demandé un zoom sur
+	 * du détail. » The jacket on someone came back as a cuff close-up,
+	 * because « this photograph is none of them … by coming closer to a
+	 * part » had been appended to a prompt asking for a customer's snapshot.
+	 *
+	 * Said on the prompt card. A row saved before the switch existed carries
+	 * no key: the shipped detail prompt varies, every other prompt does not.
+	 */
+	public static function prompt_varies( array $row ): bool {
+		if ( array_key_exists( 'vary', $row ) ) {
+			return ! empty( $row['vary'] );
+		}
+		return 'img_another_angle_of_the_same_product' === (string) ( $row['id'] ?? '' );
+	}
+
+	/**
 	 * Where a scene NAME sits in the list, or -1 for "no scene".
 	 *
 	 * A prompt stores the name and not the index: reordering the scenes would
@@ -2144,6 +2166,7 @@ EOT;
 			// is an answer — "no scene" — and is left alone.
 			'scene'       => self::prompt_scene( $r ),
 			'scene_i'     => self::scene_index( self::prompt_scene( $r ) ),
+			'vary'        => (int) self::prompt_varies( $r ),
 		];
 	}
 
@@ -2911,11 +2934,23 @@ Answer with STRICT JSON and nothing else: "
 							? (string) $held[ $rid ]['scene']
 							: null ),
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
+					// A NEW VIEW EACH TIME (prompt_varies()). An unticked box
+					// posts nothing, so the card says it was drawn: a page
+					// opened before the switch existed and saved after must not
+					// switch the detail prompt off.
+					'vary'        => array_key_exists( $i, (array) ( $in['pr_vary_seen'] ?? [] ) )
+						? (int) ( 'image' === $type && ! empty( $in['pr_vary'][ $i ] ) )
+						: ( isset( $held[ $rid ] ) && array_key_exists( 'vary', (array) $held[ $rid ] )
+							? (int) $held[ $rid ]['vary']
+							: null ),
 				];
 				// ABSENT, not null: prompt_scene() reads the KEY's presence,
 				// and a key holding null is present and reads as "No scene".
 				if ( null === $rows[ array_key_last( $rows ) ]['scene'] ) {
 					unset( $rows[ array_key_last( $rows ) ]['scene'] );
+				}
+				if ( null === $rows[ array_key_last( $rows ) ]['vary'] ) {
+					unset( $rows[ array_key_last( $rows ) ]['vary'] );
 				}
 			}
 			if ( $rows ) {
@@ -3419,6 +3454,11 @@ Answer with STRICT JSON and nothing else: "
 										</select>
 									</label>
 								<?php endif; ?>
+								<label class="dze-prb-tk dze-pr-imgonly dze-pr-varyl" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>" title="<?php esc_attr_e( 'Tells the model which views the product page and the pictures already made show, so that each new picture shows another one — closer to a part, or from a slightly different angle. Only for a prompt meant to show more of the product: one that sets its own subject (the main image, the product in use, a variation) must stay off, or it is pushed towards close-ups.', 'dazont-ecom' ); ?>">
+									<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_vary_seen][<?php echo (int) $dze_ri; ?>]" value="1" />
+									<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_vary][<?php echo (int) $dze_ri; ?>]" value="1" class="dze-pr-vary" <?php checked( self::prompt_varies( $r ) ); ?> />
+									<span><?php esc_html_e( 'A new view each time', 'dazont-ecom' ); ?></span>
+								</label>
 								<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 									<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" />
 								</label>
@@ -3536,6 +3576,11 @@ Answer with STRICT JSON and nothing else: "
 										<option value="<?php echo esc_attr( $dze_rk ); ?>"><?php echo esc_html( $dze_rl ); ?></option>
 									<?php endforeach; ?>
 								</select>
+							</label>
+							<label class="dze-prb-tk dze-pr-imgonly dze-pr-varyl" style="display:none;">
+								<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_vary_seen][__I__]" value="1" />
+								<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_vary][__I__]" value="1" class="dze-pr-vary" />
+								<span><?php esc_html_e( 'A new view each time', 'dazont-ecom' ); ?></span>
 							</label>
 							<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 								<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][__I__]" value="400" min="50" class="dze-pr-tokens" />
@@ -8477,52 +8522,33 @@ Answer with STRICT JSON and nothing else: "
 
 	/**
 	 * The paragraph made_views() becomes in the order. '' when nothing is
-	 * on the page or made yet.
+	 * on the page or made yet. Sent only with a prompt that varies the view
+	 * (prompt_varies()).
 	 *
-	 * ↻ MAKES ITS OWN FRAMING AGAIN. « La fonction recommencer sur les images
-	 * générées me semble comporter une lacune. Ces images relancées sont
-	 * particulièrement sujettes au slop. » The picture being redone was still
-	 * waiting, so its own framing was in the list of framings never to make
-	 * again: the second attempt was told to avoid exactly what it had been
-	 * asked for. $redo is that picture's address: left out of the list, and
-	 * its framing named as the one to make.
+	 * ↻ NEITHER FORBIDS NOR DICTATES ITS OWN FRAMING. « Ces images relancées
+	 * sont particulièrement sujettes au slop » — the picture being redone was
+	 * still waiting, so its framing was among those never to make again, and
+	 * the second attempt was told to avoid what the first had been asked for.
+	 * $redo is that picture's address, left out of the list. 4.507.0 also
+	 * named its framing as the one to make again: when the picture was redone
+	 * BECAUSE its framing was wrong, that order made the same mistake on
+	 * purpose — a cuff close-up asked again of a prompt for the jacket worn
+	 * (02/10/2026). The prompt says what to make; ↻ only asks once more.
 	 */
 	public static function made_lines( int $pid, string $recipe, string $redo = '' ): string {
 		self::$made_said = [];
-		$again = '';
-		if ( '' !== $redo ) {
-			$waiting = self::pending( $pid );
-			if ( in_array( $redo, array_map( 'strval', (array) ( $waiting['shots'] ?? [] ) ), true ) ) {
-				$again = (string) ( $waiting['frames'][ $redo ] ?? '' );
-				if ( '' === $again ) {
-					// Made before its framing was read: read now, once.
-					$was = DZE_Ai_Usage::unit_now();
-					DZE_Ai_Usage::unit( 'img_view' );
-					$r = self::read_picture( $redo, $pid );
-					DZE_Ai_Usage::unit( $was );
-					$again = $r['frame'];
-					if ( '' !== $again ) {
-						self::stash( $pid, [ 'shot' => $redo, 'frame' => $again, 'flags' => $r['invented'] ] );
-					}
-				}
-			}
-		}
 		$was = DZE_Ai_Usage::unit_now();
 		DZE_Ai_Usage::unit( 'img_view' );
 		$page = self::page_frames( $pid );
 		DZE_Ai_Usage::unit( $was );
 		$views = self::made_views( $pid, $recipe, true, $redo );
-		self::$made_said = [ 'page' => $page, 'made' => $views, 'again' => $again ];
+		self::$made_said = [ 'page' => $page, 'made' => $views ];
 		$out = '';
 		if ( $page ) {
 			$out .= "\n\nON THE PRODUCT PAGE ALREADY — the product's own photographs, described in words:\n- " . implode( "\n- ", $page );
 		}
 		if ( $views ) {
 			$out .= "\n\nALREADY MADE FOR THIS PRODUCT — photographs that exist already, described in words (they are not sent):\n- " . implode( "\n- ", $views );
-		}
-		if ( '' !== $again ) {
-			return $out . ( '' !== $out ? "\nThis photograph is none of them." : '' )
-				. "\n\nTHE PHOTOGRAPH THIS ONE REPLACES was framed: " . $again . '. Make that framing again — the same part of the product, as close, from the same side — as a better photograph. What the product looks like still comes from the photographs you are given, and nothing they do not show is added.';
 		}
 		if ( '' === $out ) {
 			return '';
