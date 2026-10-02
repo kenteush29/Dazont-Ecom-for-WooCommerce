@@ -1950,6 +1950,7 @@ ok( 'les deux ↻ envoient l image qu ils remplacent', [
 	false !== strpos( $dze_jb, "{ aware: 1, redo: String(url || '') }" ),
 	false !== strpos( $dze_aj, "\$prompt .= self::made_lines( \$pid, (string) ( \$tpl['id'] ?? '' ), \$dze_redo );" ),
 ], [ true, true, true ] );
+ok( 'la fiche reste dans la fenetre : dessus quand la place manque dessous, jamais plus haute que l ecran', [ false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' ), "var top = (h > below && above > below) ? r.top - h - 6 : r.bottom + 6;" ), false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' ), "\$pop.find('.dze-ai-full').on('toggle', function () { aiPlace(\$pop, \$b); });" ) ], [ true, true ] );
 ok( 'la fiche reste ouverte quand on fait defiler le prompt qu elle montre', false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' ), "if (t && t.nodeType === 1 && \$(t).closest('.dze-ai-pop').length) { return; }" ), true );
 unset( $GLOBALS['mai_view'] );
 

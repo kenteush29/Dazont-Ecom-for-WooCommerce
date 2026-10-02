@@ -331,13 +331,23 @@
 		// may hold anything.
 		$pop.find('.dze-ai-words').text(d.prompt || '');
 	}
+	// THE CARD STAYS IN THE WINDOW. Placed under its « i » whatever the room,
+	// a card opened low on the screen ran off the bottom — and scrolling the
+	// page to read it closes it. Under the « i » when it fits, over it when
+	// there is more room there, never taller than the window: what does not
+	// fit scrolls inside the card, which is the one scroll that keeps it open.
 	function aiPlace($pop, $b) {
-		var o = $b.offset() || { top: 0, left: 0 };
-		var w = Math.min(380, $(window).width() - 16);
+		var r = $b[0].getBoundingClientRect();
+		var vw = $(window).width(), vh = window.innerHeight;
+		var w = Math.min(380, vw - 16);
+		$pop.css({ width: w, maxHeight: Math.max(160, vh - 16) });
+		var h = $pop.outerHeight();
+		var below = vh - r.bottom - 14, above = r.top - 14;
+		var top = (h > below && above > below) ? r.top - h - 6 : r.bottom + 6;
+		top = Math.max(8, Math.min(top, vh - h - 8));
 		$pop.css({
-			width: w,
-			top: o.top + $b.outerHeight() + 6,
-			left: Math.max(8, Math.min(o.left - 8, $(window).scrollLeft() + $(window).width() - w - 8))
+			top: top + $(window).scrollTop(),
+			left: Math.max(8, Math.min(r.left - 8, vw - w - 8)) + $(window).scrollLeft()
 		});
 	}
 	$(document).on('click', '.dze-ai-i', function (e) {
@@ -376,6 +386,8 @@
 			}
 			aiDraw($pop, r.data || {});
 			aiPlace($pop, $b);
+			// The full prompt opened makes the card taller: placed again.
+			$pop.find('.dze-ai-full').on('toggle', function () { aiPlace($pop, $b); });
 		}).fail(function (x) {
 			if (aiFor === el) { $pop.find('.dze-ai-body').html('<p class="dze-ai-old">' + esc(reason(x)) + '</p>'); }
 		});

@@ -2220,7 +2220,7 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	position: absolute; z-index: var(--dze-z-card); box-sizing: border-box;
 	padding: 10px 12px; border: 1px solid #c3c4c7; border-radius: 6px;
 	background: #fff; color: #1d2327; font-size: 12px; line-height: 1.45;
-	box-shadow: 0 6px 24px rgba(0,0,0,.18);
+	box-shadow: 0 6px 24px rgba(0,0,0,.18); overflow: auto;
 }
 .dze-ai-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .dze-ai-x { padding: 0 2px; border: 0; background: transparent; color: #646970; cursor: pointer; font-size: 18px; line-height: 1; }
