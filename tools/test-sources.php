@@ -162,6 +162,8 @@ class WC_Product {
 	public function get_children() { return []; }
 	public function get_regular_price() { return '10'; }
 	public function get_gallery_image_ids() { return $GLOBALS['gallery'][ $this->id ] ?? []; }
+	public function get_description() { return $GLOBALS['wc_desc'][ $this->id ] ?? ''; }
+	public function get_short_description() { return ''; }
 }
 function wc_get_product( $id ) { return new WC_Product( $id ); }
 function wc_placeholder_img_src() { return 'http://shop.test/ph.png'; }
@@ -245,6 +247,7 @@ class DZE_Prompts {
  * the reading that belongs to a product, which three screens now print.
  */
 class DZE_Diagnostic {
+	const NONCE = 'dze_diag';
 	const MENU_SLUG = 'dazont-ecom-diagnostic';
 	public static function todo( $pid ) {
 		return array_map(
@@ -2008,6 +2011,26 @@ $dze_a  = $GLOBALS['mai_vision'][0] ?? [];
 ok( 'le lecteur rend un cadrage sans detail, et ce que l image invente', [ $dze_rp['frame'], $dze_rp['invented'] ], [ 'hood and collar — close-up, front three-quarter right', [ 'label with the text VETER inside the collar' ] ] );
 ok( 'il voit l image faite ET les vraies photos du produit, la principale d abord', [ count( $dze_a[2] ?? [] ), $dze_a[3] ?? '', $dze_a[6]['output_config']['format']['schema']['required'] ?? [], in_array( 'server-side-fallback-2026-07-01', (array) ( $dze_a[6]['_betas'] ?? [] ), true ) ], [ 3, 'claude-sonnet-5-5', [ 'part', 'distance', 'angle', 'worn', 'invented' ], true ] );
 ok( 'distances et angles sont des listes fermees', [ $dze_a[6]['output_config']['format']['schema']['properties']['distance']['enum'] ?? [], count( $dze_a[6]['output_config']['format']['schema']['properties']['angle']['enum'] ?? [] ) ], [ [ 'whole product', 'half', 'close-up', 'macro' ], 8 ] );
+// « Ton outil parfois flag du contenu qui est bon pour le content ugc. » Le sac a dos du
+// randonneur et les renforts de coudes que la description annonce etaient « inventes ».
+$GLOBALS['mai_vision'] = [];
+$GLOBALS['wc_desc'][90] = '<p>Reinforced Elbows and Shoulders. Hook and Loop Fields: for unit, flag and morale patches.</p>';
+DZE_Content::read_picture( 'https://v3b.fal.media/files/b/x/veter.jpg', 90 );
+$dze_a = $GLOBALS['mai_vision'][0] ?? [];
+ok( 'le lecteur lit aussi la description, et la scene n est jamais le produit', [
+	false !== strpos( (string) ( $dze_a[0] ?? '' ), 'the SCENE of a picture of the product in use — the person, their other clothes, what they carry or wear with it (a backpack' ),
+	false !== strpos( (string) ( $dze_a[0] ?? '' ), 'a feature the description names' ),
+	false !== strpos( (string) ( $dze_a[1] ?? '' ), "What the shop says about the product: Reinforced Elbows and Shoulders. Hook and Loop Fields: for unit, flag and morale patches." ),
+], [ true, true, true ] );
+unset( $GLOBALS['wc_desc'][90] );
+// « Gallery photographs — 3 of 5 — ne semble pas être mis à jour. »
+$dze_jbk = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
+$dze_csk = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+ok( 'la ligne sous le nom est relue quand l ecran ecrit sur le produit ou l ouvre', [
+	false !== strpos( $dze_jbk, "\$.post(cfg.ajaxUrl, { action: 'dze_diag_todo', nonce: cfg.diagNonce, post: id })" ),
+	substr_count( $dze_jbk, 'refreshShort(' ),
+	false !== strpos( $dze_csk, "'diagNonce' => class_exists( 'DZE_Diagnostic' ) ? wp_create_nonce( DZE_Diagnostic::NONCE ) : ''," ),
+], [ true, 4, true ] );
 
 // LES PHOTOS DE LA PAGE : lues une fois, en un appel, et dites a la commande.
 $GLOBALS['mai_vision'] = [];

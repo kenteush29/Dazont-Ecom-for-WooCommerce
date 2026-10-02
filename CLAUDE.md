@@ -876,6 +876,12 @@ fait" (4.499.0):
     - Each goes with every image ordered, ✦ included, and the bill before
       the press follows it (`cxPrice()`, `cbPrice()`).
     - The shop's setting is only the default.
+  - **THE LINE UNDER EACH NAME IS READ AGAIN** (4.511.1, « Gallery
+    photographs — 3 of 5 — ne semble pas être mis à jour »). It was
+    `DZE_Diagnostic::todo()` read when the page was drawn, so photographs
+    filed afterwards left it stale. `refreshShort()` asks `dze_diag_todo`
+    again (`diagNonce` in the bulk config) when a panel opens and after
+    images or texts are written.
   - **NO ORDER OF A PRODUCT'S OWN ON THE BULK SCREEN** (4.506.3, « A
     supprimer. Inutile. »). Every product runs the rows at the top of the
     page (`jobsFor()` returns `tplJobs()`). What differs for one product is
@@ -909,6 +915,16 @@ fait" (4.499.0):
     main photo — for the prompts that vary the view only (4.511.0).
   - Legacy Haiku lines (`views`, `_dze_view`) are display only. Pictures
     without a frame are re-read lazily, two per order.
+  - **THE SCENE IS NOT THE PRODUCT, AND THE DESCRIPTION COUNTS** (4.511.1,
+    « Ton outil parfois flag du contenu qui est bon pour le content ugc »).
+    A khaki jacket worn on a mountain came back with five inventions,
+    among them the hiker's backpack, a morale patch on the hook-and-loop
+    field the description sells, and the reinforced elbows it names. The
+    reader now gets the product's own words (`reader_product_text()`, 1,500
+    characters). It is told that a feature the description names, and the
+    scene of a picture in use (the person, their clothes, what they carry,
+    the place, a patch where the description says patches go), are never
+    inventions.
   - `$made_said` keeps what an order was told, and the card shows « Told to
     avoid ».
   - Live probe: 4,940 tokens in, 81 out, about $0.011, 3.3 s. It flagged
