@@ -934,6 +934,27 @@ fait" (4.499.0):
     avoid ».
   - Live probe: 4,940 tokens in, 81 out, about $0.011, 3.3 s. It flagged
     the VETER label.
+- **THE ORIGINAL'S VARIATION IMAGES ARE CARRIED BY US** (4.512.0, « Il semble
+  que les images de variations ne sont pas copiées avec le module de
+  traduction wpml »).
+  - The cause: WCML copies a variation image only when WPML Media
+    duplicates featured images (`_wpml_media` global `duplicate_featured`,
+    or the per-product `_wpml_media_featured`). Kula has it off, and only
+    215 of 2,111 products carry the per-product flag. On 02/10, 11,083 of
+    the 11,570 RU variations whose original has an image had none, and
+    about 6 % in DE/ES/FR/PL.
+  - The shop page still showed them: WCML's `translate_image_id` falls
+    back on the original. Everything that reads the meta did not see them.
+  - `DZE_Translate::variation_images_fill( $product, $limit, $after )`
+    fills only an EMPTY `_thumbnail_id`, with the original's image: its
+    WPML copy in that language if one exists, the same attachment
+    otherwise. It never creates a copy, because duplicates already make up
+    61 % of Kula's attachments.
+  - It runs at priority 20 on `wcml_synchronize_product_translations` and
+    `..._variation_translations`, on every write of a product translation,
+    and once over the shop. That last run is `variation_images_start()` on
+    admin_init, then pages of 400 through `dze_variation_images_fill`,
+    walked by a cursor (options `dze_var_images_started` / `_filled`).
 - **THE ORIGINAL'S LAYOUT IS CARRIED BY US** (4.509.0, « toutes les options
   elementor et le style astra n'est pas toujours copié »).
   - WPML's saved list copies only 12 price fields (the 01/10 incident).

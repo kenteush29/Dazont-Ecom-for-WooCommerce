@@ -128,6 +128,13 @@ final class DZE_Translate {
 				self::drift_on_save( (int) $document->get_main_id() );
 			}
 		} );
+		// THE ORIGINAL'S VARIATION IMAGES, carried to its translations
+		// (variation_images_fill()): right after WCML has synchronised a
+		// product — its variations exist by then — and once over the shop.
+		add_action( 'wcml_synchronize_product_translations', [ __CLASS__, 'variation_images_on_sync' ], 20, 1 );
+		add_action( 'wcml_synchronize_product_variation_translations', [ __CLASS__, 'variation_images_on_sync' ], 20, 1 );
+		add_action( self::VAR_IMG_HOOK, [ __CLASS__, 'variation_images_sweep' ], 10, 1 );
+		add_action( 'admin_init', [ __CLASS__, 'variation_images_start' ] );
 		// Admin only, by nature: nothing here has any business on a shop page.
 		if ( ! is_admin() ) {
 			return;
@@ -4444,6 +4451,123 @@ final class DZE_Translate {
 		return $marked;
 	}
 
+	/** Background hook: every translated variation still without its image, a page at a time. */
+	public const VAR_IMG_HOOK = 'dze_variation_images_fill';
+
+	/** How many translated variations one background page fills. */
+	private const VAR_IMG_PAGE = 400;
+
+	/**
+	 * THE ORIGINAL'S VARIATION IMAGES, CARRIED TO ITS TRANSLATIONS BY US.
+	 *
+	 * « Il semble que les images de variations ne sont pas copiées avec le
+	 * module de traduction wpml. C'est un problème majeur si c'est le cas. »
+	 * It was the case: WCML copies a variation's image only when WPML Media
+	 * duplicates featured images, which Kula has switched off — so 11,083 of
+	 * the 11,570 Russian variations whose original has an image had none, and
+	 * about 6 % in every other language. The shop page still showed the
+	 * picture (WCML falls back on the original's), but the data said
+	 * otherwise to everything else that reads it: the product screen, the
+	 * feeds, the gallery clean-up that spared the Russian galleries because
+	 * their variations looked imageless.
+	 *
+	 * Fills only what is EMPTY, with the original variation's image — its own
+	 * WPML copy in that language when one exists, the very same attachment
+	 * otherwise. It never makes a copy: duplicates are 61 % of Kula's
+	 * 548,000 attachments, and the cause of its 504s.
+	 *
+	 * @param int $product An original or translated product, or 0 for the whole shop.
+	 * @param int $limit   0 = all of them.
+	 * @param int $after   Translated variation id to start after (the sweep's cursor).
+	 * @return array{filled:int,rows:int,last:int}
+	 */
+	public static function variation_images_fill( int $product = 0, int $limit = 0, int $after = 0 ): array {
+		global $wpdb;
+		$out = [ 'filled' => 0, 'rows' => 0, 'last' => $after ];
+		if ( ! $wpdb || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return $out;
+		}
+		$tr = $wpdb->prefix . 'icl_translations';
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table, joined to WordPress's.
+		$original = 0;
+		if ( $product > 0 ) {
+			$original = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT o.element_id FROM {$tr} t INNER JOIN {$tr} o ON o.trid = t.trid AND o.source_language_code IS NULL AND o.element_type = t.element_type
+				 WHERE t.element_type = 'post_product' AND t.element_id = %d",
+				$product
+			) );
+			if ( ! $original ) {
+				return $out;
+			}
+		}
+		$rows = (array) $wpdb->get_results(
+			"SELECT t.element_id AS dst, t.language_code AS lang, mo.meta_value AS img
+			 FROM {$tr} t
+			 INNER JOIN {$tr} o ON o.trid = t.trid AND o.source_language_code IS NULL AND o.element_type = t.element_type
+			 INNER JOIN {$wpdb->posts} vo ON vo.ID = o.element_id
+			 INNER JOIN {$wpdb->postmeta} mo ON mo.post_id = o.element_id AND mo.meta_key = '_thumbnail_id'
+			 INNER JOIN {$wpdb->posts} a ON a.ID = mo.meta_value AND a.post_type = 'attachment'
+			 LEFT JOIN {$wpdb->postmeta} mt ON mt.post_id = t.element_id AND mt.meta_key = '_thumbnail_id'
+			 WHERE t.element_type = 'post_product_variation' AND t.source_language_code IS NOT NULL
+			   AND ( mt.meta_id IS NULL OR mt.meta_value = '' OR mt.meta_value = '0' )"
+			. ( $original ? $wpdb->prepare( ' AND vo.post_parent = %d', $original ) : '' )
+			. ( $after > 0 ? $wpdb->prepare( ' AND t.element_id > %d', $after ) : '' )
+			. ' ORDER BY t.element_id'
+			. ( $limit > 0 ? $wpdb->prepare( ' LIMIT %d', $limit ) : '' )
+		);
+		// phpcs:enable
+		foreach ( $rows as $r ) {
+			$img  = (int) $r->img;
+			$copy = DZE_Wpml::translated_id( $img, 'attachment', (string) $r->lang );
+			$use  = ( $copy && 'attachment' === get_post_type( $copy ) ) ? $copy : $img;
+			if ( update_post_meta( (int) $r->dst, '_thumbnail_id', $use ) ) {
+				$out['filled']++;
+			}
+			$out['last'] = (int) $r->dst;
+		}
+		$out['rows'] = count( $rows );
+		return $out;
+	}
+
+	/** After WCML synchronised one product (or one of its variations): its translations get their variation images. */
+	public static function variation_images_on_sync( $post ): void {
+		$p = is_object( $post ) ? $post : get_post( (int) $post );
+		if ( ! $p || ! isset( $p->post_type ) ) {
+			return;
+		}
+		$pid = 'product_variation' === $p->post_type ? (int) $p->post_parent : ( 'product' === $p->post_type ? (int) $p->ID : 0 );
+		if ( $pid ) {
+			self::variation_images_fill( $pid );
+		}
+	}
+
+	/** Once per shop, in the background: the whole catalogue, a page at a time. */
+	public static function variation_images_start(): void {
+		if ( get_option( 'dze_var_images_started' ) || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return;
+		}
+		update_option( 'dze_var_images_started', time(), false );
+		self::variation_images_queue( 0 );
+	}
+
+	/** One background page, then the next while there is one. */
+	public static function variation_images_sweep( $after = 0 ): void {
+		$r = self::variation_images_fill( 0, self::VAR_IMG_PAGE, (int) $after );
+		if ( $r['rows'] >= self::VAR_IMG_PAGE ) {
+			self::variation_images_queue( $r['last'] );
+		} else {
+			update_option( 'dze_var_images_filled', time(), false );
+		}
+	}
+
+	private static function variation_images_queue( int $after ): void {
+		if ( function_exists( 'as_enqueue_async_action' ) ) {
+			as_enqueue_async_action( self::VAR_IMG_HOOK, [ $after ], 'dazont-ecom' );
+		} elseif ( function_exists( 'wp_schedule_single_event' ) ) {
+			wp_schedule_single_event( time() + 10, self::VAR_IMG_HOOK, [ $after ] );
+		}
+	}
+
 	/** An original being saved: its translations are compared with it. */
 	public static function drift_on_save( $post_id, $post = null ): void {
 		$post_id = (int) $post_id;
@@ -5030,6 +5154,10 @@ final class DZE_Translate {
 		// over the same row. A variation WCML has not made yet is left alone,
 		// and that field simply stays owed until it has.
 		$lang = self::lang_of_translation( $o, $target_id );
+		// AND THEIR IMAGES (variation_images_fill()).
+		if ( 'product' === (string) ( $o['type'] ?? '' ) ) {
+			self::variation_images_fill( (int) $o['id'] );
+		}
 		foreach ( $texts as $fid => $text ) {
 			if ( '' === $lang || 0 !== strpos( (string) $fid, 'var:' ) ) {
 				continue;
