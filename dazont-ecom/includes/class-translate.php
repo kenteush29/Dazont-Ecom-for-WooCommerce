@@ -4109,11 +4109,19 @@ final class DZE_Translate {
 	 * it was born with: its words were updated, never its sections, styles or
 	 * stretched banners.
 	 *
-	 * So the plugin no longer depends on it. The original's tree is the
-	 * translation's tree, with the translation's own words put back wherever
-	 * the same widget still says something; the page settings and Astra's
-	 * layout keys are the original's. A widget new on the original keeps its
-	 * original words until the next translation pass translates it.
+	 * So the plugin no longer depends on it. The original's STRUCTURE is the
+	 * translation's: its sections, columns and widgets, in its order — a
+	 * widget new on the original arrives with the original's words until the
+	 * next pass translates it, and one the original dropped goes. A widget
+	 * both have keeps EVERY setting of the translation's own — its words, but
+	 * also its captions, labels, form messages, links, pictures, shortcodes,
+	 * menus and the ids of its categories — and takes from the original only
+	 * its layout settings (style_key(): sizes, spacing, colours, alignment,
+	 * stretching…). 4.509.0 put back only the words this module translates
+	 * and wrote the original over everything else: 905 image captions, the
+	 * « related products » titles, form messages and per-language category
+	 * ids would have turned English on Kula. The page settings and Astra's
+	 * layout keys are the original's.
 	 *
 	 * @param bool $seed Give a translation that has no tree the original's
 	 *                   (a page being created, or about to have its widgets
@@ -4122,6 +4130,18 @@ final class DZE_Translate {
 	 * @return array{meta:int,tree:bool}
 	 */
 	public static function layout_from( int $src, int $dst, bool $seed = true ): array {
+		$out = self::layout_carry( $src, $dst, $seed );
+		if ( $out['meta'] || $out['tree'] ) {
+			clean_post_cache( $dst );
+			// The page as the shop's cache serves it, made again (LiteSpeed's
+			// own hook: nothing happens on a shop without it).
+			do_action( 'litespeed_purge_post', $dst );
+		}
+		return $out;
+	}
+
+	/** layout_from() itself, before the cache is told. */
+	private static function layout_carry( int $src, int $dst, bool $seed ): array {
 		$out = [ 'meta' => 0, 'tree' => false ];
 		if ( $src < 1 || $dst < 1 || $src === $dst ) {
 			return $out;
@@ -4154,19 +4174,24 @@ final class DZE_Translate {
 		if ( ! $mine && ! $seed ) {
 			return $out;
 		}
-		$words = [];
+		$orig = $tree;
+		if ( $mine ) {
+			$byid = [];
+			self::elements_by_id( $mine, $byid );
+			$tree = self::merge_layout( $tree, $byid );
+		}
+		// A widget whose words the translation does not have speaks the
+		// original's — and is owed (forget() below).
+		$fill  = [];
 		$lacks = [];
 		foreach ( self::elementor_fields( [ 'kind' => 'post', 'id' => $src ] ) as $fid => $f ) {
 			$path = (string) $f['path'];
-			$was  = self::tree_get( $tree, $path );
-			$now  = $mine ? self::tree_get( $mine, $path ) : '';
-			if ( '' === trim( $now ) ) {
-				$lacks[] = (string) $fid;
-			} elseif ( $now !== $was ) {
-				$words[ $path ] = $now;
+			if ( '' === trim( $mine ? self::tree_get( $mine, $path ) : '' ) ) {
+				$lacks[]       = (string) $fid;
+				$fill[ $path ] = self::tree_get( $orig, $path );
 			}
 		}
-		self::tree_put( $tree, $words );
+		self::tree_put( $tree, $fill );
 		$json = (string) wp_json_encode( $tree );
 		if ( $json === (string) wp_json_encode( $mine ) ) {
 			return $out;
@@ -4187,6 +4212,80 @@ final class DZE_Translate {
 			unset( $v['post_title'], $v['post_excerpt'], $v['post_status'], $v['post_featured_image'] );
 		}
 		return $v;
+	}
+
+	/**
+	 * The words a LAYOUT setting is named with. Elementor names a setting by
+	 * what it does — `title_color`, `_margin_mobile`, `content_width`,
+	 * `typography_font_size` — so a name holding one of these is layout. A
+	 * name holding none (`caption`, `ribbon_title`, `form_fields`, `link`,
+	 * `shortcode`, `__dynamic__`, `query_include_term_ids`…) is the
+	 * translation's own, and is never taken from the original.
+	 */
+	private const STYLE_WORDS = [
+		'margin', 'padding', 'width', 'height', 'gap', 'space', 'spacing', 'align', 'alignment', 'position', 'index',
+		'order', 'size', 'color', 'colors', 'background', 'border', 'radius', 'shadow', 'typography', 'font', 'weight',
+		'transform', 'decoration', 'stroke', 'opacity', 'overlay', 'blend', 'css', 'classes', 'hover', 'transition',
+		'animation', 'duration', 'delay', 'motion', 'sticky', 'layout', 'structure', 'stretch', 'container', 'columns',
+		'rows', 'reverse', 'flex', 'grid', 'justify', 'direction', 'wrap', 'overflow', 'display', 'hide', 'visibility',
+		'responsive', 'shape', 'divider', 'fit', 'aspect', 'ratio', 'view', 'skin', 'style', 'masonry', 'indent',
+		'offset', 'vertical', 'horizontal', 'globals',
+	];
+
+	/** A layout setting of an Elementor widget, by its name (STYLE_WORDS). */
+	public static function style_key( $k ): bool {
+		return (bool) array_intersect( explode( '_', strtolower( (string) $k ) ), self::STYLE_WORDS );
+	}
+
+	/** Every element of a tree, by id. @param array<string,array> $out */
+	private static function elements_by_id( array $tree, array &$out ): void {
+		foreach ( $tree as $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			if ( '' !== (string) ( $el['id'] ?? '' ) ) {
+				$out[ (string) $el['id'] ] = $el;
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				self::elements_by_id( $el['elements'], $out );
+			}
+		}
+	}
+
+	/**
+	 * The original's tree, each element the translation also has keeping the
+	 * translation's settings but for the layout ones (style_key()).
+	 *
+	 * @param array<string,array> $mine The translation's elements, by id.
+	 */
+	private static function merge_layout( array $tree, array $mine ): array {
+		foreach ( $tree as $i => $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			$had = $mine[ (string) ( $el['id'] ?? '' ) ] ?? null;
+			if ( is_array( $had )
+				&& (string) ( $had['elType'] ?? '' ) === (string) ( $el['elType'] ?? '' )
+				&& (string) ( $had['widgetType'] ?? '' ) === (string) ( $el['widgetType'] ?? '' ) ) {
+				$own    = isset( $had['settings'] ) && is_array( $had['settings'] ) ? $had['settings'] : [];
+				$theirs = isset( $el['settings'] ) && is_array( $el['settings'] ) ? $el['settings'] : [];
+				foreach ( array_keys( $own ) as $k ) {
+					if ( self::style_key( $k ) && ! array_key_exists( $k, $theirs ) ) {
+						unset( $own[ $k ] );
+					}
+				}
+				foreach ( $theirs as $k => $v ) {
+					if ( self::style_key( $k ) ) {
+						$own[ $k ] = $v;
+					}
+				}
+				$tree[ $i ]['settings'] = $own;
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				$tree[ $i ]['elements'] = self::merge_layout( $el['elements'], $mine );
+			}
+		}
+		return $tree;
 	}
 
 	/** A layout key: Elementor's page switches and the theme's (Astra) layout meta — never words. */
@@ -4295,12 +4394,24 @@ final class DZE_Translate {
 		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() || ! $wpdb ) {
 			return 0;
 		}
+		// ONLY WHAT THIS MODULE WILL ACT ON: the post types the shop picked
+		// for translation (products aside — they hold no layout of their
+		// own). A template or a checkout marked « to update » would be a
+		// promise nobody keeps.
+		$types = [];
+		foreach ( self::picked_scope() as $one ) {
+			if ( 'post' === $one['kind'] && ! in_array( $one['type'], [ 'product', 'product_variation', 'attachment', 'nav_menu_item' ], true ) ) {
+				$types[] = esc_sql( 'post_' . $one['type'] );
+			}
+		}
+		if ( ! $types ) {
+			return 0;
+		}
 		$tr = $wpdb->prefix . 'icl_translations';
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table.
 		$rows = (array) $wpdb->get_results( "SELECT o.element_id AS src, t.element_id AS dst, t.translation_id AS tid
 			FROM {$tr} o INNER JOIN {$tr} t ON t.trid = o.trid AND t.element_id <> o.element_id AND t.element_type = o.element_type
-			WHERE o.source_language_code IS NULL AND o.element_type LIKE 'post\\_%'
-			  AND o.element_type NOT IN ( 'post_product', 'post_product_variation', 'post_attachment', 'post_nav_menu_item' )"
+			WHERE o.source_language_code IS NULL AND o.element_type IN ( '" . implode( "','", $types ) . "' )"
 			. ( $src > 0 ? $wpdb->prepare( ' AND o.element_id = %d', $src ) : '' ), ARRAY_A );
 		// phpcs:enable
 		$marked = 0;
@@ -4313,7 +4424,13 @@ final class DZE_Translate {
 			if ( '' === $signs[ $s ] || $signs[ $s ] === self::layout_signature( (int) $r['dst'] ) ) {
 				continue;
 			}
-			$marked += DZE_Wpml::mark_needs_update( (int) $r['tid'] ) ? 1 : 0;
+			if ( DZE_Wpml::mark_needs_update( (int) $r['tid'] ) ) {
+				$marked++;
+				// And the automation's month of rest on the original is over.
+				if ( class_exists( 'DZE_Automation' ) ) {
+					DZE_Automation::wake_translation( $s );
+				}
+			}
 		}
 		return $marked;
 	}
@@ -4333,15 +4450,7 @@ final class DZE_Translate {
 	 * language may point at its own copy of the same picture or page.
 	 */
 	public static function layout_signature( int $pid ): string {
-		$tree = self::tree_of( $pid );
-		if ( $tree ) {
-			$blank = [];
-			foreach ( self::elementor_fields( [ 'kind' => 'post', 'id' => $pid ] ) as $f ) {
-				$blank[ (string) $f['path'] ] = '';
-			}
-			self::tree_put( $tree, $blank );
-			$tree = self::without_media( $tree );
-		}
+		$tree = self::layout_only( self::tree_of( $pid ) );
 		$meta = [];
 		foreach ( array_filter( array_keys( (array) get_post_meta( $pid ) ), [ self::class, 'layout_key' ] ) as $k ) {
 			if ( in_array( $k, [ '_elementor_version', '_elementor_pro_version' ], true ) ) {
@@ -4352,6 +4461,29 @@ final class DZE_Translate {
 		}
 		ksort( $meta );
 		return md5( (string) wp_json_encode( [ $tree, $meta ] ) );
+	}
+
+	/**
+	 * A tree as layout_from() carries it: the elements, nested and in order,
+	 * and their layout settings (style_key()). Words, captions, links and ids
+	 * are each translation's own and never make a page « behind ».
+	 */
+	private static function layout_only( array $tree ): array {
+		$out = [];
+		foreach ( $tree as $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			$s = [];
+			foreach ( ( isset( $el['settings'] ) && is_array( $el['settings'] ) ? $el['settings'] : [] ) as $k => $v ) {
+				if ( self::style_key( $k ) ) {
+					$s[ (string) $k ] = ( is_array( $v ) && array_key_exists( 'url', $v ) ) ? '~' : self::without_media( $v );
+				}
+			}
+			ksort( $s );
+			$out[] = [ (string) ( $el['id'] ?? '' ), (string) ( $el['elType'] ?? '' ), (string) ( $el['widgetType'] ?? '' ), $s, self::layout_only( isset( $el['elements'] ) && is_array( $el['elements'] ) ? $el['elements'] : [] ) ];
+		}
+		return $out;
 	}
 
 	/** Pictures and links ({url, id…}) become one mark: they are per-language copies. */

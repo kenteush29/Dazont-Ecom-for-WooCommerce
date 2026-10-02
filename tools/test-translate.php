@@ -169,6 +169,7 @@ function apply_filters( $tag, $value = null, ...$a ) {
 	return $value;
 }
 function do_action( ...$a ) {}
+if ( ! function_exists( 'clean_post_cache' ) ) { function clean_post_cache( $id ) {} }
 
 /** WPML's two tables, and what was written to them. */
 class DZE_Tr_Test_Wpdb {
@@ -3998,6 +3999,63 @@ ok( 'both « nothing to send » places close that way', [
 	substr_count( $tr_src, 'self::settle_unchanged( $o, $lang );' ),
 	false !== strpos( $tr_src, "self::layout_from( (int) \$o['id'], \$target, false );" ),
 ], [ 1, 1, true ] );
+// 4.510.0 — LA MISE EN PAGE, JAMAIS LE CONTENU. Mesuré sur Kula avant de
+// marquer quoi que ce soit : 905 légendes d'images, les titres « produits
+// associés », les messages des formulaires, les ids de catégories par langue
+// différaient entre l'original et ses traductions. 4.509.0 aurait tout écrasé
+// par l'anglais en ne gardant que les mots de son propre registre.
+echo "\nThe layout is carried, never the translation's own content\n";
+ok( 'layout settings are known by their name', [
+	DZE_Translate::style_key( 'padding' ), DZE_Translate::style_key( '_margin_mobile' ), DZE_Translate::style_key( 'content_width' ), DZE_Translate::style_key( 'stretch_section' ),
+	DZE_Translate::style_key( '__globals__' ), DZE_Translate::style_key( 'title_typography_font_size' ), DZE_Translate::style_key( 'button_text_color' ), DZE_Translate::style_key( '_inline_size' ),
+], [ true, true, true, true, true, true, true, true ] );
+ok( 'and the translation\'s own content too', [
+	DZE_Translate::style_key( 'caption' ), DZE_Translate::style_key( 'ribbon_title' ), DZE_Translate::style_key( 'products_related_products_title_text' ), DZE_Translate::style_key( 'show_all_galleries_label' ),
+	DZE_Translate::style_key( 'query_include_term_ids' ), DZE_Translate::style_key( 'shortcode' ), DZE_Translate::style_key( '__dynamic__' ), DZE_Translate::style_key( 'link' ),
+	DZE_Translate::style_key( 'form_fields' ), DZE_Translate::style_key( 'success_message' ), DZE_Translate::style_key( 'menu' ), DZE_Translate::style_key( 'template_id' ),
+	DZE_Translate::style_key( 'label_days' ), DZE_Translate::style_key( 'button_text' ), DZE_Translate::style_key( 'html' ), DZE_Translate::style_key( 'image' ),
+], array_fill( 0, 16, false ) );
+$dze_en = [ [ 'id' => 'a1', 'elType' => 'section', 'settings' => [ 'stretch_section' => 'section-stretched', 'padding' => [ 'top' => '40', 'unit' => 'px' ], '__globals__' => [ 'background_color' => 'globals/colors?id=primary' ] ], 'elements' => [
+	[ 'id' => 'a2', 'elType' => 'column', 'settings' => [ '_column_size' => 100, 'margin' => [ 'top' => '0' ] ], 'elements' => [
+		[ 'id' => 'a3', 'elType' => 'widget', 'widgetType' => 'image', 'settings' => [ 'caption' => 'Our team in the field', 'caption_source' => 'custom', 'align' => 'center', 'image' => [ 'url' => 'https://kula.test/a.jpg', 'id' => 5 ] ], 'elements' => [] ],
+		[ 'id' => 'a4', 'elType' => 'widget', 'widgetType' => 'woocommerce-products', 'settings' => [ 'query_include_term_ids' => [ 100, 101 ], 'products_related_products_title_text' => 'You may also like', 'columns' => '3' ], 'elements' => [] ],
+		[ 'id' => 'a5', 'elType' => 'widget', 'widgetType' => 'call-to-action', 'settings' => [ 'ribbon_title' => 'New', 'link' => [ 'url' => 'https://kula.test/new/' ] ], 'elements' => [] ],
+		[ 'id' => 'a7', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'A carousel added since' ], 'elements' => [] ],
+	] ],
+] ] ];
+$dze_ru = [ [ 'id' => 'a1', 'elType' => 'section', 'settings' => [ 'layout' => 'boxed', 'padding' => [ 'top' => '10', 'unit' => 'px' ] ], 'elements' => [
+	[ 'id' => 'a2', 'elType' => 'column', 'settings' => [ '_column_size' => 100 ], 'elements' => [
+		[ 'id' => 'a3', 'elType' => 'widget', 'widgetType' => 'image', 'settings' => [ 'caption' => 'Наша команда в поле', 'caption_source' => 'custom', 'align' => 'left', 'image' => [ 'url' => 'https://ru.kula.test/a-ru.jpg', 'id' => 6 ] ], 'elements' => [] ],
+		[ 'id' => 'a4', 'elType' => 'widget', 'widgetType' => 'woocommerce-products', 'settings' => [ 'query_include_term_ids' => [ 200, 201 ], 'products_related_products_title_text' => 'Вам также может понравиться', 'columns' => '4' ], 'elements' => [] ],
+		[ 'id' => 'a5', 'elType' => 'widget', 'widgetType' => 'call-to-action', 'settings' => [ 'ribbon_title' => 'Новинка', 'link' => [ 'url' => 'https://ru.kula.test/new/' ] ], 'elements' => [] ],
+		[ 'id' => 'a6', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Старый раздел' ], 'elements' => [] ],
+	] ],
+] ] ];
+$GLOBALS['meta'][721] = [ '_elementor_data' => json_encode( $dze_en ) ];
+$GLOBALS['meta'][722] = [ '_elementor_data' => json_encode( $dze_ru ) ];
+ok( 'a translation behind in layout has another signature', DZE_Translate::layout_signature( 721 ) === DZE_Translate::layout_signature( 722 ), false );
+DZE_Translate::layout_from( 721, 722, false );
+$dze_t  = json_decode( (string) $GLOBALS['meta'][722]['_elementor_data'], true );
+$dze_ws = $dze_t[0]['elements'][0]['elements'];
+ok( 'the section and the column take the original layout', [ $dze_t[0]['settings']['stretch_section'] ?? '', $dze_t[0]['settings']['padding']['top'] ?? '', $dze_t[0]['settings']['__globals__']['background_color'] ?? '', isset( $dze_t[0]['settings']['layout'] ), $dze_t[0]['elements'][0]['settings']['margin']['top'] ?? '' ], [ 'section-stretched', '40', 'globals/colors?id=primary', false, '0' ] );
+ok( 'every widget keeps its own caption, titles, links, pictures and category ids', [
+	$dze_ws[0]['settings']['caption'] ?? '', $dze_ws[0]['settings']['image']['id'] ?? 0, $dze_ws[1]['settings']['query_include_term_ids'] ?? [], $dze_ws[1]['settings']['products_related_products_title_text'] ?? '',
+	$dze_ws[2]['settings']['ribbon_title'] ?? '', $dze_ws[2]['settings']['link']['url'] ?? '',
+], [ 'Наша команда в поле', 6, [ 200, 201 ], 'Вам также может понравиться', 'Новинка', 'https://ru.kula.test/new/' ] );
+ok( 'and takes the original alignment and columns', [ $dze_ws[0]['settings']['align'] ?? '', $dze_ws[1]['settings']['columns'] ?? '' ], [ 'center', '3' ] );
+ok( 'the widget the original dropped goes, the one it added comes', array_column( $dze_ws, 'id' ), [ 'a3', 'a4', 'a5', 'a7' ] );
+ok( 'once carried, the signatures agree', DZE_Translate::layout_signature( 721 ) === DZE_Translate::layout_signature( 722 ), true );
+$GLOBALS['meta'][723] = [ '_elementor_data' => json_encode( $dze_en ) ];
+$dze_other = $dze_en;
+$dze_other[0]['elements'][0]['elements'][0]['settings']['caption'] = 'Unsere Mannschaft';
+$dze_other[0]['elements'][0]['elements'][1]['settings']['query_include_term_ids'] = [ 300 ];
+$dze_other[0]['elements'][0]['elements'][2]['settings']['__dynamic__'] = [ 'title' => '[elementor-tag id="x" name="post-title"]' ];
+$GLOBALS['meta'][724] = [ '_elementor_data' => json_encode( $dze_other ) ];
+ok( 'content alone never makes a page « behind »', DZE_Translate::layout_signature( 723 ) === DZE_Translate::layout_signature( 724 ), true );
+ok( 'drift is marked only on the post types the shop translates', false !== strpos( $tr_src, "foreach ( self::picked_scope() as \$one ) {" ) && false === strpos( $tr_src, "AND o.element_type NOT IN ( 'post_product', 'post_product_variation', 'post_attachment', 'post_nav_menu_item' )" ), true );
+// Les pages traduites le 30/09 se reposaient jusqu a fin octobre : marquees, rien ne les aurait reprises.
+$dze_au = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
+ok( 'a page marked for its layout is woken from the automation rest', [ false !== strpos( $tr_src, "DZE_Automation::wake_translation( \$s );" ), false !== strpos( $dze_au, "public static function wake_translation( int \$oid ): bool {" ) ], [ true, true ] );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 

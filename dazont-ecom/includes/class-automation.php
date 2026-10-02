@@ -1915,6 +1915,23 @@ final class DZE_Automation {
 		return '';
 	}
 
+	/**
+	 * NEW WORK ON A POST THE TRANSLATION TASK HAS ALREADY DONE: its month of
+	 * rest is over. A page translated on 30/09 and redesigned since owes its
+	 * translations the new layout and the new widgets' words; resting until
+	 * the end of October, « marquée à mettre à jour » would have promised what
+	 * nothing did (DZE_Translate::mark_layout_drift()).
+	 */
+	public static function wake_translation( int $oid ): bool {
+		$woke = false;
+		foreach ( self::tasks() as $id => $task ) {
+			if ( 'translate' === (string) ( $task['scope'] ?? '' ) && self::unmark( $oid, (string) $id, 'post' ) ) {
+				$woke = true;
+			}
+		}
+		return $woke;
+	}
+
 	/** Takes one task's stamp off one object. */
 	private static function unmark( int $oid, string $id, string $type ): bool {
 		$all = 'post' === $type ? get_post_meta( $oid, self::META_SEEN, true ) : get_term_meta( $oid, self::META_SEEN, true );
