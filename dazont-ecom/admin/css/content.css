@@ -7,6 +7,11 @@
 	--dze-z-modal: 100000;   /* our popups */
 	--dze-z-prompt: 100010;  /* the prompt editor, over a popup */
 	--dze-z-card: 100020;    /* the « i » card of an AI picture, over a popup */
+	/* ONE SIZE FOR EVERY PICTURE OF A PRODUCT — its photographs, the ones
+	   pasted in, the ones made, the pickers. « Il faut que toutes les images
+	   soient de la même taille pour une meilleur lisibilité et un affichage
+	   plus standardisé. » */
+	--dze-pic: 200px;
 	--dze-z-zoom: 160050;    /* the image viewer, deliberately over wp.media */
 }
 
@@ -433,8 +438,8 @@
 	background: #fff; border: 1px solid #dcdcde; border-radius: 3px;
 	white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5;
 }
-/* The bulk panel's own picker: smaller tiles, a product panel holds a lot. */
-.dze-cb-srcs .dze-one-srcpick { width: 96px; height: 96px; }
+/* The bulk panel's picker: the same size as every other picture. */
+.dze-cb-srcs .dze-one-srcpick { width: var(--dze-pic); height: var(--dze-pic); }
 .dze-cb-srcstate { color: #646970; font-weight: 400; }
 /* ---- The box that takes photographs from outside the shop ---- */
 /* admin/js/paste-box.js, mounted by the one-function popup, the toolbox and
@@ -445,7 +450,7 @@
    faudrait les afficher dans la même taille que les images produit » — at
    96 px, a supplier's detail shot could not be compared with the photographs
    it is meant to complete. */
-.dze-pb-tile img { display: block; width: 148px; height: 148px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; }
+.dze-pb-tile img { display: block; width: var(--dze-pic); height: var(--dze-pic); object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; }
 /* The drop zone around them caps any picture at 140 px and pushes it down
    (.dze-qm-drop img, written for the single preview it once held): a tile
    is not that preview. */
@@ -854,10 +859,9 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    swallow the screen. */
 .dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
 .dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
-/* « Je propose un affichage plus grand des images » — 220 px: a picture is
-   judged before it is kept, and 148 px was a thumbnail. */
+/* The size every picture of a product has (--dze-pic). */
 .dze-cb-shot {
-	position: relative; width: 220px; height: 220px; flex: 0 0 220px;
+	position: relative; width: var(--dze-pic); height: var(--dze-pic); flex: 0 0 var(--dze-pic);
 	border: 2px solid #dcdcde; border-radius: 5px; overflow: hidden; cursor: pointer; background: #f6f7f7;
 }
 .dze-cb-shot.is-busy { opacity: .45; }
@@ -1331,9 +1335,9 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 
 
 /* ---- One tile size for product images, everywhere ---- */
-.dze-cb-nowshot { display: inline-block; width: 148px; height: 148px; }
+.dze-cb-nowshot { display: inline-block; width: var(--dze-pic); height: var(--dze-pic); }
 .dze-cb-nowshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.dze-one-srcpick { width: 148px; height: 148px; }
+.dze-one-srcpick { width: var(--dze-pic); height: var(--dze-pic); }
 
 /* The one save note, wherever the button is. */
 .dze-savednote { margin-left: 10px; font-weight: 600; }
@@ -1419,7 +1423,7 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-nowafter:not(:empty) { margin-top: 2px; }
 .dze-nowarrow { display: block; text-align: center; color: #2271b1; font-size: 14px; line-height: 1.1; }
 .dze-rf-new {
-	display: block; width: 148px; height: 148px; object-fit: contain;
+	display: block; width: var(--dze-pic); height: var(--dze-pic); object-fit: contain;
 	background: #f6f7f7; border: 2px solid #2271b1; border-radius: 4px;
 }
 .dze-rf-drop { font-size: 12px; color: #50575e; }
@@ -2221,10 +2225,6 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-cb-shot .dze-ai-i { top: 2px; right: auto; left: 23px; }
 .dze-one-try .dze-ai-i { top: 4px; right: auto; left: 27px; }
 .dze-var-tryimg .dze-ai-i { top: 4px; right: auto; left: 4px; }
-/* WooCommerce's own boxes: their delete cross is top-right. */
-#product_images_container li.image .dze-ai-i-wc { top: auto; right: auto; bottom: 3px; left: 3px; }
-.dze-ai-host { position: relative; }
-.dze-ai-host .dze-ai-i-wc { top: 6px; right: auto; left: 6px; }
 
 .dze-ai-pop {
 	position: absolute; z-index: var(--dze-z-card); box-sizing: border-box;

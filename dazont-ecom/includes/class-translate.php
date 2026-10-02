@@ -118,6 +118,16 @@ final class DZE_Translate {
 		// that sits in a menu is written (see DZE_Menu_Sync). Named, not read
 		// from the class: listening must not load it on every request.
 		add_action( 'dze_menu_sync', [ 'DZE_Menu_Sync', 'run' ] ); // = DZE_Menu_Sync::HOOK
+		// AN ORIGINAL SAVED: a translation now behind its layout is marked « to
+		// update » in WPML (mark_layout_drift()). Elementor writes its tree
+		// after the post itself, hence its own hook as well; both before the
+		// admin guard, since the block editor saves through the REST API.
+		add_action( 'save_post', [ __CLASS__, 'drift_on_save' ], 99, 2 );
+		add_action( 'elementor/document/after_save', static function ( $document ) {
+			if ( is_object( $document ) && method_exists( $document, 'get_main_id' ) ) {
+				self::drift_on_save( (int) $document->get_main_id() );
+			}
+		} );
 		// Admin only, by nature: nothing here has any business on a shop page.
 		if ( ! is_admin() ) {
 			return;
@@ -1574,7 +1584,7 @@ final class DZE_Translate {
 				// Rien à envoyer : réglé gratuitement. Seul l'envoi ordinaire le
 				// dit réglé — « tout traduire » d'un original vide ne règle rien.
 				if ( ! $tout ) {
-					self::obj_settle( $o, $code );
+					self::settle_unchanged( $o, $code );
 				}
 				$drop[] = [ $e, $code, '' ];
 				continue;
@@ -4121,10 +4131,8 @@ final class DZE_Translate {
 		$src_keys = array_filter( array_keys( (array) get_post_meta( $src ) ), [ self::class, 'layout_key' ] );
 		foreach ( $src_keys as $k ) {
 			$v = get_post_meta( $src, $k, true );
-			if ( '_elementor_page_settings' === $k && is_array( $v ) ) {
-				// What the page settings say about the post itself is the
-				// translation's own.
-				unset( $v['post_title'], $v['post_excerpt'], $v['post_status'], $v['post_featured_image'] );
+			if ( '_elementor_page_settings' === $k ) {
+				$v = self::page_settings( $v );
 			}
 			if ( get_post_meta( $dst, $k, true ) !== $v ) {
 				update_post_meta( $dst, $k, wp_slash( $v ) );
@@ -4147,25 +4155,38 @@ final class DZE_Translate {
 			return $out;
 		}
 		$words = [];
-		if ( $mine ) {
-			foreach ( self::elementor_fields( [ 'kind' => 'post', 'id' => $src ] ) as $f ) {
-				$path = (string) $f['path'];
-				$was  = self::tree_get( $tree, $path );
-				$now  = self::tree_get( $mine, $path );
-				if ( '' !== trim( $now ) && $now !== $was ) {
-					$words[ $path ] = $now;
-				}
+		$lacks = [];
+		foreach ( self::elementor_fields( [ 'kind' => 'post', 'id' => $src ] ) as $fid => $f ) {
+			$path = (string) $f['path'];
+			$was  = self::tree_get( $tree, $path );
+			$now  = $mine ? self::tree_get( $mine, $path ) : '';
+			if ( '' === trim( $now ) ) {
+				$lacks[] = (string) $fid;
+			} elseif ( $now !== $was ) {
+				$words[ $path ] = $now;
 			}
-			self::tree_put( $tree, $words );
 		}
+		self::tree_put( $tree, $words );
 		$json = (string) wp_json_encode( $tree );
 		if ( $json === (string) wp_json_encode( $mine ) ) {
 			return $out;
 		}
 		update_post_meta( $dst, '_elementor_data', wp_slash( $json ) );
 		self::elementor_refresh( $dst );
+		// WHAT IT GAINED SPEAKS THE ORIGINAL'S LANGUAGE, so it is owed: a
+		// register that said those widgets were done (a pass made before this
+		// one skipped what the old layout lacked) would keep them English.
+		self::forget( $dst, $lacks );
 		$out['tree'] = true;
 		return $out;
+	}
+
+	/** Elementor's page settings without what they say about the post itself, which is each translation's own. */
+	private static function page_settings( $v ) {
+		if ( is_array( $v ) ) {
+			unset( $v['post_title'], $v['post_excerpt'], $v['post_status'], $v['post_featured_image'] );
+		}
+		return $v;
 	}
 
 	/** A layout key: Elementor's page switches and the theme's (Astra) layout meta — never words. */
@@ -4254,48 +4275,94 @@ final class DZE_Translate {
 	}
 
 	/**
-	 * EVERY TRANSLATION GIVEN ITS ORIGINAL'S LAYOUT AGAIN — the repair for the
-	 * pages translated while WPML was not copying it. Words are kept; what a
-	 * translation held before is kept too, once, in `_dze_layout_before`.
+	 * A TRANSLATION BEHIND ITS ORIGINAL'S LAYOUT IS « TO UPDATE » IN WPML.
 	 *
-	 * @return array{pages:int,trees:int,meta:int}
+	 * « Si le code est clean et que les pages sont marqués dans le module wpml
+	 * "à mettre à jour" alors ça se fera. » A page translated before its
+	 * original was redesigned kept the old sections — and WPML did not flag
+	 * it, because WPML signs the words, not the Elementor tree, and on Kula it
+	 * no longer copies that tree at all. So the plugin compares the layout
+	 * itself (layout_signature()) and raises WPML's own « needs update » mark
+	 * on a translation whose layout differs: the translation pass then gives
+	 * it the original's layout (layout_from()) and its missing words.
+	 *
+	 * Run when an original is saved, and once over the whole shop.
+	 *
+	 * @return int how many translations were marked.
 	 */
-	public static function relayout_all( int $limit = 0, bool $dry = false ): array {
+	public static function mark_layout_drift( int $src = 0 ): int {
 		global $wpdb;
-		$tr  = $wpdb->prefix . 'icl_translations';
-		$out = [ 'pages' => 0, 'trees' => 0, 'meta' => 0 ];
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table, no input.
-		$rows = (array) $wpdb->get_results( "SELECT o.element_id AS src, t.element_id AS dst
-			FROM {$tr} o INNER JOIN {$tr} t ON t.trid = o.trid AND t.element_id <> o.element_id
-			WHERE o.source_language_code IS NULL AND o.element_type LIKE 'post\\_%' AND t.element_type = o.element_type
-			  AND o.element_type NOT IN ( 'post_product', 'post_product_variation', 'post_attachment', 'post_nav_menu_item' )
-			ORDER BY o.element_id", ARRAY_A );
-		foreach ( $rows as $r ) {
-			$src = (int) $r['src'];
-			$dst = (int) $r['dst'];
-			if ( ! $src || ! $dst || ( ! self::tree_of( $src ) && ! array_filter( array_keys( (array) get_post_meta( $src ) ), [ self::class, 'layout_key' ] ) ) ) {
-				continue;
-			}
-			if ( $limit > 0 && $out['pages'] >= $limit ) {
-				break;
-			}
-			$out['pages']++;
-			if ( $dry ) {
-				continue;
-			}
-			// What the translation held before, once: the repair can be undone.
-			if ( '' === (string) get_post_meta( $dst, '_dze_layout_before', true ) ) {
-				$keep = [ 'tree' => (string) get_post_meta( $dst, '_elementor_data', true ), 'meta' => [] ];
-				foreach ( array_filter( array_keys( (array) get_post_meta( $dst ) ), [ self::class, 'layout_key' ] ) as $k ) {
-					$keep['meta'][ $k ] = get_post_meta( $dst, $k, true );
-				}
-				update_post_meta( $dst, '_dze_layout_before', wp_slash( (string) wp_json_encode( $keep ) ) );
-			}
-			$did = self::layout_from( $src, $dst, false );
-			$out['trees'] += $did['tree'] ? 1 : 0;
-			$out['meta']  += $did['meta'];
+		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() || ! $wpdb ) {
+			return 0;
 		}
-		return $out;
+		$tr = $wpdb->prefix . 'icl_translations';
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table.
+		$rows = (array) $wpdb->get_results( "SELECT o.element_id AS src, t.element_id AS dst, t.translation_id AS tid
+			FROM {$tr} o INNER JOIN {$tr} t ON t.trid = o.trid AND t.element_id <> o.element_id AND t.element_type = o.element_type
+			WHERE o.source_language_code IS NULL AND o.element_type LIKE 'post\\_%'
+			  AND o.element_type NOT IN ( 'post_product', 'post_product_variation', 'post_attachment', 'post_nav_menu_item' )"
+			. ( $src > 0 ? $wpdb->prepare( ' AND o.element_id = %d', $src ) : '' ), ARRAY_A );
+		// phpcs:enable
+		$marked = 0;
+		$signs  = [];
+		foreach ( $rows as $r ) {
+			$s = (int) $r['src'];
+			if ( ! isset( $signs[ $s ] ) ) {
+				$signs[ $s ] = self::tree_of( $s ) ? self::layout_signature( $s ) : '';
+			}
+			if ( '' === $signs[ $s ] || $signs[ $s ] === self::layout_signature( (int) $r['dst'] ) ) {
+				continue;
+			}
+			$marked += DZE_Wpml::mark_needs_update( (int) $r['tid'] ) ? 1 : 0;
+		}
+		return $marked;
+	}
+
+	/** An original being saved: its translations are compared with it. */
+	public static function drift_on_save( $post_id, $post = null ): void {
+		$post_id = (int) $post_id;
+		if ( $post_id < 1 || wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
+			return;
+		}
+		self::mark_layout_drift( $post_id );
+	}
+
+	/**
+	 * A page's layout with its words taken out — what an original and its
+	 * translations must share. Pictures and links are left out: each
+	 * language may point at its own copy of the same picture or page.
+	 */
+	public static function layout_signature( int $pid ): string {
+		$tree = self::tree_of( $pid );
+		if ( $tree ) {
+			$blank = [];
+			foreach ( self::elementor_fields( [ 'kind' => 'post', 'id' => $pid ] ) as $f ) {
+				$blank[ (string) $f['path'] ] = '';
+			}
+			self::tree_put( $tree, $blank );
+			$tree = self::without_media( $tree );
+		}
+		$meta = [];
+		foreach ( array_filter( array_keys( (array) get_post_meta( $pid ) ), [ self::class, 'layout_key' ] ) as $k ) {
+			if ( in_array( $k, [ '_elementor_version', '_elementor_pro_version' ], true ) ) {
+				continue;
+			}
+			$v = get_post_meta( $pid, $k, true );
+			$meta[ $k ] = self::without_media( '_elementor_page_settings' === $k ? self::page_settings( $v ) : $v );
+		}
+		ksort( $meta );
+		return md5( (string) wp_json_encode( [ $tree, $meta ] ) );
+	}
+
+	/** Pictures and links ({url, id…}) become one mark: they are per-language copies. */
+	private static function without_media( $node ) {
+		if ( ! is_array( $node ) ) {
+			return $node;
+		}
+		foreach ( $node as $k => $v ) {
+			$node[ $k ] = ( is_array( $v ) && array_key_exists( 'url', $v ) ) ? '~' : self::without_media( $v );
+		}
+		return $node;
 	}
 
 	/**
@@ -5555,6 +5622,20 @@ final class DZE_Translate {
 		self::meta_write( $o, $target_id, self::META_SRC, (string) wp_json_encode( $map ) );
 	}
 
+	/** Takes fields off the register, so they are owed again. @param string[] $fids */
+	public static function forget( int $target_id, array $fids, array $o = [] ): void {
+		if ( ! $target_id || ! $fids ) {
+			return;
+		}
+		$o   = $o ?: [ 'kind' => 'post' ];
+		$map = self::src_map( $target_id, $o );
+		$was = count( $map );
+		$map = array_diff_key( $map, array_flip( array_map( 'strval', $fids ) ) );
+		if ( count( $map ) !== $was ) {
+			self::meta_write( $o, $target_id, self::META_SRC, (string) wp_json_encode( $map ) );
+		}
+	}
+
 	/**
 	 * WHICH FIELDS ACTUALLY CHANGED since this translation was made.
 	 *
@@ -5585,14 +5666,47 @@ final class DZE_Translate {
 		if ( ! $target || $target === (int) ( $o['id'] ?? 0 ) ) {
 			return $texts; // nothing translated yet: all of it is new.
 		}
-		$map = self::src_map( $target, $o );
-		$out = [];
+		$map  = self::src_map( $target, $o );
+		$tree = null;
+		$out  = [];
 		foreach ( $texts as $fid => $text ) {
-			if ( ( $map[ $fid ] ?? '' ) !== md5( (string) $text ) ) {
+			$moved = ( $map[ $fid ] ?? '' ) !== md5( (string) $text );
+			// A WIDGET THE TRANSLATION DOES NOT HAVE IS OWED, whatever the
+			// register says. A pass made before 4.509.0 wrote a page's words
+			// into the layout its translation had, skipped every widget that
+			// layout lacked — and wrote them all down as done. Given the
+			// original's layout again (layout_from()), those widgets would show
+			// the original's words for ever.
+			if ( ! $moved && 0 === strpos( (string) $fid, 'el:' ) ) {
+				if ( null === $tree ) {
+					$tree = self::tree_of( $target );
+				}
+				$moved = '' === trim( self::tree_get( $tree, substr( (string) $fid, 3 ) ) );
+			}
+			if ( $moved ) {
 				$out[ $fid ] = $text;
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * NOTHING OWED: THE ORIGINAL'S LAYOUT FIRST, THEN THE MARK CLOSED.
+	 *
+	 * A translation marked « to update » because its original was redesigned
+	 * (mark_layout_drift()) may owe no words at all — a banner stretched, a
+	 * section moved. Closed as it stood, it kept the old layout for good.
+	 * stale_from() has just found every widget of the original already
+	 * speaking in the translation, so the layout brings no English with it.
+	 */
+	private static function settle_unchanged( array $o, string $lang ): void {
+		if ( 'post' === ( $o['kind'] ?? '' ) ) {
+			$target = self::obj_translation( $o, $lang );
+			if ( $target && $target !== (int) ( $o['id'] ?? 0 ) ) {
+				self::layout_from( (int) $o['id'], $target, false );
+			}
+		}
+		self::obj_settle( $o, $lang );
 	}
 
 	/** The same question about a product, which is one kind of object. */
@@ -5946,7 +6060,7 @@ final class DZE_Translate {
 					// the original holds no text at all, which settles nothing.
 					// A SINGLE FIELD NEVER SETTLES A LANGUAGE.
 					if ( ! $every && '' === $only ) {
-						self::obj_settle( $o, $lang );
+						self::settle_unchanged( $o, $lang );
 					}
 					$res[ $ik ]['skipped'][] = $lang;
 					continue;

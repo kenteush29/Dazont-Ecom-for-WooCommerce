@@ -1943,11 +1943,6 @@ trait DZE_Content_Ajax {
 				'w'     => $w,
 				'h'     => $h,
 				'ratio' => self::ratio_label( $w, $h ),
-				// MADE OR REWORKED BY A MODEL: it carries the « i » that says
-				// which prompt, which model and what price (DZE_Ai_Card).
-				'ai'    => class_exists( 'DZE_Ai_Card' ) && DZE_Ai_Card::is_ai( (int) $aid ),
-				// WHAT IT SHOWS THAT THE PRODUCT DOES NOT, as the reader found it.
-				'flags' => array_values( (array) ( get_post_meta( (int) $aid, self::META_FLAGS, true ) ?: [] ) ),
 			];
 		}
 		wp_send_json_success( [
@@ -2495,12 +2490,9 @@ trait DZE_Content_Ajax {
 			if ( ! empty( $dze_views[ $dze_u ] ) && $dze_aid > 0 ) {
 				update_post_meta( $dze_aid, self::META_VIEW, (string) $dze_views[ $dze_u ] );
 			}
-			// The reader's framing and what it found invented stay with it.
+			// The reader's framing stays with it: the next orders steer by it.
 			if ( ! empty( $dze_wait['frames'][ $dze_u ] ) && $dze_aid > 0 ) {
 				update_post_meta( $dze_aid, self::META_FRAME, (string) $dze_wait['frames'][ $dze_u ] );
-			}
-			if ( ! empty( $dze_wait['flags'][ $dze_u ] ) && $dze_aid > 0 ) {
-				update_post_meta( $dze_aid, self::META_FLAGS, wp_slash( array_values( (array) $dze_wait['flags'][ $dze_u ] ) ) );
 			}
 		}
 		if ( empty( $ids ) ) {

@@ -3943,8 +3943,61 @@ $tr_src = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-
 ok( 'every write and every new translation carries the layout', [
 	false !== strpos( $tr_src, "self::layout_from( (int) \$o['id'], \$target_id, (bool) \$el );\n\t\tif ( \$el ) {" ),
 	false !== strpos( $tr_src, "self::layout_from( \$pid, \$new_id, true );" ),
-	false !== strpos( $tr_src, "update_post_meta( \$dst, '_dze_layout_before', wp_slash( (string) wp_json_encode( \$keep ) ) );" ),
-], [ true, true, true ] );
+	false !== strpos( $tr_src, "add_action( 'save_post', [ __CLASS__, 'drift_on_save' ], 99, 2 );" ),
+	false !== strpos( $tr_src, 'relayout_all' ),
+], [ true, true, true, false ] );
+// « Réparer les traductions existantes : non si le code est clean et que les pages sont
+// marqués dans le module wpml "à mettre à jour" alors ça se fera. »
+$GLOBALS['meta'][704] = $GLOBALS['meta'][701];
+$GLOBALS['meta'][705] = $GLOBALS['meta'][702];
+DZE_Translate::layout_from( 704, 705, false );
+ok( 'words and pictures aside, a translation in step has its original layout signature', DZE_Translate::layout_signature( 704 ) === DZE_Translate::layout_signature( 705 ), true );
+$GLOBALS['meta'][706] = [ '_elementor_data' => json_encode( $dze_old_tree ), '_elementor_edit_mode' => 'builder' ];
+ok( 'a translation behind its original layout does not', DZE_Translate::layout_signature( 704 ) === DZE_Translate::layout_signature( 706 ), false );
+$dze_pic = [ [ 'id' => 's1', 'elType' => 'section', 'settings' => [ 'background_image' => [ 'url' => 'https://ru.example/x.jpg', 'id' => 9 ] ], 'elements' => [] ] ];
+$GLOBALS['meta'][707] = [ '_elementor_data' => json_encode( [ [ 'id' => 's1', 'elType' => 'section', 'settings' => [ 'background_image' => [ 'url' => 'https://example/x.jpg', 'id' => 8 ] ], 'elements' => [] ] ] ) ];
+$GLOBALS['meta'][708] = [ '_elementor_data' => json_encode( $dze_pic ) ];
+ok( 'a picture or a link copied per language is not a layout change', DZE_Translate::layout_signature( 707 ) === DZE_Translate::layout_signature( 708 ), true );
+$dze_wp = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-wpml.php' );
+ok( 'and the mark raised is WPML own « needs update », on an existing row only', false !== strpos( $dze_wp, "[ 'needs_update' => 1 ], [ 'translation_id' => \$translation_id, 'needs_update' => 0 ]" ), true );
+// 4.510.0 — CE QUE LA TRADUCTION N'A PAS EST DÛ, quoi que dise le registre.
+// La passe du 30/09 a écrit les mots dans l'ancienne mise en page, sauté les
+// widgets qu'elle n'avait pas, et les a tous notés comme faits.
+echo "\nA widget the translation lacks is owed, whatever the register says\n";
+$GLOBALS['posts'][711] = [ 'type' => 'page', 'post_title' => 'Home', 'post_content' => '', 'post_excerpt' => '' ];
+$GLOBALS['posts'][712] = [ 'type' => 'page', 'post_title' => 'Главная', 'post_content' => '', 'post_excerpt' => '' ];
+$GLOBALS['meta'][711]  = [ '_elementor_data' => json_encode( $dze_src_tree ), '_elementor_edit_mode' => 'builder' ];
+$GLOBALS['meta'][712]  = [ '_elementor_data' => json_encode( $dze_old_tree ), '_elementor_edit_mode' => 'builder' ];
+$GLOBALS['translated'][711] = [ 'ru' => 712 ];
+$dze_o    = [ 'kind' => 'post', 'id' => 711, 'type' => 'page' ];
+$dze_read = DZE_Translate::obj_read( $dze_o );
+DZE_Translate::remember( 712, $dze_read, $dze_o ); // what the 30/09 pass wrote down
+$dze_owed = DZE_Translate::stale_from( $dze_o, 'ru', $dze_read );
+ok( 'the widget missing from the translation is owed', isset( $dze_owed['el:w3:title'] ), true );
+ok( 'the ones it has are not', [ isset( $dze_owed['el:w1:title'] ), isset( $dze_owed['el:w2:editor'] ), isset( $dze_owed['title'] ) ], [ false, false, false ] );
+DZE_Translate::layout_from( 711, 712, false );
+ok( 'given the original layout, what it gained is taken off the register', array_key_exists( 'el:w3:title', DZE_Translate::src_map( 712, $dze_o ) ), false );
+ok( 'and what it already said stays on it', array_key_exists( 'el:w1:title', DZE_Translate::src_map( 712, $dze_o ) ), true );
+ok( 'so it is still owed once it holds the original words', array_keys( DZE_Translate::stale_from( $dze_o, 'ru', $dze_read ) ), [ 'el:w3:title' ] );
+// « Si le code est clean et que les pages sont marqués "à mettre à jour" alors ça se fera » —
+// a page marked for its layout alone owes no word, and was closed as it stood.
+$GLOBALS['meta'][712] = [ '_elementor_data' => json_encode( [ [ 'id' => 's1', 'elType' => 'section', 'settings' => [ 'layout' => 'boxed' ], 'elements' => [
+	[ 'id' => 'w1', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Снаряжайтесь сейчас' ], 'elements' => [] ],
+	[ 'id' => 'w2', 'elType' => 'widget', 'widgetType' => 'text-editor', 'settings' => [ 'editor' => '<p>Создано для поля.</p>' ], 'elements' => [] ],
+	[ 'id' => 'w3', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => [ 'title' => 'Блок, добавленный позже' ], 'elements' => [] ],
+] ] ] ) ];
+DZE_Translate::remember( 712, $dze_read, $dze_o );
+ok( 'no word owed', DZE_Translate::stale_from( $dze_o, 'ru', $dze_read ), [] );
+$dze_settle = new ReflectionMethod( 'DZE_Translate', 'settle_unchanged' );
+$dze_settle->setAccessible( true );
+$dze_settle->invoke( null, $dze_o, 'ru' );
+$dze_t = json_decode( (string) $GLOBALS['meta'][712]['_elementor_data'], true );
+ok( 'closing it carries the layout first', [ $dze_t[0]['settings']['stretch_section'] ?? '', $dze_t[0]['elements'][2]['settings']['title'] ?? '' ], [ 'section-stretched', 'Блок, добавленный позже' ] );
+ok( 'both « nothing to send » places close that way', [
+	substr_count( $tr_src, 'self::settle_unchanged( $o, $code );' ),
+	substr_count( $tr_src, 'self::settle_unchanged( $o, $lang );' ),
+	false !== strpos( $tr_src, "self::layout_from( (int) \$o['id'], \$target, false );" ),
+], [ 1, 1, true ] );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 
