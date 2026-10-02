@@ -925,6 +925,11 @@ fait" (4.499.0):
     scene of a picture in use (the person, their clothes, what they carry,
     the place, a patch where the description says patches go), are never
     inventions.
+    - The words alone were not enough: the backpack strap was still
+      flagged. 4.511.2 gives the scene a list of its own in the schema
+      (`scene`, required, read by nothing). With somewhere to put them, the
+      scene items leave `invented`. The control picture (a woven label
+      invented in a collar) is still flagged.
   - `$made_said` keeps what an order was told, and the card shows « Told to
     avoid ».
   - Live probe: 4,940 tokens in, 81 out, about $0.011, 3.3 s. It flagged
