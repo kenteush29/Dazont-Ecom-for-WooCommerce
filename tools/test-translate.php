@@ -4056,6 +4056,7 @@ ok( 'drift is marked only on the post types the shop translates', false !== strp
 // Les pages traduites le 30/09 se reposaient jusqu a fin octobre : marquees, rien ne les aurait reprises.
 $dze_au = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
 ok( 'a page marked for its layout is woken from the automation rest', [ false !== strpos( $tr_src, "DZE_Automation::wake_translation( \$s );" ), false !== strpos( $dze_au, "public static function wake_translation( int \$oid ): bool {" ) ], [ true, true ] );
+ok( 'a translation this module never made is never marked for its layout alone', false !== strpos( $tr_src, "if ( ! self::src_map( (int) \$r['dst'] ) ) {\n\t\t\t\tcontinue;\n\t\t\t}\n\t\t\tif ( DZE_Wpml::mark_needs_update(" ), true );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 
