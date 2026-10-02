@@ -4852,7 +4852,7 @@ Answer with STRICT JSON and nothing else: "
 					'toReplaceMain' => __( '⇄ Replaces the main image', 'dazont-ecom' ),
 					/* translators: %s: the rank of the gallery photograph */
 					'toReplaceN'    => __( '⇄ Replaces photo %s', 'dazont-ecom' ),
-					'toReplacePick' => __( '⇄ Replaces… pick it ↑', 'dazont-ecom' ),
+					'shotSwap'      => __( '⇄ Replace one of the product\'s photographs with this picture', 'dazont-ecom' ),
 					'compare'  => __( 'Current', 'dazont-ecom' ),
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
 					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
@@ -5494,7 +5494,16 @@ Answer with STRICT JSON and nothing else: "
 					'aiInvented'=> __( '⚠ Shows what the product does not have', 'dazont-ecom' ),
 					'aiAvoid'   => __( 'Told to avoid', 'dazont-ecom' ),
 					'aiAgain'   => __( 'Asked to make again', 'dazont-ecom' ),
-					'replaceHint' => __( 'Click the photograph the new picture takes the place of. It leaves the page, stays in the media library, and goes on being sent to the model as a photograph of the product.', 'dazont-ecom' ),
+					// « Which photograph does this picture replace? » (pickReplace()).
+					'rpTitle'   => __( 'Which photograph does this picture replace?', 'dazont-ecom' ),
+					'rpHelp'    => __( 'It takes that photograph\'s exact place on the product. The photograph replaced leaves the page, stays in the media library, and goes on being sent to the model as a photograph of the product.', 'dazont-ecom' ),
+					'rpNone'    => __( 'Replace nothing', 'dazont-ecom' ),
+					'rpEmpty'   => __( 'This product has no photograph to replace yet.', 'dazont-ecom' ),
+					'rpMain'    => __( 'Main image', 'dazont-ecom' ),
+					/* translators: %s: rank in the gallery */
+					'rpGallery' => __( 'Gallery %s', 'dazont-ecom' ),
+					/* translators: %s: « Main image » or « Gallery 2 » */
+					'rpChip'    => __( 'Replaces: %s', 'dazont-ecom' ),
 					'aiLoading' => __( 'Reading…', 'dazont-ecom' ),
 					'aiPrompt'  => __( 'Prompt', 'dazont-ecom' ),
 					'aiModel'   => __( 'Model', 'dazont-ecom' ),
@@ -6035,7 +6044,7 @@ Answer with STRICT JSON and nothing else: "
 				'toReplaceMain' => __( '⇄ Replaces the main image', 'dazont-ecom' ),
 				/* translators: %s: the rank of the gallery photograph */
 				'toReplaceN'    => __( '⇄ Replaces photo %s', 'dazont-ecom' ),
-				'toReplacePick' => __( '⇄ Replaces… pick it ↑', 'dazont-ecom' ),
+				'shotSwap'      => __( '⇄ Replace one of the product\'s photographs with this picture', 'dazont-ecom' ),
 				'sendToEach' => __( 'Each image goes where its own menu says.', 'dazont-ecom' ),
 				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
 				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),

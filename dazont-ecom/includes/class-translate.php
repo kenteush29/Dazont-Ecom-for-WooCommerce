@@ -4088,6 +4088,217 @@ final class DZE_Translate {
 	}
 
 	/**
+	 * THE ORIGINAL'S LAYOUT, CARRIED TO ITS TRANSLATION BY US.
+	 *
+	 * « Il semble que toutes les options elementor et le style astra n'est pas
+	 * toujours copié de la page d'origine. » A translation took its layout
+	 * from WPML: on every save, WPML copies the custom fields it is set to
+	 * copy — the Elementor tree, the page settings, Astra's layout switches.
+	 * On Kula those settings are gone from WPML's saved list (only the twelve
+	 * price fields are left marked « copy »), so a translation kept the tree
+	 * it was born with: its words were updated, never its sections, styles or
+	 * stretched banners.
+	 *
+	 * So the plugin no longer depends on it. The original's tree is the
+	 * translation's tree, with the translation's own words put back wherever
+	 * the same widget still says something; the page settings and Astra's
+	 * layout keys are the original's. A widget new on the original keeps its
+	 * original words until the next translation pass translates it.
+	 *
+	 * @param bool $seed Give a translation that has no tree the original's
+	 *                   (a page being created, or about to have its widgets
+	 *                   translated). Never in a repair pass: a translation
+	 *                   that renders its own content would turn English.
+	 * @return array{meta:int,tree:bool}
+	 */
+	public static function layout_from( int $src, int $dst, bool $seed = true ): array {
+		$out = [ 'meta' => 0, 'tree' => false ];
+		if ( $src < 1 || $dst < 1 || $src === $dst ) {
+			return $out;
+		}
+		// THE PAGE'S SETTINGS: Elementor's and the theme's switches, mirrored —
+		// a key the original no longer has is taken off the translation too.
+		$src_keys = array_filter( array_keys( (array) get_post_meta( $src ) ), [ self::class, 'layout_key' ] );
+		foreach ( $src_keys as $k ) {
+			$v = get_post_meta( $src, $k, true );
+			if ( '_elementor_page_settings' === $k && is_array( $v ) ) {
+				// What the page settings say about the post itself is the
+				// translation's own.
+				unset( $v['post_title'], $v['post_excerpt'], $v['post_status'], $v['post_featured_image'] );
+			}
+			if ( get_post_meta( $dst, $k, true ) !== $v ) {
+				update_post_meta( $dst, $k, wp_slash( $v ) );
+				$out['meta']++;
+			}
+		}
+		foreach ( array_filter( array_keys( (array) get_post_meta( $dst ) ), [ self::class, 'layout_key' ] ) as $k ) {
+			if ( ! in_array( $k, $src_keys, true ) ) {
+				delete_post_meta( $dst, $k );
+				$out['meta']++;
+			}
+		}
+		// THE TREE: the original's structure and settings, the translation's words.
+		$tree = self::tree_of( $src );
+		if ( ! $tree ) {
+			return $out;
+		}
+		$mine = self::tree_of( $dst );
+		if ( ! $mine && ! $seed ) {
+			return $out;
+		}
+		$words = [];
+		if ( $mine ) {
+			foreach ( self::elementor_fields( [ 'kind' => 'post', 'id' => $src ] ) as $f ) {
+				$path = (string) $f['path'];
+				$was  = self::tree_get( $tree, $path );
+				$now  = self::tree_get( $mine, $path );
+				if ( '' !== trim( $now ) && $now !== $was ) {
+					$words[ $path ] = $now;
+				}
+			}
+			self::tree_put( $tree, $words );
+		}
+		$json = (string) wp_json_encode( $tree );
+		if ( $json === (string) wp_json_encode( $mine ) ) {
+			return $out;
+		}
+		update_post_meta( $dst, '_elementor_data', wp_slash( $json ) );
+		self::elementor_refresh( $dst );
+		$out['tree'] = true;
+		return $out;
+	}
+
+	/** A layout key: Elementor's page switches and the theme's (Astra) layout meta — never words. */
+	public static function layout_key( $k ): bool {
+		$k = (string) $k;
+		if ( in_array( $k, [ '_wp_page_template', '_elementor_edit_mode', '_elementor_template_type', '_elementor_version', '_elementor_pro_version', '_elementor_page_settings' ], true ) ) {
+			return true;
+		}
+		return (bool) preg_match( '/^(site-|ast-|_astra|astra-|theme-transparent-header-meta$|stick-header-meta$|header-(above|main|below)-stick-meta$|footer-sml-layout$|footer-adv-display$|adv-header-id-meta$)/', $k );
+	}
+
+	/** One post's Elementor tree, decoded. [] when it has none. */
+	private static function tree_of( int $pid ): array {
+		$raw  = get_post_meta( $pid, '_elementor_data', true );
+		$tree = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+		return is_array( $tree ) ? $tree : [];
+	}
+
+	/** One setting of a decoded tree, by the path elementor_fields() gives it. */
+	private static function tree_get( array $tree, string $path ): string {
+		[ $want, $key ] = array_pad( explode( ':', $path, 2 ), 2, '' );
+		foreach ( $tree as $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			if ( (string) ( $el['id'] ?? '' ) === $want ) {
+				$s = isset( $el['settings'] ) && is_array( $el['settings'] ) ? $el['settings'] : [];
+				if ( false === strpos( $key, '.' ) ) {
+					return isset( $s[ $key ] ) && is_string( $s[ $key ] ) ? $s[ $key ] : '';
+				}
+				[ $rep, $n, $sub ] = array_pad( explode( '.', $key, 3 ), 3, '' );
+				return isset( $s[ $rep ][ (int) $n ][ $sub ] ) && is_string( $s[ $rep ][ (int) $n ][ $sub ] ) ? $s[ $rep ][ (int) $n ][ $sub ] : '';
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				$v = self::tree_get( $el['elements'], $path );
+				if ( '' !== $v ) {
+					return $v;
+				}
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Writes settings into a decoded tree, by path. @param array<string,string> $values
+	 * @return int how many were written.
+	 */
+	private static function tree_put( array &$tree, array $values ): int {
+		$done = 0;
+		foreach ( $tree as &$el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			$id = (string) ( $el['id'] ?? '' );
+			foreach ( $values as $path => $text ) {
+				[ $want, $key ] = array_pad( explode( ':', (string) $path, 2 ), 2, '' );
+				if ( $want !== $id || '' === $key ) {
+					continue;
+				}
+				if ( false === strpos( $key, '.' ) ) {
+					$el['settings'][ $key ] = (string) $text;
+				} else {
+					[ $rep, $n, $sub ] = array_pad( explode( '.', $key, 3 ), 3, '' );
+					if ( isset( $el['settings'][ $rep ][ (int) $n ] ) ) {
+						$el['settings'][ $rep ][ (int) $n ][ $sub ] = (string) $text;
+					}
+				}
+				$done++;
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				$done += self::tree_put( $el['elements'], $values );
+			}
+		}
+		unset( $el );
+		return $done;
+	}
+
+	/** Elementor serves cached HTML and a generated stylesheet: both are made again. */
+	private static function elementor_refresh( int $pid ): void {
+		delete_post_meta( $pid, '_elementor_element_cache' );
+		if ( class_exists( '\Elementor\Core\Files\CSS\Post' ) ) {
+			$css = new \Elementor\Core\Files\CSS\Post( $pid );
+			$css->delete();
+			$css->update();
+		}
+	}
+
+	/**
+	 * EVERY TRANSLATION GIVEN ITS ORIGINAL'S LAYOUT AGAIN — the repair for the
+	 * pages translated while WPML was not copying it. Words are kept; what a
+	 * translation held before is kept too, once, in `_dze_layout_before`.
+	 *
+	 * @return array{pages:int,trees:int,meta:int}
+	 */
+	public static function relayout_all( int $limit = 0, bool $dry = false ): array {
+		global $wpdb;
+		$tr  = $wpdb->prefix . 'icl_translations';
+		$out = [ 'pages' => 0, 'trees' => 0, 'meta' => 0 ];
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table, no input.
+		$rows = (array) $wpdb->get_results( "SELECT o.element_id AS src, t.element_id AS dst
+			FROM {$tr} o INNER JOIN {$tr} t ON t.trid = o.trid AND t.element_id <> o.element_id
+			WHERE o.source_language_code IS NULL AND o.element_type LIKE 'post\\_%' AND t.element_type = o.element_type
+			  AND o.element_type NOT IN ( 'post_product', 'post_product_variation', 'post_attachment', 'post_nav_menu_item' )
+			ORDER BY o.element_id", ARRAY_A );
+		foreach ( $rows as $r ) {
+			$src = (int) $r['src'];
+			$dst = (int) $r['dst'];
+			if ( ! $src || ! $dst || ( ! self::tree_of( $src ) && ! array_filter( array_keys( (array) get_post_meta( $src ) ), [ self::class, 'layout_key' ] ) ) ) {
+				continue;
+			}
+			if ( $limit > 0 && $out['pages'] >= $limit ) {
+				break;
+			}
+			$out['pages']++;
+			if ( $dry ) {
+				continue;
+			}
+			// What the translation held before, once: the repair can be undone.
+			if ( '' === (string) get_post_meta( $dst, '_dze_layout_before', true ) ) {
+				$keep = [ 'tree' => (string) get_post_meta( $dst, '_elementor_data', true ), 'meta' => [] ];
+				foreach ( array_filter( array_keys( (array) get_post_meta( $dst ) ), [ self::class, 'layout_key' ] ) as $k ) {
+					$keep['meta'][ $k ] = get_post_meta( $dst, $k, true );
+				}
+				update_post_meta( $dst, '_dze_layout_before', wp_slash( (string) wp_json_encode( $keep ) ) );
+			}
+			$did = self::layout_from( $src, $dst, false );
+			$out['trees'] += $did['tree'] ? 1 : 0;
+			$out['meta']  += $did['meta'];
+		}
+		return $out;
+	}
+
+	/**
 	 * Writes widget settings back into a translation's own Elementor tree.
 	 *
 	 * @param array<string,string> $values path => text
@@ -4132,12 +4343,7 @@ final class DZE_Translate {
 		update_post_meta( $pid, '_elementor_data', wp_slash( (string) wp_json_encode( $tree ) ) );
 		// Elementor serves a cached copy of the HTML it built; without this the
 		// page keeps showing the old words however correct the data now is.
-		delete_post_meta( $pid, '_elementor_element_cache' );
-		if ( class_exists( '\Elementor\Core\Files\CSS\Post' ) ) {
-			$css = new \Elementor\Core\Files\CSS\Post( $pid );
-			$css->delete();
-			$css->update();
-		}
+		self::elementor_refresh( $pid );
 		return true;
 	}
 
@@ -4575,6 +4781,11 @@ final class DZE_Translate {
 		if ( isset( $post['post_title'] ) ) {
 			self::slug_follow( $o, $target_id, (string) $post['post_title'] );
 		}
+		// THE ORIGINAL'S LAYOUT, BY US (layout_from()): WPML no longer copies it
+		// on Kula, and the words below are then written into the original's
+		// current structure. A tree is given only to a page whose widgets are
+		// being translated in this pass.
+		self::layout_from( (int) $o['id'], $target_id, (bool) $el );
 		if ( $el ) {
 			// AND WHAT IS ABOUT TO BE REPLACED IS READ HERE, NOT AT THE TOP.
 			//
@@ -7068,6 +7279,9 @@ final class DZE_Translate {
 		// Prices, stock, dimensions, attributes: WPML copies what it is
 		// configured to copy, from the original. We never compute them.
 		do_action( 'wpml_sync_all_custom_fields', $pid );
+		// ITS LAYOUT AT BIRTH — the Elementor tree, the page settings, the
+		// theme's switches — whatever WPML copied or did not (layout_from()).
+		self::layout_from( $pid, $new_id, true );
 
 		// A VARIABLE PRODUCT WITHOUT ITS VARIATIONS IS NOT A PRODUCT.
 		// `wp_insert_post()` + the taxonomies gives a post of type `product`

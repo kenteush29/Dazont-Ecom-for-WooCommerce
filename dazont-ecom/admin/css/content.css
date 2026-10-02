@@ -854,8 +854,10 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    swallow the screen. */
 .dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
 .dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+/* « Je propose un affichage plus grand des images » — 220 px: a picture is
+   judged before it is kept, and 148 px was a thumbnail. */
 .dze-cb-shot {
-	position: relative; width: 148px; height: 148px; flex: 0 0 148px;
+	position: relative; width: 220px; height: 220px; flex: 0 0 220px;
 	border: 2px solid #dcdcde; border-radius: 5px; overflow: hidden; cursor: pointer; background: #f6f7f7;
 }
 .dze-cb-shot.is-busy { opacity: .45; }
@@ -2250,9 +2252,33 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-ai-bad ul, .dze-ai-list { margin: 2px 0 0; padding-left: 16px; list-style: disc; }
 .dze-ai-bad li, .dze-ai-list li { margin: 0; }
 .dze-ai-list { font-weight: 400; }
-/* A waiting picture headed for one of the product's photographs, and that
-   photograph while one is being picked. */
-.dze-photos.is-replacing .dze-cb-nowshot { cursor: crosshair; }
-.dze-photos.is-replacing .dze-cb-nowshot:not(.is-varshot) img { outline: 2px dashed #2271b1; outline-offset: -2px; }
-.dze-cb-replacehint { display: none; margin: 4px 0; font-size: 12px; color: #2271b1; font-weight: 600; }
-.dze-photos.is-replacing .dze-cb-replacehint { display: block; }
+
+/* ⇄ — the photograph a waiting picture replaces: shown on the picture, and
+   picked in a window of the product's photographs, large (photos.js). */
+.dze-cb-shotrepl {
+	position: absolute; left: 4px; bottom: 34px; z-index: 3;
+	display: flex; align-items: center; gap: 4px; padding: 2px 3px 2px 6px;
+	border-radius: 4px; background: rgba(0,0,0,.7); color: #fff; font-size: 13px; font-weight: 700;
+}
+.dze-cb-shotrepl img { width: 38px; height: 38px; object-fit: cover; border-radius: 3px; display: block; }
+.dze-rp-back {
+	position: fixed; inset: 0; z-index: var(--dze-z-card); display: flex; align-items: center; justify-content: center;
+	background: rgba(0,0,0,.5);
+}
+.dze-rp {
+	box-sizing: border-box; width: calc(100% - 32px); max-width: 820px; max-height: 88vh; overflow: auto;
+	padding: 16px 18px; border-radius: 8px; background: #fff; box-shadow: 0 10px 40px rgba(0,0,0,.3);
+}
+.dze-rp-head { display: flex; align-items: center; justify-content: space-between; font-size: 15px; }
+.dze-rp-x { border: 0; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: #646970; }
+.dze-rp-help { margin: 6px 0 12px; color: #50575e; font-size: 12px; }
+.dze-rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.dze-rp-tile {
+	display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 2px solid #dcdcde; border-radius: 6px;
+	background: #fff; cursor: pointer; text-align: center;
+}
+.dze-rp-tile:hover, .dze-rp-tile:focus { border-color: #2271b1; outline: none; }
+.dze-rp-tile.is-now { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
+.dze-rp-tile img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 4px; background: #f6f7f7; display: block; }
+.dze-rp-cap { font-size: 12px; font-weight: 600; color: #1d2327; }
+.dze-rp-foot { display: flex; align-items: center; gap: 14px; margin-top: 14px; }

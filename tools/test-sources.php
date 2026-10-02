@@ -2054,14 +2054,28 @@ ok( 'un ✦ ou un HD d une photo du produit vise sa place', [
 	false !== strpos( $dze_aj, "'replaces' => \$dze_replaces," ),
 	false !== strpos( $dze_aj, "self::replace_in_place( \$pid, \$dze_old, (int) \$dze_aid );" ),
 ], [ true, true, true, true ] );
-ok( 'les deux ecrans proposent « Replaces… » et la photo se choisit dans la bande', [
-	false !== strpos( $dze_js, "var order = [ 'gallery', 'gallery_first', 'main', 'replace' ];" ),
-	false !== strpos( $dze_jb, "var order = [ 'gallery', 'gallery_first', 'main', 'replace' ];" ),
-	false !== strpos( $dze_js, "\$(document).on('click', '#dze-cx-nowshots.is-replacing .dze-cb-nowshot', function (e) {" ),
-	false !== strpos( $dze_jb, "\$(document).on('click', '.dze-cb-preview .dze-photos.is-replacing .dze-cb-nowshot', function (e) {" ),
+// 4.509.0 — « C'est maladroit, il faut reprendre l'outil. Je propose un affichage
+// plus grand des images, et un bouton sur les miniatures pour remplacer. A partir
+// de là, peut être ouvrir une popup pour choisir laquelle remplacer ? »
+$dze_css = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/css/content.css' );
+ok( 'un bouton ⇄ sur chaque image en attente, sur les deux ecrans', [
+	false !== strpos( $dze_js, "\$('<button type=\"button\" class=\"dze-cb-shotswap\">⇄</button>').attr('title', i18n.shotSwap || '')" ),
+	false !== strpos( $dze_jb, "\$('<button type=\"button\" class=\"dze-cb-shotswap\">⇄</button>').attr('title', i18n.shotSwap || '')" ),
+	false !== strpos( $dze_js, "\$(document).on('click', '#dze-cx-shots .dze-cb-shotswap', function (e) {" ),
+	false !== strpos( $dze_jb, "\$(document).on('click', '.dze-cb-shots .dze-cb-shotswap', function (e) {" ),
+], [ true, true, true, true ] );
+ok( 'il ouvre les photos du produit en grand, et la photo choisie se voit sur l image', [
+	false !== strpos( $dze_ph, "function pickReplace(images, current, done) {" ),
+	false !== strpos( $dze_ph, "pickReplace: pickReplace," ),
+	false !== strpos( $dze_ph, "function replaceChip(images, id) {" ),
+	false !== strpos( $dze_css, ".dze-rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }" ),
+], [ true, true, true, true ] );
+ok( 'le cycle de destination redevient simple, et les images sont plus grandes', [
+	substr_count( $dze_js . $dze_jb, "var order = [ 'gallery', 'gallery_first', 'main' ];" ),
+	false !== strpos( $dze_js . $dze_jb, 'replacePick' ),
+	false !== strpos( $dze_css, "position: relative; width: 220px; height: 220px; flex: 0 0 220px;" ),
 	false !== strpos( $dze_js, "target: 'replace' === t ? 'gallery' : t" ),
-	false !== strpos( $dze_jb, "target: 'replace' === t ? 'gallery' : t" ),
-], [ true, true, true, true, true, true ] );
+], [ 2, false, true, true ] );
 ok( 'une image qui invente a un « ! » rouge, sur les deux ecrans et dans la bande', [
 	false !== strpos( $dze_ph, "\$b.addClass('is-flagged').text('!')" ),
 	false !== strpos( $dze_js, "res.shotFlags[x.url] = x.invented || [];" ),

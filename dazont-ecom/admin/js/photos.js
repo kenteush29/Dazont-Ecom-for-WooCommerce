@@ -150,8 +150,6 @@
 
 		$slot.empty().addClass('dze-photos').attr('data-post', opts.post || 0)
 			.append('<span class="dze-cb-nowlabel">' + esc(i18n.nowImages) + '</span>')
-			// Said while a new picture waits for the photograph it replaces.
-			.append('<p class="dze-cb-replacehint">' + esc(i18n.replaceHint || '') + '</p>')
 			.append($wrap).append($bar).append('<div class="dze-rf-out"></div>');
 		if (opts.after) { $slot.data('dze-after', opts.after); }
 	}
@@ -469,7 +467,75 @@
 		});
 	});
 
+	// ---- « Which photograph does this picture replace? » ----
+	//
+	// « C'est maladroit, il faut reprendre l'outil. Je propose un affichage plus
+	// grand des images, et un bouton sur les miniatures pour remplacer. A partir
+	// de là, peut être ouvrir une popup pour choisir laquelle remplacer ? » The
+	// choice hid at the end of the destination cycle, behind three clicks
+	// nobody makes. A ⇄ on the picture now opens the product's photographs,
+	// large, and the one clicked is the one it replaces.
+	function photoCaption(imgs, id) {
+		var gal = imgs.filter(function (im) { return !im.main; });
+		if (imgs.some(function (im) { return im.main && +im.id === +id; })) { return i18n.rpMain || ''; }
+		for (var i = 0; i < gal.length; i++) {
+			if (+gal[i].id === +id) { return String(i18n.rpGallery || '%s').replace('%s', i + 1); }
+		}
+		return '';
+	}
+	function rpClose() { $('.dze-rp-back').remove(); $(document).off('keydown.dzerp'); }
+	function pickReplace(images, current, done) {
+		var imgs = (images || []).filter(function (im) { return !im.variation; });
+		rpClose();
+		var $grid = $('<div class="dze-rp-grid"></div>');
+		imgs.forEach(function (im) {
+			$grid.append(
+				$('<button type="button" class="dze-rp-tile"></button>')
+					.toggleClass('is-now', +im.id === +current)
+					.attr('data-id', im.id)
+					.append(
+						$('<img alt="" />').attr('src', im.full || im.thumb),
+						$('<span class="dze-rp-cap"></span>').text(photoCaption(imgs, im.id))
+					)
+			);
+		});
+		var $back = $('<div class="dze-rp-back"></div>').append(
+			$('<div class="dze-rp" role="dialog" aria-modal="true"></div>').append(
+				$('<div class="dze-rp-head"></div>').append(
+					$('<strong></strong>').text(i18n.rpTitle || ''),
+					$('<button type="button" class="dze-rp-x">&times;</button>').attr('aria-label', i18n.close || '')
+				),
+				$('<p class="dze-rp-help"></p>').text(i18n.rpHelp || ''),
+				imgs.length ? $grid : $('<p class="dze-rp-help"></p>').text(i18n.rpEmpty || ''),
+				$('<div class="dze-rp-foot"></div>').append(
+					$('<button type="button" class="button dze-rp-none"></button>').text(i18n.rpNone || ''),
+					$('<button type="button" class="button-link dze-rp-cancel"></button>').text(i18n.cancel || '')
+				)
+			)
+		).appendTo(document.body);
+		$back.on('click', function (e) {
+			if (e.target === this || $(e.target).closest('.dze-rp-x, .dze-rp-cancel').length) { rpClose(); return; }
+			var $t = $(e.target).closest('.dze-rp-tile');
+			if ($t.length) { rpClose(); done(parseInt($t.attr('data-id'), 10) || 0); return; }
+			if ($(e.target).closest('.dze-rp-none').length) { rpClose(); done(0); }
+		});
+		$(document).on('keydown.dzerp', function (e) { if ('Escape' === e.key) { rpClose(); } });
+	}
+	// The photograph a waiting picture replaces, on the picture itself.
+	function replaceChip(images, id) {
+		var imgs = (images || []).filter(function (im) { return !im.variation; });
+		var im = imgs.filter(function (x) { return +x.id === +id; })[0];
+		if (!im) { return ''; }
+		return $('<span class="dze-cb-shotrepl"></span>')
+			.attr('title', String(i18n.rpChip || '%s').replace('%s', photoCaption(imgs, id)))
+			.append($('<span class="dze-cb-shotreplarrow">⇄</span>'), $('<img alt="" />').attr('src', im.thumb || im.full));
+	}
+
 	window.dzePhotos = {
+		// « Which photograph does this picture replace? », and the mark that
+		// says it on the picture.
+		pickReplace: pickReplace,
+		replaceChip: replaceChip,
 		// The « i » of a picture a model made, for the screens that draw
 		// pictures of their own (the waiting ones, the tries).
 		aiButton: aiButton,
