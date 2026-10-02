@@ -4509,7 +4509,7 @@ final class DZE_Translate {
 			 INNER JOIN {$wpdb->posts} a ON a.ID = mo.meta_value AND a.post_type = 'attachment'
 			 LEFT JOIN {$wpdb->postmeta} mt ON mt.post_id = t.element_id AND mt.meta_key = '_thumbnail_id'
 			 WHERE t.element_type = 'post_product_variation' AND t.source_language_code IS NOT NULL
-			   AND ( mt.meta_id IS NULL OR mt.meta_value = '' OR mt.meta_value = '0' )"
+			   AND ( mt.meta_id IS NULL OR mt.meta_value IS NULL OR mt.meta_value = '' OR mt.meta_value = '0' )"
 			. ( $original ? $wpdb->prepare( ' AND vo.post_parent = %d', $original ) : '' )
 			. ( $after > 0 ? $wpdb->prepare( ' AND t.element_id > %d', $after ) : '' )
 			. ' ORDER BY t.element_id'
@@ -4543,10 +4543,12 @@ final class DZE_Translate {
 
 	/** Once per shop, in the background: the whole catalogue, a page at a time. */
 	public static function variation_images_start(): void {
-		if ( get_option( 'dze_var_images_started' ) || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+		// « _2 » : 4.512.0 skipped a row holding NULL (182 variations a language on
+		// Kula), so every shop runs it once more.
+		if ( get_option( 'dze_var_images_started_2' ) || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			return;
 		}
-		update_option( 'dze_var_images_started', time(), false );
+		update_option( 'dze_var_images_started_2', time(), false );
 		self::variation_images_queue( 0 );
 	}
 
