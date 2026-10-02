@@ -941,11 +941,19 @@ fait" (4.499.0):
       30/09–01/10 were resting until the end of October.
     - It runs on every save of an original (`save_post` at 99, and
       `elementor/document/after_save`), and was run once over Kula.
-    - Kula on 02/10: 301 of 659 page translations marked. 128 lagged in
+    - **Never a translation this module did not make** (no register,
+      4.510.2). Every one of its words reads as owed, so a layout mark
+      would retranslate it whole: WPML's translation thrown away and paid
+      for twice. Adopting its words first (`obj_adopt()`) is the shop's
+      decision; after that it is marked like the others.
+    - Kula on 02/10: 301 of 659 page translations lagged. 128 lagged in
       structure (32 pages × FR/DE/ES/PL: the old sections, a missing
-      carousel). The rest differed by Astra's `_astra_content_layout_flag`
-      and `ast-title-bar-display`, `disabled` on EN and empty on the
-      translation: that is the RU banner « pas étirée ».
+      carousel), all with a register, owing one or two widgets each. The
+      rest differed only by Astra's `_astra_content_layout_flag` and
+      `ast-title-bar-display` (`disabled` on EN, empty on the
+      translation): that is the RU banner « pas étirée ». 105 of those had
+      a register; 68 were WPML's own (17 per FR/DE/ES/PL) and were left
+      for the shop to decide.
   - **A widget the translation lacks is owed, whatever the register says**
     (`stale_from()`). The 30/09 pass wrote the words into the old layouts,
     skipped every widget they lacked, and registered them all as done.

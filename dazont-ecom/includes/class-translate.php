@@ -4424,6 +4424,15 @@ final class DZE_Translate {
 			if ( '' === $signs[ $s ] || $signs[ $s ] === self::layout_signature( (int) $r['dst'] ) ) {
 				continue;
 			}
+			// A TRANSLATION THIS MODULE NEVER MADE IS NOT MARKED. With no register,
+			// every one of its words reads as owed: marked for a layout, it would
+			// be translated again from the first word to the last — WPML's
+			// translation thrown away and paid for twice. 68 of Kula's pages, on
+			// 02/10, for two Astra switches. Adopting its words first is the
+			// shop's decision (obj_adopt()); then it is marked like the others.
+			if ( ! self::src_map( (int) $r['dst'] ) ) {
+				continue;
+			}
 			if ( DZE_Wpml::mark_needs_update( (int) $r['tid'] ) ) {
 				$marked++;
 				// And the automation's month of rest on the original is over.
