@@ -1824,8 +1824,12 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	 * order Anthropic recommends when the text refers to them.
 	 *
 	 * @param array<int,array{media:string,data:string}> $images Base64 payloads.
+	 * @param array<string,mixed> $extra Request fields added as they are
+	 *        (`output_config`, `fallbacks`…); `_betas` becomes the
+	 *        `anthropic-beta` header. A picture read into a fixed vocabulary
+	 *        needs the answer's shape, which a sentence cannot guarantee.
 	 */
-	public static function complete_with_images( string $system, string $user, array $images, string $model = '', int $max_tokens = 1500, int $timeout = 120 ): string {
+	public static function complete_with_images( string $system, string $user, array $images, string $model = '', int $max_tokens = 1500, int $timeout = 120, array $extra = [] ): string {
 		if ( DZE_Ai_Usage::over_budget() ) {
 			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
 		}
@@ -1854,19 +1858,24 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		// are counted instead, and the words travel whole.
 		$asked = sprintf( "SYSTEM:\n%s\n\n[%d photograph(s) attached]\n\nUSER:\n%s", $system, count( $images ), $user );
 		$t0    = microtime( true );
+		$dze_headers = [
+			'x-api-key'         => $key,
+			'anthropic-version' => self::API_VERSION,
+			'content-type'      => 'application/json',
+		];
+		if ( ! empty( $extra['_betas'] ) ) {
+			$dze_headers['anthropic-beta'] = implode( ',', array_map( 'strval', (array) $extra['_betas'] ) );
+		}
+		unset( $extra['_betas'] );
 		$response = wp_remote_post( self::API_URL, [
 			'timeout' => max( 30, $timeout ),
-			'headers' => [
-				'x-api-key'         => $key,
-				'anthropic-version' => self::API_VERSION,
-				'content-type'      => 'application/json',
-			],
-			'body'    => wp_json_encode( [
+			'headers' => $dze_headers,
+			'body'    => wp_json_encode( array_merge( [
 				'model'      => $model,
 				'max_tokens' => max( 64, $max_tokens ),
 				'system'     => $system,
 				'messages'   => [ [ 'role' => 'user', 'content' => $content ] ],
-			] ),
+			], $extra ) ),
 		] );
 		if ( is_wp_error( $response ) ) {
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', $response->get_error_message() );

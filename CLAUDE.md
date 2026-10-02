@@ -877,6 +877,45 @@ fait" (4.499.0):
     picture they replace.
   - **Counts.** `attach_file()` logs itself, so screens never send counts to
     `dze_content_logged`.
+- **THE READER, NOT HAIKU** (4.508.0, « les instructions haiku sont parfois
+  eux même du slop textuel »). Haiku had read right: the pictures HAD an
+  invented « VETER » label and a ribbed cuff, and its free-text line carried
+  them into the next orders as « already made ».
+  - `read_picture()` sends the made picture plus two real photographs to
+    `DZE_Content::READER` (`claude-sonnet-5-5`, effort low, `output_config`
+    JSON schema, `fallbacks: "default"` + beta `server-side-fallback-2026-07-01`).
+  - The framing comes back as part + closed enums (distance, angle) + worn,
+    and `frame_line()` builds « part — distance, angle ». No detail word can
+    travel.
+  - `invented` lists what the picture shows that the photographs do not.
+    It is stored as `flags` (waiting list) or `_dze_flags` (attachment). A
+    flagged picture leaves made_views() and gets a red « ! » instead of its
+    « i ».
+  - The product's REAL photographs are framed once, in one batch call
+    (`frame_photos()`, `_dze_frame`). made_lines() opens with « ON THE PRODUCT
+    PAGE ALREADY », so the first picture of a prompt no longer redoes the
+    main photo.
+  - Legacy Haiku lines (`views`, `_dze_view`) are display only. Pictures
+    without a frame are re-read lazily, two per order.
+  - `$made_said` keeps what an order was told, and the card shows « Told to
+    avoid ».
+  - Live probe: 4,940 tokens in, 81 out, about $0.011, 3.3 s. It flagged
+    the VETER label.
+- **« REPLACES THIS PHOTO » (4.508.0, option B).** Target `replace:<id>`
+  (`attach_target()`).
+  - A ✦ or HD made from one of the product's photographs is stashed with
+    that target (`job['replaces']`).
+  - Any waiting picture can cycle to « Replaces… » and pick a tile in the
+    strip.
+  - `replace_in_place()` puts the new picture in the exact slot (main or
+    gallery rank) and moves the colours that used the old photo.
+  - The old photo stays in the library and is recorded in
+    `_dze_stands_for` (new => real original). product_source_ids() sends the
+    original at that rank: no made picture is a reference, so each
+    replacement would otherwise remove a real reference. The legacy
+    `replace` param (one-image popup) still deletes, unchanged.
+- **Image prompt payload: 3,000 characters** (was 800, which cut a
+  1,134-character description).
 - **EVERY AI PICTURE CARRIES ITS « i »** (4.507.0, « au clic, un text doit
   apparaître pour dire quel prompt a été utilisé, et quel modèle d'ia, et
   quel prix »). `DZE_Ai_Card` (includes/class-ai-card.php).

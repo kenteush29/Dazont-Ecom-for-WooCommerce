@@ -887,38 +887,50 @@ trait DZE_Content_Ajax {
 		}
 		DZE_Ai_Usage::finished( 'product_img' );
 		self::charge_product( $pid, self::last_image_cost() );
-		// Its framing, in words, for the next order (describe_view()). An
-		// enlargement keeps its original's: there is nothing new to describe.
+		// READ, for the next order and for the shop (read_picture()): its
+		// framing in the reader's fixed words, and what it shows that the
+		// product does not. An enlargement keeps its original's framing: there
+		// is nothing new to describe.
 		DZE_Ai_Usage::unit( 'img_view' );
-		$view = 'enlarge' === (string) ( $job['tool'] ?? '' ) ? '' : self::describe_view( $url, (string) get_the_title( $pid ) );
+		$read = 'enlarge' === (string) ( $job['tool'] ?? '' ) ? null : self::read_picture( $url, $pid );
 		DZE_Ai_Usage::unit();
 		DZE_Ai_Usage::about();
 		$model = (string) ( $job['model'] ?? '' );
+		// THE PHOTOGRAPH IT WAS MADE FROM, when it is one of the product's: a
+		// ✦ or an HD of it is headed for its place (replace_in_place()).
+		$target = ! empty( $job['replaces'] ) ? 'replace:' . (int) $job['replaces'] : (string) ( $job['target'] ?? 'gallery' );
 		if ( class_exists( 'DZE_Ai_Card' ) ) {
 			DZE_Ai_Card::put( $pid, $url, [
-				'recipe' => (string) ( $job['recipe'] ?? '' ),
-				'tool'   => '' !== (string) ( $job['tool'] ?? '' ) ? (string) $job['tool'] : 'generate',
-				'base'   => (array) ( $job['base'] ?? [] ),
+				'recipe'   => (string) ( $job['recipe'] ?? '' ),
+				'tool'     => '' !== (string) ( $job['tool'] ?? '' ) ? (string) $job['tool'] : 'generate',
+				'base'     => (array) ( $job['base'] ?? [] ),
+				'told'     => (array) ( $job['told'] ?? [] ),
+				'invented' => $read ? $read['invented'] : [],
 			] );
 		}
 		if ( ! empty( $job['stash'] ) ) {
-			self::stash( $pid, [
+			$dze_add = [
 				'shot'   => $url,
-				'target' => (string) ( $job['target'] ?? 'gallery' ),
+				'target' => $target,
 				'recipe' => (string) ( $job['recipe'] ?? '' ),
 				'model'  => $model,
-				'view'   => $view,
-			] );
+			];
+			if ( $read && '' !== $read['frame'] ) {
+				$dze_add['frame'] = $read['frame'];
+				$dze_add['flags'] = $read['invented'];
+			}
+			self::stash( $pid, $dze_add );
 		}
 		self::job_remove( $pid, $id );
 		return [
-			'done'   => 1,
-			'url'    => $url,
-			'target' => (string) ( $job['target'] ?? 'gallery' ),
+			'done'     => 1,
+			'url'      => $url,
+			'target'   => $target,
+			'invented' => $read ? $read['invented'] : [],
 			'recipe' => (string) ( $job['recipe'] ?? '' ),
 			'model'  => (string) ( self::image_models()[ $model ]['label'] ?? ( self::UPSCALER === $model ? self::upscaler_label() : $model ) ),
 			'key'    => $model,
-			'view'   => $view,
+			'view'   => $read ? $read['frame'] : '',
 			'secs'   => $secs,
 			'spend'  => self::product_spend( $pid ),
 		];
@@ -1076,6 +1088,8 @@ trait DZE_Content_Ajax {
 			'recipe'   => $recipe,
 			'stash'    => 1,
 			'tool'     => 'enlarge',
+			// One of the product's photographs: its HD takes its place.
+			'replaces' => ( $att && in_array( $att, array_map( 'intval', self::product_own_image_ids( $pid ) ), true ) ) ? $att : 0,
 			// What it enlarges, for its card: a picture made here, a photograph
 			// of the product or one pasted in.
 			'base'     => class_exists( 'DZE_Ai_Card' ) ? DZE_Ai_Card::source_of( $pid, $url, $att, '' !== $paste ) : [],
@@ -1405,7 +1419,9 @@ trait DZE_Content_Ajax {
 			? (array) $tpl['inputs']
 			: DZE_Content::default_inputs( 'image' );
 		$pl   = self::payload_lines( $pid, $dze_keys, (string) ( $tpl['inputs_meta'] ?? '' ), $v_name );
-		$pl   = mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $pl ) ), 0, 800 );
+		// 3,000 characters (4.508.0, « la description produit est coupée dans le
+		// prompt pour l'image »): 800 cut a 1,134-character description short.
+		$pl   = mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $pl ) ), 0, 3000 );
 		$ctx  = trim( self::store_context() . ' ' . $pl );
 		$base = '' !== $custom ? $custom : (string) $tpl['prompt'];
 		$prompt = ( $ctx ? "Product context: {$ctx}\n\n" : '' ) . $base;
@@ -1639,9 +1655,13 @@ trait DZE_Content_Ajax {
 			// another and each must not repeat the last. Never the pictures
 			// themselves (made_lines() says why), and nothing that chooses
 			// the subject: only framings not to make again.
+			$dze_told = [];
 			if ( ! empty( $in['aware'] ) ) {
 				$prompt .= self::made_lines( $pid, (string) ( $tpl['id'] ?? '' ), $dze_redo );
+				// What it was told — for its card (« avait pour consigne d'éviter »).
+				$dze_told = self::$made_said;
 			}
+			$dze_replaces = ( $remake && $src_att && in_array( $src_att, array_map( 'intval', self::product_own_image_ids( $pid ) ), true ) ) ? $src_att : 0;
 			// NOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS. A hint that
 			// asked the second attempt for "a detail of the material, the
 			// stitching or the fastening" is the plugin choosing the subject of
@@ -1698,6 +1718,8 @@ trait DZE_Content_Ajax {
 					'recipe' => (string) ( $tpl['id'] ?? '' ),
 					'tool'   => $remake ? 'remake' : 'generate',
 					'base'   => $dze_base,
+					'told'   => $dze_told,
+					'replaces' => $dze_replaces,
 					'stash'  => ! empty( $in['stash'] ) ? 1 : 0,
 					'by'     => get_current_user_id(),
 				];
@@ -1723,6 +1745,7 @@ trait DZE_Content_Ajax {
 					'recipe' => (string) ( $tpl['id'] ?? '' ),
 					'tool'   => $remake ? 'remake' : 'generate',
 					'base'   => $dze_base,
+					'told'   => $dze_told,
 				] );
 			}
 
@@ -1732,7 +1755,7 @@ trait DZE_Content_Ajax {
 				if ( ! empty( $in['stash'] ) ) {
 					self::stash( $pid, [
 						'shot'   => $image_url,
-						'target' => $target,
+						'target' => $dze_replaces ? 'replace:' . $dze_replaces : $target,
 						'recipe' => (string) ( $tpl['id'] ?? '' ),
 					] );
 				}
@@ -1923,6 +1946,8 @@ trait DZE_Content_Ajax {
 				// MADE OR REWORKED BY A MODEL: it carries the « i » that says
 				// which prompt, which model and what price (DZE_Ai_Card).
 				'ai'    => class_exists( 'DZE_Ai_Card' ) && DZE_Ai_Card::is_ai( (int) $aid ),
+				// WHAT IT SHOWS THAT THE PRODUCT DOES NOT, as the reader found it.
+				'flags' => array_values( (array) ( get_post_meta( (int) $aid, self::META_FLAGS, true ) ?: [] ) ),
 			];
 		}
 		wp_send_json_success( [
@@ -2228,7 +2253,7 @@ trait DZE_Content_Ajax {
 		$had     = (array) ( $waiting['shots'] ?? [] );
 		$waiting['shots'] = array_values( array_diff( $had, $urls ) );
 		foreach ( $urls as $gone ) {
-			unset( $waiting['targets'][ $gone ], $waiting['recipes'][ $gone ], $waiting['models'][ $gone ], $waiting['views'][ $gone ] );
+			unset( $waiting['targets'][ $gone ], $waiting['recipes'][ $gone ], $waiting['models'][ $gone ], $waiting['views'][ $gone ], $waiting['frames'][ $gone ], $waiting['flags'][ $gone ] );
 		}
 		if ( empty( $waiting['shots'] ) && empty( $waiting['texts'] ) ) {
 			delete_post_meta( $pid, self::META_PENDING );
@@ -2430,6 +2455,17 @@ trait DZE_Content_Ajax {
 				continue;
 			}
 			$t = (string) $item['target'];
+			// IN THE PLACE OF ONE OF THE PRODUCT'S PHOTOGRAPHS: filed in the
+			// gallery, then put where that photograph stood. One that is no
+			// longer on the product leaves nothing to replace.
+			$dze_old = 0;
+			if ( 0 === strpos( $t, 'replace:' ) ) {
+				$dze_old = (int) substr( $t, 8 );
+				$t       = 'gallery';
+				if ( ! in_array( $dze_old, array_map( 'intval', self::product_own_image_ids( $pid ) ), true ) ) {
+					$dze_old = 0;
+				}
+			}
 			// Two main images cannot both win: the first one asked for it.
 			if ( 'main' === $t ) {
 				if ( $main_up ) {
@@ -2442,6 +2478,9 @@ trait DZE_Content_Ajax {
 				$dze_aid           = $this->sideload_seo( $u, $pid, $t, $recipe, $keep_old );
 				$ids[]             = $dze_aid;
 				$dze_attached[ $u ] = (int) $dze_aid;
+				if ( $dze_old > 0 && $dze_aid > 0 ) {
+					self::replace_in_place( $pid, $dze_old, (int) $dze_aid );
+				}
 			} catch ( \Throwable $e ) {
 				$errors++;
 				$why[] = $e->getMessage();
@@ -2450,10 +2489,18 @@ trait DZE_Content_Ajax {
 		// ITS FRAMING STAYS WITH IT. What the photographs made after it are
 		// told not to repeat (made_views()) is read from the attachment once
 		// the waiting list has let the picture go.
-		$dze_views = (array) ( self::pending( $pid )['views'] ?? [] );
+		$dze_wait  = self::pending( $pid );
+		$dze_views = (array) ( $dze_wait['views'] ?? [] );
 		foreach ( $dze_attached as $dze_u => $dze_aid ) {
 			if ( ! empty( $dze_views[ $dze_u ] ) && $dze_aid > 0 ) {
 				update_post_meta( $dze_aid, self::META_VIEW, (string) $dze_views[ $dze_u ] );
+			}
+			// The reader's framing and what it found invented stay with it.
+			if ( ! empty( $dze_wait['frames'][ $dze_u ] ) && $dze_aid > 0 ) {
+				update_post_meta( $dze_aid, self::META_FRAME, (string) $dze_wait['frames'][ $dze_u ] );
+			}
+			if ( ! empty( $dze_wait['flags'][ $dze_u ] ) && $dze_aid > 0 ) {
+				update_post_meta( $dze_aid, self::META_FLAGS, wp_slash( array_values( (array) $dze_wait['flags'][ $dze_u ] ) ) );
 			}
 		}
 		if ( empty( $ids ) ) {

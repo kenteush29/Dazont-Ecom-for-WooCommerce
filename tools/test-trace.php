@@ -365,9 +365,10 @@ $GLOBALS['dze_http'] = [ 'code' => 200, 'body' => json_encode( [
 	'content' => [ [ 'type' => 'text', 'text' => 'ok' ] ],
 	'usage'   => [ 'input_tokens' => 1000, 'output_tokens' => 500 ],
 ] ) ];
-DZE_Marketing_Ai::complete( 'S', 'one',   'claude-opus-5' );
-DZE_Marketing_Ai::complete( 'S', 'two',   'claude-opus-5' );
+DZE_Marketing_Ai::complete( 'S', 'one',   'claude-opus-4-1' );
+DZE_Marketing_Ai::complete( 'S', 'two',   'claude-opus-4-1' );
 DZE_Marketing_Ai::complete( 'S', 'three', 'claude-haiku-4-5-20251001' );
+// Opus 4.1, still billed $15/$75: the expensive line of this month.
 // An image is billed per picture: a real row with no tokens at all.
 DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.08 );
 
@@ -375,10 +376,10 @@ $rep = DZE_Ai_Usage::model_report();
 $by  = [];
 foreach ( $rep as $r ) { $by[ $r['model'] ] = $r; }
 ok( 'every model used is a line of its own', count( $rep ), 3 );
-ok( 'and the expensive one is first',        $rep[0]['model'] ?? '', 'claude-opus-5' );
-ok( 'two calls on it are counted as two',    $by['claude-opus-5']['calls'] ?? 0, 2 );
-ok( 'with the tokens of both',               [ $by['claude-opus-5']['in'] ?? 0, $by['claude-opus-5']['out'] ?? 0 ], [ 2000, 1000 ] );
-ok( 'at that model own price',               round( (float) ( $by['claude-opus-5']['cost'] ?? 0 ), 4 ), 0.105 );
+ok( 'and the expensive one is first',        $rep[0]['model'] ?? '', 'claude-opus-4-1' );
+ok( 'two calls on it are counted as two',    $by['claude-opus-4-1']['calls'] ?? 0, 2 );
+ok( 'with the tokens of both',               [ $by['claude-opus-4-1']['in'] ?? 0, $by['claude-opus-4-1']['out'] ?? 0 ], [ 2000, 1000 ] );
+ok( 'at that model own price',               round( (float) ( $by['claude-opus-4-1']['cost'] ?? 0 ), 4 ), 0.105 );
 // The cheap model is NOT folded into the expensive one: same provider, same
 // month, two prices — which is the whole question being asked.
 ok( 'the cheap model is its own line',       round( (float) ( $by['claude-haiku-4-5-20251001']['cost'] ?? 0 ), 4 ), 0.0035 );
@@ -395,7 +396,7 @@ ok( 'a real but tiny share is not nought',   DZE_Ai_Usage::share_said( 0.0004, 1
 
 echo "\nAnd it is on the screen, drawn by the screen\n";
 ob_start(); DZE_Ai_Usage::render_models(); $dze_html = (string) ob_get_clean();
-ok( 'the table names the model',             false !== strpos( $dze_html, 'claude-opus-5' ), true );
+ok( 'the table names the model',             false !== strpos( $dze_html, 'claude-opus-4-1' ), true );
 ok( 'and the cheap one beside it',           false !== strpos( $dze_html, 'claude-haiku-4-5-20251001' ), true );
 ok( 'and what it cost',                      false !== strpos( $dze_html, '$0.11' ), true );
 ok( 'an image model shows a dash, not a nought',
@@ -415,7 +416,7 @@ foreach ( DZE_Ai_Usage::model_report() as $r ) { $by2[ $r['model'] ] = $r; }
 ok( 'a failed call is counted as a call',    $by2['nano-banana-2']['calls'] ?? 0, 3 );
 ok( 'and counted again as one that failed',  $by2['nano-banana-2']['ko'] ?? 0, 2 );
 ok( 'a model that never failed says so with a nought, not a wrong number',
-	$by2['claude-opus-5']['ko'] ?? -1, 0 );
+	$by2['claude-opus-4-1']['ko'] ?? -1, 0 );
 ob_start(); DZE_Ai_Usage::render_models(); $dze_ko = (string) ob_get_clean();
 ok( 'the table has a column for them',       false !== strpos( $dze_ko, '>Failed<' ), true );
 // THE HEADING AND THE CELL, ASSERTED TOGETHER AND IN POSITION. A head declared
@@ -431,7 +432,7 @@ ok( 'and the failures are printed under it', $dze_cells[ (int) $dze_col - 1 ] ??
 // A NOUGHT ON EVERY LINE OF EVERY MONTH IS A FIGURE NOBODY READS. A model that
 // has never failed shows a dash, which is what makes a figure there worth
 // looking at.
-preg_match( '/<tr><td><code[^>]*>claude-opus-5<\/code><\/td>(.*?)<\/tr>/', $dze_ko, $dze_r2 );
+preg_match( '/<tr><td><code[^>]*>claude-opus-4-1<\/code><\/td>(.*?)<\/tr>/', $dze_ko, $dze_r2 );
 preg_match_all( '/<td[^>]*>(.*?)<\/td>/', (string) ( $dze_r2[1] ?? '' ), $dze_c2 );
 $dze_ok_cells = array_map( 'strip_tags', (array) $dze_c2[1] );
 ok( 'a model that never failed shows a dash',

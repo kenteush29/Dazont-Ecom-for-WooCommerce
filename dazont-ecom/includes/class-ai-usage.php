@@ -28,14 +28,23 @@ final class DZE_Ai_Usage {
 	 */
 	private static function price( string $model ): array {
 		$m = strtolower( $model );
+		// Today's families, oldest prices kept for the models that still bill
+		// them: Opus at $15/$75 was Opus 4.1's, and Sonnet 5.5 costs $2/$10,
+		// not Sonnet 4.6's $3/$15 — the budget guard was reading the wrong bill.
 		if ( strpos( $m, 'haiku' ) !== false ) {
 			return [ 1.0, 5.0 ];
 		}
-		if ( strpos( $m, 'sonnet' ) !== false ) {
-			return [ 3.0, 15.0 ];
+		if ( strpos( $m, 'fable' ) !== false || strpos( $m, 'mythos' ) !== false ) {
+			return [ 10.0, 50.0 ];
 		}
-		if ( strpos( $m, 'opus' ) !== false || strpos( $m, 'fable' ) !== false ) {
-			return [ 15.0, 75.0 ];
+		if ( strpos( $m, 'opus-5-5' ) !== false ) {
+			return [ 4.0, 20.0 ];
+		}
+		if ( strpos( $m, 'opus' ) !== false ) {
+			return preg_match( '/opus-(5|4-[5-9])/', $m ) ? [ 5.0, 25.0 ] : [ 15.0, 75.0 ];
+		}
+		if ( strpos( $m, 'sonnet' ) !== false ) {
+			return preg_match( '/sonnet-5/', $m ) ? [ 2.0, 10.0 ] : [ 3.0, 15.0 ];
 		}
 		return [ 3.0, 15.0 ];
 	}
