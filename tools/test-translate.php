@@ -4057,6 +4057,11 @@ ok( 'drift is marked only on the post types the shop translates', false !== strp
 $dze_au = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
 ok( 'a page marked for its layout is woken from the automation rest', [ false !== strpos( $tr_src, "DZE_Automation::wake_translation( \$s );" ), false !== strpos( $dze_au, "public static function wake_translation( int \$oid ): bool {" ) ], [ true, true ] );
 ok( 'a translation this module never made is never marked for its layout alone', false !== strpos( $tr_src, "if ( ! self::src_map( (int) \$r['dst'] ) ) {\n\t\t\t\tcontinue;\n\t\t\t}\n\t\t\tif ( DZE_Wpml::mark_needs_update(" ), true );
+$GLOBALS['meta'][731] = [ '_elementor_data' => json_encode( $dze_en ), 'ast-disable-related-posts' => '', 'site-content-layout' => 'page-builder' ];
+$GLOBALS['meta'][732] = [ '_elementor_data' => json_encode( $dze_en ), 'site-content-layout' => 'page-builder' ];
+ok( 'an empty layout key is the same page as no key', DZE_Translate::layout_signature( 731 ) === DZE_Translate::layout_signature( 732 ), true );
+$GLOBALS['meta'][732]['site-content-layout'] = 'default';
+ok( 'a different one is not', DZE_Translate::layout_signature( 731 ) === DZE_Translate::layout_signature( 732 ), false );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 
