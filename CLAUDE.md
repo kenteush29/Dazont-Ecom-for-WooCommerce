@@ -787,16 +787,28 @@ fait" (4.499.0):
       photographs show… never by turning the product round to a side, a back
       or an inside that they do not show ». Told only « framed differently »,
       GPT Image drew the back of a jacket shown from the front.
-    - **↻ MAKES ITS OWN FRAMING AGAIN** (4.507.0, « Ces images relancées
-      sont particulièrement sujettes au slop »). The picture being redone is
-      still waiting, so its own framing used to sit in the « do not make
-      again » list. The second attempt was told to avoid exactly what it
-      was asked for, and had to find yet another framing, which on a product
-      shown from one side means inventing. Both ↻ (toolbox, bulk) now send
-      `redo` = the replaced picture's address. `made_lines( $pid, $recipe,
-      $redo )` leaves it out of the list and names its framing as the one to
-      make again (« THE PHOTOGRAPH THIS ONE REPLACES was framed: … »). A
-      redo of a picture without a line reads it first.
+    - **↻ NEITHER FORBIDS NOR DICTATES ITS OWN FRAMING** (4.507.0, then
+      4.511.0). The picture being redone is still waiting, so its own
+      framing used to sit in the « do not make again » list, and the second
+      attempt had to find yet another framing — inventing, on a product
+      shown from one side. Both ↻ (toolbox, bulk) send `redo` = the
+      replaced picture's address, and `made_lines( $pid, $recipe, $redo )`
+      leaves it out of the list.
+      - 4.507.0 also named that framing as the one to make again. A picture
+        redone BECAUSE its framing was wrong then got the same mistake on
+        purpose: on 02/10, the jacket « Veter » in UGC style came back as a
+        cuff close-up twice. The prompt says what to make; ↻ asks once more.
+    - **ONLY A PROMPT THAT VARIES THE VIEW HEARS ANY OF IT** (4.511.0,
+      « La dernière image générée devait être UGC style. Le modèle textuel a
+      demandé un zoom sur du détail »). « This photograph is none of them …
+      by coming closer to a part » fought every prompt that sets its own
+      subject: the main image, the product in use, a variation.
+      - `DZE_Content::prompt_varies()` reads the prompt card's switch « A new
+        view each time » (`registry[].vary`, `template_of()['vary']`).
+      - A row without the key: only `img_another_angle_of_the_same_product`
+        varies.
+      - The card posts `pr_vary_seen` so a page drawn before the switch does
+        not turn it off on save.
   - **ONE POPUP** (4.506.0). « On peut enlever les intégrations individuelles
     de chaque champ inutile, qui surcharge l'UI. Il faut juste la popup
     principale de generate content, sur les pages produits individuelles et
@@ -894,7 +906,7 @@ fait" (4.499.0):
   - The product's REAL photographs are framed once, in one batch call
     (`frame_photos()`, `_dze_frame`). made_lines() opens with « ON THE PRODUCT
     PAGE ALREADY », so the first picture of a prompt no longer redoes the
-    main photo.
+    main photo — for the prompts that vary the view only (4.511.0).
   - Legacy Haiku lines (`views`, `_dze_view`) are display only. Pictures
     without a frame are re-read lazily, two per order.
   - `$made_said` keeps what an order was told, and the card shows « Told to

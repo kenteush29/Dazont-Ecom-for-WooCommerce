@@ -1656,7 +1656,10 @@ trait DZE_Content_Ajax {
 			// themselves (made_lines() says why), and nothing that chooses
 			// the subject: only framings not to make again.
 			$dze_told = [];
-			if ( ! empty( $in['aware'] ) ) {
+			// ONLY A PROMPT THAT VARIES THE VIEW (prompt_varies()): told
+			// « none of them … come closer to a part », a prompt for the
+			// product in use drew a cuff close-up.
+			if ( ! empty( $in['aware'] ) && ! empty( $tpl['vary'] ) ) {
 				$prompt .= self::made_lines( $pid, (string) ( $tpl['id'] ?? '' ), $dze_redo );
 				// What it was told — for its card (« avait pour consigne d'éviter »).
 				$dze_told = self::$made_said;
