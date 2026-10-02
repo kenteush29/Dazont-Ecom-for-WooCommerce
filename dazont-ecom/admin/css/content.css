@@ -441,7 +441,11 @@
    each product's panel on the bulk screen. One component, one appearance. */
 .dze-pb-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
 .dze-pb-tile { position: relative; line-height: 0; }
-.dze-pb-tile img { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; }
+/* THE SIZE OF THE PRODUCT'S OWN PHOTOGRAPHS (.dze-cb-nowshot, 148 px). « Il
+   faudrait les afficher dans la même taille que les images produit » — at
+   96 px, a supplier's detail shot could not be compared with the photographs
+   it is meant to complete. */
+.dze-pb-tile img { display: block; width: 148px; height: 148px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; }
 /* The tiles are photographs and nothing else: no badge, no rank, no arrow to
    promote one. Which photograph the model starts from is the prompt's job,
    not a question to put to somebody writing a product page. */
