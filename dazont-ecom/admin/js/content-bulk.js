@@ -1307,7 +1307,7 @@
 			$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span></div>')
 				.attr('data-url', url)
 				.append(
-					$('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''),
+					(window.dzePhotos && window.dzePhotos.madeImg) ? window.dzePhotos.madeImg(url) : $('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''),
 					// THE « i »: which prompt, which model, what price (photos.js).
 					(window.dzePhotos && window.dzePhotos.aiButton) ? window.dzePhotos.aiButton(id, url, 0, false, (b.shotFlags || {})[url]) : '',
 					$('<span class="dze-cb-shotbar"></span>').append(

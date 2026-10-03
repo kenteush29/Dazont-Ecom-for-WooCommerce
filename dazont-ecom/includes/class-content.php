@@ -5529,6 +5529,8 @@ Answer with STRICT JSON and nothing else: "
 					'error'     => __( 'error', 'dazont-ecom' ),
 					// THE « i » of a picture a model made (DZE_Ai_Card).
 					'aiInfo'    => __( 'Which prompt, which model and what price made this picture', 'dazont-ecom' ),
+					'imgFail'   => __( 'Not loaded from fal.ai — the picture is there.', 'dazont-ecom' ),
+					'imgOpen'   => __( 'Open ↗', 'dazont-ecom' ),
 					'aiTitle'   => __( 'AI picture', 'dazont-ecom' ),
 					'aiFlagged' => __( 'Shows what the product does not have:', 'dazont-ecom' ),
 					'aiInvented'=> __( '⚠ Shows what the product does not have', 'dazont-ecom' ),
