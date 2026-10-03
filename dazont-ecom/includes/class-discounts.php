@@ -1854,26 +1854,13 @@ final class DZE_Discounts {
 		}
 		$decimals = function_exists( 'wc_get_price_decimals' ) ? wc_get_price_decimals() : 2;
 
-		// Bundle: per-item bulk offer (same product, qty ≥ threshold).
-		$bundle = 0.0;
-		foreach ( $cart->get_cart() as $item ) {
-			$product = $item['data'] ?? null;
-			if ( ! $product instanceof \WC_Product ) {
-				continue;
-			}
-			$qty = (int) $item['quantity'];
-			$pct = $this->bulk_percent_for( $product, $qty );
-			if ( $pct > 0 ) {
-				$bundle += ( (float) $product->get_price() * $qty ) * ( $pct / 100 );
-			}
-		}
-
 		// Wholesale: winning bulk-order tier applied to its in-scope subtotal.
 		$wholesale = 0.0;
+		$wholesaled = [];
 		[ $wholesale_rule, $wholesale_pct ] = $this->winning_bulk_order( $cart );
 		if ( $wholesale_rule ) {
 			$subtotal = 0.0;
-			foreach ( $cart->get_cart() as $item ) {
+			foreach ( $cart->get_cart() as $key => $item ) {
 				$product = $item['data'] ?? null;
 				if ( ! $product instanceof \WC_Product ) {
 					continue;
@@ -1883,9 +1870,32 @@ final class DZE_Discounts {
 				}
 				if ( $this->product_in_scope( $wholesale_rule, $product->get_id(), $product->get_parent_id() ) ) {
 					$subtotal += (float) $product->get_price() * (int) $item['quantity'];
+					$wholesaled[ $key ] = true;
 				}
 			}
 			$wholesale = $subtotal * ( $wholesale_pct / 100 );
+		}
+
+		// Bundle: per-item bulk offer (same product, qty ≥ threshold) — ONLY on
+		// a line the bulk order does not already discount. « Il y a un bug qui
+		// créé des soldes énormes. La promo bulk order doit prendre le dessus
+		// sur la promo 2 achetés le 2e à -10% » : the two were added together,
+		// so six of one product over the minimum got 10 % + 10 %, on top of any
+		// sale price — every line of a bulk order discounted twice.
+		$bundle = 0.0;
+		foreach ( $cart->get_cart() as $key => $item ) {
+			if ( isset( $wholesaled[ $key ] ) ) {
+				continue;
+			}
+			$product = $item['data'] ?? null;
+			if ( ! $product instanceof \WC_Product ) {
+				continue;
+			}
+			$qty = (int) $item['quantity'];
+			$pct = $this->bulk_percent_for( $product, $qty );
+			if ( $pct > 0 ) {
+				$bundle += ( (float) $product->get_price() * $qty ) * ( $pct / 100 );
+			}
 		}
 
 		$this->coupon_amounts = [

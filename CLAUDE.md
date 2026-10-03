@@ -242,6 +242,20 @@ fait" (4.499.0):
 
 ## Traps learned the hard way
 
+- **THE BULK ORDER COMES FIRST; THE BUNDLE OFFER ONLY WHERE IT DOES NOT
+  APPLY** (4.512.2, « Il y a un bug qui créé des soldes énormes. La promo bulk
+  order doit prendre le dessus sur la promo 2 achetés le 2e à -10% »).
+  - `prepare_cart_coupons()` computed both virtual coupons on the same lines
+    and added them up. Six of one product over the minimum got the 10 %
+    wholesale tier AND the 10 % bundle offer (Kula, cart simulated on
+    03/10 at $113.90 × 6: −$136.68).
+  - The wholesale is now computed first. The bundle skips every line the
+    winning bulk-order rule covers (`$wholesaled`).
+    `tools/test-bulk-precedence.php` checks it.
+  - Checked at the same time, and not a fault: prices reach
+    `woocommerce_before_calculate_totals` already converted by WCML, and the
+    two coupons came out at the right share in RUB and EUR (simulated), as
+    in past EUR, GBP and TRY orders.
 - **NETLINKING TARGETS ARE PRODUCT CATEGORIES, AND NOTHING ELSE** (4.498.0).
   "Tu as intégré des recommandations de liens au niveau produit, ce qui est
   faux. […] Mieux vaut rester sur la data des produits remontée au niveau des
