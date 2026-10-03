@@ -1022,6 +1022,12 @@ EOT;
 	}
 
 	/** Registry row by id (text or image), or null. */
+	/** The shop's own words for one image prompt ('' when none): what read_picture() checks a picture against. */
+	public static function recipe_prompt( string $id ): string {
+		$row = '' !== $id ? self::registry_row( $id ) : null;
+		return $row ? (string) ( $row['prompt'] ?? '' ) : '';
+	}
+
 	private static function registry_row( string $id ): ?array {
 		foreach ( self::registry() as $r ) {
 			if ( ( $r['id'] ?? '' ) === $id ) {
@@ -8316,9 +8322,11 @@ Answer with STRICT JSON and nothing else: "
 	 * A PICTURE THE MODEL MADE, read: its framing, and what it shows that the
 	 * product's real photographs do not.
 	 *
+	 * @param string $order The shop's own prompt that made it, when known: the
+	 *                      picture is also checked against what it forbids.
 	 * @return array{frame:string,invented:string[]}
 	 */
-	public static function read_picture( string $url, int $pid ): array {
+	public static function read_picture( string $url, int $pid, string $order = '' ): array {
 		$out = [ 'frame' => '', 'invented' => [] ];
 		if ( '' === $url || ! class_exists( 'DZE_Marketing_Ai' ) ) {
 			return $out;
@@ -8344,8 +8352,9 @@ Answer with STRICT JSON and nothing else: "
 			'properties'           => self::frame_props() + [
 				'scene'    => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
 				'invented' => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+				'ignored'  => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
 			],
-			'required'             => [ 'part', 'distance', 'angle', 'worn', 'scene', 'invented' ],
+			'required'             => [ 'part', 'distance', 'angle', 'worn', 'scene', 'invented', 'ignored' ],
 			'additionalProperties' => false,
 		];
 		$system = 'You check the pictures an image model made of a product for an online shop. Image 1 is the made picture; the images after it are real photographs of the same product. '
@@ -8360,12 +8369,24 @@ Answer with STRICT JSON and nothing else: "
 			// scene is not the product.
 			. ' SCENE: first list what in image 1 is NOT the product — the person, their other clothes, what they carry or wear with it (a backpack and its straps, a sling, gloves, a phone), the place, the light, and any accessory a customer would attach themselves where the description says it goes (a morale patch on a hook-and-loop field). Nothing in SCENE is ever an invention.'
 			. ' INVENTED: then list what is ON THE PRODUCT ITSELF that neither the real photographs nor the shop\'s description account for — added text or a label, a logo printed or sewn on the fabric, a trim, a pocket, a fastening, a shape the product does not have, or a side of it they never show. A feature the description names (hook-and-loop fields, reinforced elbows, adjustable cuffs, pockets with zips…) is not invented even where no photograph shows it; a detail the photographs show from further away is not invented. Each entry is ONE thing in a few words with where it is ("label with text inside the collar") — never a judgement. [] when nothing is invented, or when no real photograph comes to compare with.';
+		// WHAT THE SHOP ASKED FOR, AND WHAT THE PICTURE DOES ANYWAY. « Parfois
+		// mes prompts sont ignorés. Pour la photosession, images
+		// supplémentaires, ça a été rendu avec un modèle. C'est pas dans mon
+		// prompt du tout » — the order said « pas de présence humaine », and a
+		// detail shot came back on somebody's arm. Nothing can stop the model
+		// doing it; the reader can say it did, so the picture is marked before
+		// anyone has to find it.
+		$order = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( $order ) ) );
+		if ( '' !== $order ) {
+			$system .= ' IGNORED: the shop\'s order is given below. List each thing image 1 SHOWS that the order explicitly forbids or excludes (a person or a hand where it asks for none, text or markings, accessories, a background it rules out) — only what can be seen, never the format, the size, the light or the quality. [] when it follows the order.';
+		}
 		$said = self::reader_product_text( $pid );
 		$user = 'Product: ' . wp_strip_all_tags( (string) get_the_title( $pid ) ) . '. '
 			. ( $refs
 				? sprintf( 'Image 1 is the made picture; images 2 to %d are real photographs of the product.', count( $refs ) + 1 )
 				: 'Image 1 is the made picture; no real photograph comes with it.' )
-			. ( '' !== $said ? "\nWhat the shop says about the product: " . $said : '' );
+			. ( '' !== $said ? "\nWhat the shop says about the product: " . $said : '' )
+			. ( '' !== $order ? "\nThe shop's order for image 1: " . mb_substr( $order, 0, 2000 ) : '' );
 		try {
 			$raw = DZE_Marketing_Ai::complete_with_images( $system, $user, array_merge( [ $pic ], $refs ), self::READER, 1500, 90, self::reader_options( $schema ) );
 		} catch ( \Throwable $e ) {
@@ -8382,6 +8403,17 @@ Answer with STRICT JSON and nothing else: "
 				$out['invented'][] = str_replace( '\\', '/', mb_substr( $one, 0, 100 ) );
 			}
 		}
+		// What the order forbade comes first on the card: it is the reason
+		// the picture is unusable, before any detail it got wrong.
+		$broke = [];
+		foreach ( array_slice( (array) ( $j['ignored'] ?? [] ), 0, 3 ) as $one ) {
+			$one = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( (string) $one ) ) );
+			if ( '' !== $one ) {
+				/* translators: %s: what the picture shows although the prompt forbids it */
+				$broke[] = sprintf( __( 'Against the prompt: %s', 'dazont-ecom' ), str_replace( '\\', '/', mb_substr( $one, 0, 90 ) ) );
+			}
+		}
+		$out['invented'] = array_slice( array_merge( $broke, $out['invented'] ), 0, 6 );
 		return $out;
 	}
 
@@ -8492,8 +8524,14 @@ Answer with STRICT JSON and nothing else: "
 	/**
 	 * THE FRAMINGS ALREADY MADE for this product by this prompt: the pictures
 	 * waiting for a decision and the made pictures already on the product —
-	 * never one thrown away, whose framing is free again, and never one
-	 * flagged as inventing: its framing is no example to steer by.
+	 * never one thrown away, whose framing is free again.
+	 *
+	 * A PICTURE FLAGGED AS INVENTING STILL EXISTS. It used to be left out, as
+	 * « no example to steer by » — but these lines are framings to AVOID, and
+	 * a frame line carries no detail, invented or not. The reader flags most
+	 * pictures, so most were left out, and each order believed it was the
+	 * first: « Pour Hooded tactical camo softshell jacket, 3 images identiques
+	 * sont sorties » (03/10/2026, every order told « made: none »).
 	 *
 	 * @return string[]
 	 */
@@ -8527,7 +8565,7 @@ Answer with STRICT JSON and nothing else: "
 				$v    = $r['frame'];
 				$flag = $r['invented'];
 			}
-			if ( '' !== $v && ! $flag ) {
+			if ( '' !== $v ) {
 				$lines[] = $v;
 			}
 		}

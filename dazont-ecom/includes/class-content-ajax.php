@@ -892,7 +892,7 @@ trait DZE_Content_Ajax {
 		// product does not. An enlargement keeps its original's framing: there
 		// is nothing new to describe.
 		DZE_Ai_Usage::unit( 'img_view' );
-		$read = 'enlarge' === (string) ( $job['tool'] ?? '' ) ? null : self::read_picture( $url, $pid );
+		$read = 'enlarge' === (string) ( $job['tool'] ?? '' ) ? null : self::read_picture( $url, $pid, self::recipe_prompt( (string) ( $job['recipe'] ?? '' ) ) );
 		DZE_Ai_Usage::unit();
 		DZE_Ai_Usage::about();
 		$model = (string) ( $job['model'] ?? '' );
