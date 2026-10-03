@@ -2009,7 +2009,7 @@ $GLOBALS['mai_view']   = '{"part":"hood and collar","distance":"close-up","angle
 $dze_rp = DZE_Content::read_picture( 'https://v3b.fal.media/files/b/x/veter.jpg', 90 );
 $dze_a  = $GLOBALS['mai_vision'][0] ?? [];
 ok( 'le lecteur rend un cadrage sans detail, et ce que l image invente', [ $dze_rp['frame'], $dze_rp['invented'] ], [ 'hood and collar — close-up, front three-quarter right', [ 'label with the text VETER inside the collar' ] ] );
-ok( 'il voit l image faite ET les vraies photos du produit, la principale d abord', [ count( $dze_a[2] ?? [] ), $dze_a[3] ?? '', $dze_a[6]['output_config']['format']['schema']['required'] ?? [], in_array( 'server-side-fallback-2026-07-01', (array) ( $dze_a[6]['_betas'] ?? [] ), true ) ], [ 3, 'claude-sonnet-5-5', [ 'part', 'distance', 'angle', 'worn', 'scene', 'invented' ], true ] );
+ok( 'il voit l image faite ET les vraies photos du produit, la principale d abord', [ count( $dze_a[2] ?? [] ), $dze_a[3] ?? '', $dze_a[6]['output_config']['format']['schema']['required'] ?? [], in_array( 'server-side-fallback-2026-07-01', (array) ( $dze_a[6]['_betas'] ?? [] ), true ) ], [ 3, 'claude-sonnet-5-5', [ 'part', 'distance', 'angle', 'worn', 'scene', 'invented', 'ignored' ], true ] );
 ok( 'distances et angles sont des listes fermees', [ $dze_a[6]['output_config']['format']['schema']['properties']['distance']['enum'] ?? [], count( $dze_a[6]['output_config']['format']['schema']['properties']['angle']['enum'] ?? [] ) ], [ [ 'whole product', 'half', 'close-up', 'macro' ], 8 ] );
 // « Ton outil parfois flag du contenu qui est bon pour le content ugc. » Le sac a dos du
 // randonneur et les renforts de coudes que la description annonce etaient « inventes ».
@@ -2023,6 +2023,20 @@ ok( 'le lecteur lit aussi la description, et la scene n est jamais le produit', 
 	false !== strpos( (string) ( $dze_a[1] ?? '' ), "What the shop says about the product: Reinforced Elbows and Shoulders. Hook and Loop Fields: for unit, flag and morale patches." ),
 ], [ true, true, true ] );
 unset( $GLOBALS['wc_desc'][90] );
+// « Parfois mes prompts sont ignorés. Pour la photosession, ça a été rendu avec un modèle. »
+$GLOBALS['mai_vision'] = [];
+$GLOBALS['mai_view']   = '{"part":"left cuff","distance":"close-up","angle":"front","worn":true,"scene":[],"invented":["strap on the cuff"],"ignored":["a hand and forearm wearing the sleeve"]}';
+$dze_rp = DZE_Content::read_picture( 'https://v3b.fal.media/files/b/x/veter.jpg', 90, "Photographies le produit. Pas de présence humaine." );
+$dze_a  = $GLOBALS['mai_vision'][0] ?? [];
+ok( 'le lecteur recoit le prompt de la boutique et dit en premier ce que l image fait contre lui', [
+	false !== strpos( (string) ( $dze_a[1] ?? '' ), "The shop's order for image 1: Photographies le produit. Pas de présence humaine." ),
+	false !== strpos( (string) ( $dze_a[0] ?? '' ), 'IGNORED: the shop\'s order is given below.' ),
+	$dze_rp['invented'],
+], [ true, true, [ 'Against the prompt: a hand and forearm wearing the sleeve', 'strap on the cuff' ] ] );
+$GLOBALS['mai_vision'] = [];
+DZE_Content::read_picture( 'https://v3b.fal.media/files/b/x/veter.jpg', 90 );
+ok( 'sans prompt connu, rien n est demande de ce cote', false !== strpos( (string) ( ( $GLOBALS['mai_vision'][0] ?? [] )[0] ?? '' ), 'IGNORED:' ), false );
+ok( 'apres une generation, l image est lue contre son propre prompt', false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php' ), "self::read_picture( \$url, \$pid, self::recipe_prompt( (string) ( \$job['recipe'] ?? '' ) ) );" ), true );
 // « Gallery photographs — 3 of 5 — ne semble pas être mis à jour. »
 $dze_jbk = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
 $dze_csk = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
@@ -2045,12 +2059,18 @@ $GLOBALS['dze_meta'][90]['_dze_pending_review'] = [ 'shots' => [ 'https://v3b.fa
 	'frames'  => [ 'https://v3b.fal.media/files/b/x/ok.jpg' => 'chest — close-up, front', 'https://v3b.fal.media/files/b/x/bad.jpg' => 'hood and collar — close-up, front' ],
 	'flags'   => [ 'https://v3b.fal.media/files/b/x/ok.jpg' => [], 'https://v3b.fal.media/files/b/x/bad.jpg' => [ 'label VETER' ] ] ];
 $dze_ml = DZE_Content::made_lines( 90, 'rx' );
-ok( 'la commande entend la page, puis ce qui est deja fait — jamais une image qui invente', [
+// « Pour Hooded tactical camo softshell jacket, 3 images identiques sont sorties. » Une image
+// signalee existe toujours : son cadrage est a eviter comme les autres (jamais ses inventions).
+ok( 'la commande entend la page, puis ce qui est deja fait — y compris une image signalee, sans ses inventions', [
 	false !== strpos( $dze_ml, "ON THE PRODUCT PAGE ALREADY — the product's own photographs, described in words:\n- whole jacket — whole product, front\n- left sleeve — half, side" ),
-	false !== strpos( $dze_ml, '- chest — close-up, front' ), false !== strpos( $dze_ml, 'hood and collar' ), false !== strpos( $dze_ml, 'VETER' ),
+	false !== strpos( $dze_ml, '- chest — close-up, front' ), false !== strpos( $dze_ml, '- hood and collar — close-up, front' ), false !== strpos( $dze_ml, 'VETER' ),
 	false !== strpos( $dze_ml, '- hood — close-up, front' ),
-], [ true, true, false, false, true ] );
-ok( 'et ce qu elle a entendu reste pour sa fiche', [ DZE_Content::$made_said['page'] ?? [], count( DZE_Content::$made_said['made'] ?? [] ) ], [ [ 'whole jacket — whole product, front', 'left sleeve — half, side' ], 2 ] );
+], [ true, true, true, false, true ] );
+ok( 'six produits cote a cote, les images d un produit l une apres l autre', [
+	false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' ), 'var lanes = Math.min(jobs.length, 6);' ),
+	false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' ), 'oneImage(id, review, it.job.tpl, it.job.scene, it.attempt).always(next);' ),
+], [ true, true ] );
+ok( 'et ce qu elle a entendu reste pour sa fiche', [ DZE_Content::$made_said['page'] ?? [], count( DZE_Content::$made_said['made'] ?? [] ) ], [ [ 'whole jacket — whole product, front', 'left sleeve — half, side' ], 3 ] );
 ok( 'la premiere image d un prompt entend deja la page', false !== strpos( DZE_Content::made_lines( 90, 'other' ), 'ON THE PRODUCT PAGE ALREADY' ), true );
 
 // LA FICHE : ce qu elle invente, ce qu on lui a dit d eviter.

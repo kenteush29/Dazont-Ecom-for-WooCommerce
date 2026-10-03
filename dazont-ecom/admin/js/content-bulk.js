@@ -2226,11 +2226,14 @@
 		// on screen only ever offered a way to get it wrong.
 		// TWO PRODUCTS ALREADY GO SIDE BY SIDE: they are independent, and a
 		// pair run one after the other waited for no reason at all.
-		var lanes = jobs.length <= 1 ? 1 : (jobs.length <= 8 ? 2 : 3);
-		// A product asking for several images is several calls of its own, so
-		// its lane is already busy: piling three of those in parallel is what
-		// times a shared server out.
-		if (most >= 4) { lanes = Math.min(lanes, 2); }
+		// UP TO SIX NOW. « C'est stupide de ne générer que les images de 2
+		// produits sur 3, puis attendre pour le 3e. » A picture is ORDERED and
+		// then asked after in short calls (shootAsync), so a lane no longer
+		// holds a request open for a minute: what it costs the server is the
+		// order and the reading. A product's own pictures still go one after
+		// the other inside its lane (imageTask), so each order knows what the
+		// last one made.
+		var lanes = Math.min(jobs.length, 6);
 		var cursor = 0, live = 0;
 		function finish() {
 			$('#dze-cb-start').prop('disabled', false);

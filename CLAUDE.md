@@ -242,6 +242,24 @@ fait" (4.499.0):
 
 ## Traps learned the hard way
 
+- **BULK PICTURES: NO DUPLICATES, THE PROMPT CHECKED, SIX PRODUCTS AT ONCE**
+  (4.513.0, « trop de doublons, et parfois mes prompts sont ignorés… c'est
+  stupide de ne générer que les images de 2 produits sur 3 »).
+  - **Duplicates.** `made_views()` left out every picture the reader had
+    flagged, and the reader flags most pictures. Each order of « Hooded
+    tactical camo softshell jacket » was told « made: none », and three
+    identical pictures came out. A flagged picture now counts as made. Its
+    frame line carries no detail, so no invention travels with it.
+  - **The prompt checked.** `read_picture( $url, $pid, $order )` gets the
+    shop's own prompt after a generation (`recipe_prompt()`). Anything the
+    picture shows that the prompt forbids is listed first on the card as
+    « Against the prompt: … » (schema `ignored`). Example: « pas de présence
+    humaine », and a detail shot came back on somebody's arm.
+  - **Lanes.** The bulk run now works on up to six products side by side.
+    Before, it was two (three past 8 products, two whenever a product asked
+    for 4 or more pictures). A picture is ordered, then polled
+    (`shootAsync`), so a lane no longer holds a request open. A product's
+    own pictures still go one after the other (`imageTask`).
 - **THE BULK ORDER COMES FIRST; THE BUNDLE OFFER ONLY WHERE IT DOES NOT
   APPLY** (4.512.2, « Il y a un bug qui créé des soldes énormes. La promo bulk
   order doit prendre le dessus sur la promo 2 achetés le 2e à -10% »).
