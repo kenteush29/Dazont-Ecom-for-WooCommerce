@@ -2283,3 +2283,8 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-rp-tile img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 4px; background: #f6f7f7; display: block; }
 .dze-rp-cap { font-size: 12px; font-weight: 600; color: #1d2327; }
 .dze-rp-foot { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+
+/* A made picture that did not arrive says so, on its card (photos.js madeImg()). */
+.is-unloaded > img { visibility: hidden; }
+.dze-img-fail { position: absolute; left: 6px; right: 6px; top: 40%; text-align: center; font-size: 11px; line-height: 1.35; color: #50575e; }
+.dze-img-fail a { font-weight: 600; }

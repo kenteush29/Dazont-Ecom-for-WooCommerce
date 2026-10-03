@@ -490,10 +490,48 @@
 			.append($('<span class="dze-cb-shotreplarrow">⇄</span>'), $('<img alt="" />').attr('src', im.thumb || im.full));
 	}
 
+	/**
+	 * A PICTURE A MODEL MADE, AS AN <img> THAT SAYS WHEN IT DID NOT ARRIVE.
+	 *
+	 * « Il y a un problème de rendu ? Les images générées par fal ne se
+	 * chargent pas. » They waited at fal.ai, whole — the server fetched every
+	 * one — but the browser got nothing from fal's CDN, and the cards stood
+	 * empty with no word as to why. Asked again three times (2, 5 and 10
+	 * seconds later), and then the card says so, with the picture's own
+	 * address to open: the picture is not lost, only not shown.
+	 */
+	function madeImg(url) {
+		var tries = 0;
+		var $img = $('<img class="dze-hzoom" alt="" />').attr('data-full', url);
+		$img.on('error', function () {
+			var waits = [ 2000, 5000, 10000 ];
+			if (tries < waits.length) {
+				var n = ++tries;
+				setTimeout(function () { $img.attr('src', url + (url.indexOf('?') < 0 ? '?' : '&') + 'dze_r=' + n); }, waits[n - 1]);
+				return;
+			}
+			var $card = $img.parent();
+			$card.addClass('is-unloaded');
+			if (!$card.find('.dze-img-fail').length) {
+				$card.append($('<span class="dze-img-fail"></span>').append(
+					$('<span></span>').text(i18n.imgFail || 'Not loaded from fal.ai.'),
+					' ',
+					$('<a target="_blank" rel="noopener"></a>').attr('href', url).text(i18n.imgOpen || 'Open ↗')
+				));
+			}
+		});
+		$img.on('load', function () {
+			$img.parent().removeClass('is-unloaded').find('.dze-img-fail').remove();
+		});
+		return $img.attr('src', url);
+	}
+
 	window.dzePhotos = {
 		// « Which photograph does this picture replace? », and the mark that
 		// says it on the picture.
 		pickReplace: pickReplace,
+		// A made picture's <img>, which says it when it does not load.
+		madeImg: madeImg,
 		replaceChip: replaceChip,
 		// The « i » of a picture a model made, for the screens that draw
 		// pictures of their own (the waiting ones, the tries).

@@ -242,6 +242,14 @@ fait" (4.499.0):
 
 ## Traps learned the hard way
 
+- **A MADE PICTURE THAT DOES NOT LOAD SAYS SO** (4.513.1, « Les images
+  générées par fal ne se chargent pas »). The four pictures of « Two tone
+  softshell jacket Wild » were whole at fal.ai: the server fetched each one
+  (200, CORS `*`), and the site sends no image policy. The browser simply
+  got nothing from fal's CDN, and the cards stood empty without a word.
+  `dzePhotos.madeImg( url )` (photos.js) draws the waiting pictures on both
+  screens. It retries after 2, 5 and 10 s with `dze_r=n`, then the card
+  says « Not loaded from fal.ai » with the picture's address to open.
 - **BULK PICTURES: NO DUPLICATES, THE PROMPT CHECKED, SIX PRODUCTS AT ONCE**
   (4.513.0, « trop de doublons, et parfois mes prompts sont ignorés… c'est
   stupide de ne générer que les images de 2 produits sur 3 »).

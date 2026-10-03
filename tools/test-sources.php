@@ -2166,5 +2166,13 @@ ok( 'les prix de chaque famille sont ceux d aujourd hui', [
 unset( $GLOBALS['mai_view'] );
 
 if ( null === $dze_keep_img ) { unset( $GLOBALS['opts']['dze_content_settings'] ); } else { $GLOBALS['opts']['dze_content_settings'] = $dze_keep_img; }
+// « Il y a un problème de rendu ? Les images générées par fal ne se chargent pas. »
+$dze_ph2 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/photos.js' );
+ok( 'une image faite qui ne charge pas est redemandee, puis la carte le dit avec un lien', [
+	false !== strpos( $dze_ph2, 'function madeImg(url) {' ),
+	false !== strpos( $dze_ph2, 'var waits = [ 2000, 5000, 10000 ];' ),
+	substr_count( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' ) . (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content.js' ), 'window.dzePhotos.madeImg(url)' ),
+	false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' ), "'imgFail'   => __( 'Not loaded from fal.ai — the picture is there.', 'dazont-ecom' )," ),
+], [ true, true, 2, true ] );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

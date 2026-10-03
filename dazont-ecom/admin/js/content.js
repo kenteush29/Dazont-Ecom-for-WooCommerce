@@ -1016,7 +1016,7 @@
 				'<button type="button" class="dze-cb-shotdrop" title="' + esc(i18n.shotDrop) + '">&times;</button></div>')
 				.attr('data-url', url)
 				.append(
-					$('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''),
+					(window.dzePhotos && window.dzePhotos.madeImg) ? window.dzePhotos.madeImg(url) : $('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''),
 					aiMark(url),
 					$('<span class="dze-cb-shotbar"></span>').append(
 						$('<button type="button" class="dze-cb-shotpos"></button>')
