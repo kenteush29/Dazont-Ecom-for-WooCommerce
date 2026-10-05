@@ -613,6 +613,11 @@ class DZE_Translate {
 		return [ 'kind' => (string) ( $b[0] ?? 'post' ), 'id' => (int) ( $b[1] ?? 0 ), 'type' => (string) ( $b[2] ?? '' ) ];
 	}
 	public static function element_id_of( array $o ): int { return (int) $o['id']; }
+	/** ref => the languages whose translation Dazont did not write (made_elsewhere()). */
+	public static array $elsewhere = [];
+	public static function made_elsewhere( array $o, string $lang ): bool {
+		return in_array( $lang, (array) ( self::$elsewhere[ self::ref( $o ) ] ?? [] ), true );
+	}
 	public static function page_marks( array $objects ): array {
 		$out = [];
 		foreach ( $objects as $o ) {
@@ -2356,6 +2361,13 @@ ok( 'an object WPML is happy with is left alone',
 $dze_one = null;
 foreach ( $dze_next as $r ) { if ( 'post:12:product' === $r['ref'] ) { $dze_one = $r; } }
 ok( 'the row names the languages owed',  ( $dze_one['langs'] ?? [] ), [ 'de' ] );
+// « Le module était en train de retraduire tous les sites » (05/10/2026). A German
+// translation WPML marked and Dazont never wrote is the shop's decision, not work.
+DZE_Translate::$elsewhere = [ 'post:12:product' => [ 'de' ] ];
+$dze_else = wp_list_pluck( DZE_Automation::shortlist( 'translate', 5 ), 'ref' );
+ok( 'a marked translation made elsewhere is not work for the pass', in_array( 'post:12:product', $dze_else, true ), false );
+ok( 'while a language never translated still is', in_array( 'post:11:product', $dze_else, true ), true );
+DZE_Translate::$elsewhere = [];
 ok( 'and says so in words',              ( $dze_one['why'] ?? '' ), 'owes DE' );
 
 // ONE PRESS, ONE OBJECT, AND ONLY THE LANGUAGES IT OWES TRAVEL — into the
