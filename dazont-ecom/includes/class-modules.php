@@ -120,6 +120,15 @@ final class DZE_Modules {
 				'desc'  => __( 'Chooses which products/variations go to Merchant Center.', 'dazont-ecom' ),
 				'more'  => __( 'Manages the "_merchant_center_activation" flag your Merchant Center feed reads, with a ✔/✘ GMC column on the products list. Goal: one Merchant Center entry per real product photo. Automatic rules, applied product by product: simple products and variable parents on; variations with their own photo on (once per distinct photo, duplicates skipped); variations without any photo → one per colour (detected automatically). Per-product quick strategies — all variations, first of each chosen attribute, none — plus a manual variation picker with thumbnails for tricky cases (e.g. rugs). WPML: one decision per product, mirrored to every translation.', 'dazont-ecom' ),
 			],
+			'gmc_feed' => [
+				'class'   => 'DZE_Gmc_Feed',
+				'group'   => 'marketing',
+				// Off until the owner has compared the listing with the feed Google reads today.
+				'default' => false,
+				'label'   => __( 'Merchant Center products', 'dazont-ecom' ),
+				'desc'    => __( 'Builds the product listing of each Merchant Center account from the shop itself.', 'dazont-ecom' ),
+				'more'    => __( 'One listing per language that has a Merchant Center account, built from the products and variations chosen by GMC product activation. Each offer keeps its own id in that language, a variation is grouped under its product, the prices are the ones the page shows, the product type is the longest category path, the Google category is that of the nearest mapped category, and colours and materials are written the way Google reads them. Nothing is sent to Google yet: this version builds the listing so that it can be compared with the feed Merchant Center reads today.', 'dazont-ecom' ),
+			],
 			'marketing_ai' => [
 				'class' => 'DZE_Marketing_Ai',
 				'group' => 'marketing',

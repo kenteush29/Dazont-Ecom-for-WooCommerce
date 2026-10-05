@@ -69,6 +69,9 @@ final class DZE_Cleanup {
 			'gmc_activation' => [
 				'post_meta' => [ '_merchant_center_activation' ],
 			],
+			'gmc_feed' => [
+				'term_meta' => [ '_dze_gmc_category' ],
+			],
 			'marketing_ai' => [
 				'options'    => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage', 'dze_ai_trace', 'dze_ai_last' ],
 				// The calls made FOR one object, kept on that object: four at

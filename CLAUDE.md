@@ -242,6 +242,44 @@ fait" (4.499.0):
 
 ## Traps learned the hard way
 
+- **MERCHANT CENTER PRODUCTS: THE SHOP BUILDS ITS LISTING, AND IT IS COMPARED
+  BEFORE ANYTHING IS SENT** (branch `gmc-feed`, not released). « Arrivé là un
+  module api merchant center serait presque mieux. Plus direct, plus
+  efficace, plus léger. » On Kula, Merchant Center read five files written by
+  WP All Export. They stopped being written in August 2026, when the
+  scheduling subscription lapsed. On 05/10 the English file still carried
+  662 sale prices, 25 prices and 34 stock states the shop no longer had.
+  - `DZE_Gmc_Feed` (module `gmc_feed`, off by default) builds the listing and
+    SENDS NOTHING: « On envoie rien au merchant center ».
+  - `tools/on-site/gmc-feed-compare.php` compares it with a WP All Export
+    file, field by field. It separates what the shop changed since the file
+    was written (« shop ») from what Dazont's rules change (« rule »).
+  - **Prices are read through WooCommerce's getters, never in 'edit'
+    context.** The automatic discounts of `DZE_Discounts::filter_price()` are
+    computed when a price is read and never stored. One variation stored a
+    $32.90 sale while its page charged $36.90.
+  - **WP All Export's own quirks**, found in its code
+    (`wp-all-export-pro/src/App/Field/`):
+    - `item_group_id` was `md5( parent id . title )`, simple products
+      included. Now it is the parent's id for a variation, and nothing for a
+      simple product.
+    - The « use the variation's description » tick was saved under a
+      misspelt key (`userVariationDescriptionForVariableProducts`), so every
+      variation got its product's description. No variation on Kula has one.
+    - The Google category was that of the first category with no children,
+      exact match only: 1,204 English offers had none. Now it is the nearest
+      mapped category up the tree, from ONE mapping for every language. The
+      French template had its own, coarser one: socks were « Shoes ».
+    - The five templates had drifted apart. German, Polish and Spanish sent
+      one extra picture; English alone had a size system; French read the
+      age from an attribute nobody fills.
+    - Disabled variations and variations of unpublished products were sent;
+      deleted ones stayed in the file.
+  - **An on-site script keeps its arguments out of plain globals.**
+    wp-load.php runs plugin files in the same global scope, and one of them
+    leaves its own `$file` behind. The compare script read a WP All Export
+    template file as the feed.
+
 - **THREE FIXES ON THE BULK SCREEN** (4.513.2).
   - **Photographs from elsewhere are kept** while the product is on the
     list. « demande de sauvegarder les images tant que le produit est dans
