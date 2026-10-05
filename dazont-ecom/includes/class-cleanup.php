@@ -69,8 +69,12 @@ final class DZE_Cleanup {
 			'gmc_activation' => [
 				'post_meta' => [ '_merchant_center_activation' ],
 			],
-			'gmc_feed' => [
-				'term_meta' => [ '_dze_gmc_category' ],
+			'google_ads' => [
+				'options'    => [ 'dze_ads_secret', 'dze_ads_accounts', 'dze_ads_rule', 'dze_ads_schema' ],
+				'post_meta'  => [ '_dze_ads_quarantine' ],
+				'term_meta'  => [ '_dze_ads_quarantine', '_dze_gmc_category' ],
+				'tables'     => [ 'dze_ads_stats' ],
+				'transients' => [ 'dze_ads_fig_' ],
 			],
 			'marketing_ai' => [
 				'options'    => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage', 'dze_ai_trace', 'dze_ai_last' ],

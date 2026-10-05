@@ -53,8 +53,10 @@ if ( ! function_exists( 'get_option' ) ) {
 }
 [ , $lang, $file, $out_dir, $export ] = $dze_args;
 // The module as it stands in this checkout, when the installed plugin does not have it yet.
-if ( ! class_exists( 'DZE_Gmc_Feed' ) ) {
-	require __DIR__ . '/../../dazont-ecom/includes/class-gmc-feed.php';
+foreach ( [ 'DZE_Sales' => 'class-sales.php', 'DZE_Ads' => 'class-ads.php', 'DZE_Gmc_Feed' => 'class-gmc-feed.php' ] as $dze_class => $dze_file ) {
+	if ( ! class_exists( $dze_class ) ) {
+		require __DIR__ . '/../../dazont-ecom/includes/' . $dze_file;
+	}
 }
 if ( ! is_dir( $out_dir ) && ! wp_mkdir_p( $out_dir ) ) {
 	fwrite( STDERR, "Cannot write into $out_dir\n" );

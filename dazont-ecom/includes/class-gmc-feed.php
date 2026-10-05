@@ -45,6 +45,8 @@ defined( 'ABSPATH' ) || exit;
  *   translated into Google's own words; the age group is « adult » when the
  *   product does not say.
  * - A sale is sent only while it runs, with its end date when it has one.
+ * - A product or category in quarantine (DZE_Ads) keeps its offers in the
+ *   listing, marked « excluded_destination » for the ads.
  */
 final class DZE_Gmc_Feed {
 
@@ -60,8 +62,14 @@ final class DZE_Gmc_Feed {
 		'availability', 'price', 'sale_price', 'sale_price_effective_date',
 		'product_type', 'google_product_category', 'identifier_exists', 'condition',
 		'age_group', 'color', 'gender', 'material', 'size', 'item_group_id',
-		'shipping_length', 'shipping_width', 'shipping_height',
+		'shipping_length', 'shipping_width', 'shipping_height', 'excluded_destination',
 	];
+
+	/**
+	 * Where an offer in quarantine (DZE_Ads) is taken out: Shopping ads, which
+	 * Performance Max uses too, and display remarketing. The free listings stay.
+	 */
+	public const HELD = [ 'Shopping_ads', 'Display_ads' ];
 
 	// Google's own ceilings.
 	private const TITLE_MAX   = 150;
@@ -134,6 +142,42 @@ final class DZE_Gmc_Feed {
 	 */
 	public static function ids( string $lang, int $after = 0, int $limit = self::PAGE ): array {
 		global $wpdb;
+		[ $sql, $args ] = self::offers_sql( $lang, 'p.ID' );
+		$args[] = $after;
+		$args[] = max( 1, $limit );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- built by offers_sql(), prepared here.
+		$ids = $wpdb->get_col( $wpdb->prepare( $sql . ' AND p.ID > %d ORDER BY p.ID ASC LIMIT %d', $args ) );
+		return array_map( 'intval', (array) $ids );
+	}
+
+	/**
+	 * How many offers one language has; with $originals, how many belong to
+	 * those original products (their translations and variations included).
+	 *
+	 * @param int[] $originals
+	 */
+	public static function count( string $lang, array $originals = [] ): int {
+		global $wpdb;
+		[ $sql, $args ] = self::offers_sql( $lang, 'COUNT(*)' );
+		if ( $originals ) {
+			$family = self::family( $originals );
+			if ( ! $family ) {
+				return 0;
+			}
+			$in   = implode( ',', $family );
+			$sql .= " AND ( ( p.post_type = 'product' AND p.ID IN ( {$in} ) ) OR ( p.post_type = 'product_variation' AND p.post_parent IN ( {$in} ) ) )";
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- built by offers_sql(), integers joined above.
+		return (int) $wpdb->get_var( $wpdb->prepare( $sql, $args ) );
+	}
+
+	/**
+	 * The query every reading of the offers shares, and its arguments.
+	 *
+	 * @return array{0:string,1:array}
+	 */
+	private static function offers_sql( string $lang, string $fields ): array {
+		global $wpdb;
 		$join = '';
 		$args = [];
 		$icl  = $wpdb->prefix . 'icl_translations';
@@ -142,11 +186,7 @@ final class DZE_Gmc_Feed {
 			$args[] = $lang;
 		}
 		$args[] = DZE_Gmc_Activation::META;
-		$args[] = $after;
-		$args[] = max( 1, $limit );
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- one keyset page; WPML's own table.
-		$ids = $wpdb->get_col( $wpdb->prepare(
-			"SELECT p.ID FROM {$wpdb->posts} p
+		$sql    = "SELECT {$fields} FROM {$wpdb->posts} p
 			   {$join}
 			   INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = %s AND m.meta_value = 'yes'
 			   LEFT JOIN {$wpdb->posts} pa ON pa.ID = p.post_parent
@@ -157,16 +197,35 @@ final class DZE_Gmc_Feed {
 			        SELECT 1 FROM {$wpdb->term_relationships} tr
 			          INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'product_type'
 			          INNER JOIN {$wpdb->terms} te ON te.term_id = tt.term_id
-			         WHERE tr.object_id = p.ID AND te.slug IN ( 'variable', 'grouped', 'external', 'variable-subscription' ) )
-			    AND p.ID > %d
-			  ORDER BY p.ID ASC
-			  LIMIT %d",
-			$args
-		) );
-		// phpcs:enable
-		return array_map( 'intval', (array) $ids );
+			         WHERE tr.object_id = p.ID AND te.slug IN ( 'variable', 'grouped', 'external', 'variable-subscription' ) )";
+		return [ $sql, $args ];
 	}
 
+	/**
+	 * Original products with all their translations, from WPML's own table.
+	 *
+	 * @param int[] $originals
+	 * @return int[]
+	 */
+	private static function family( array $originals ): array {
+		global $wpdb;
+		$ids = array_values( array_filter( array_map( 'intval', $originals ) ) );
+		if ( ! $ids ) {
+			return [];
+		}
+		$icl = $wpdb->prefix . 'icl_translations';
+		if ( ! DZE_Wpml::is_active() || ! DZE_Wpml::has_table( $icl ) ) {
+			return $ids;
+		}
+		$out = [];
+		foreach ( array_chunk( $ids, 500 ) as $chunk ) {
+			$in = implode( ',', $chunk );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- integers only; WPML's own table.
+			$got = (array) $wpdb->get_col( "SELECT t2.element_id FROM {$icl} t1 INNER JOIN {$icl} t2 ON t2.trid = t1.trid AND t2.element_type = 'post_product' WHERE t1.element_type = 'post_product' AND t1.element_id IN ( {$in} )" );
+			$out = array_merge( $out, $chunk, array_map( 'intval', $got ) );
+		}
+		return array_values( array_unique( $out ) );
+	}
 	// =========================================================================
 	// What is sent for each offer
 	// =========================================================================
@@ -193,13 +252,18 @@ final class DZE_Gmc_Feed {
 		try {
 			$ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
 			_prime_post_caches( $ids, true, true );
+			// Products and categories in quarantine leave the ads, never the listing.
+			$held = DZE_Ads::held_products();
+			$orig = $held ? DZE_Ads::originals( $ids ) : [];
 			foreach ( $ids as $id ) {
 				$p = wc_get_product( $id );
 				if ( ! $p ) {
 					$out[ $id ] = 'gone';
 					continue;
 				}
-				$out[ $id ] = self::shape( self::facts( $p, $lang ), $map );
+				$f         = self::facts( $p, $lang );
+				$f['held'] = isset( $held[ (int) ( $orig[ $id ] ?? 0 ) ] );
+				$out[ $id ] = self::shape( $f, $map );
 			}
 		} finally {
 			if ( $switch ) {
@@ -335,6 +399,7 @@ final class DZE_Gmc_Feed {
 		foreach ( [ 'length', 'width', 'height' ] as $side ) {
 			$row[ 'shipping_' . $side ] = self::dimension( (string) ( $f['dimensions'][ $side ] ?? '' ), (string) ( $f['dimension_unit'] ?? 'cm' ) );
 		}
+		$row['excluded_destination'] = ! empty( $f['held'] ) ? implode( ',', self::HELD ) : '';
 		return array_filter( $row, static fn( $v ) => '' !== (string) $v );
 	}
 

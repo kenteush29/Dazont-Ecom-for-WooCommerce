@@ -91,6 +91,13 @@ $same( 'its size', $row['size'] ?? null, 'XL' );
 $same( 'men and women: unisex', $row['gender'] ?? null, 'unisex' );
 $same( 'a German age: adult', $row['age_group'] ?? null, 'adult' );
 
+echo "Quarantine\n";
+$row = DZE_Gmc_Feed::shape( array_merge( $base, [ 'held' => true ] ), $map );
+$same( 'a product in quarantine leaves the ads, and stays in the listing', $row['excluded_destination'] ?? null, 'Shopping_ads,Display_ads' );
+$same( 'and nothing else changes', $row['price'] ?? null, '1092.90 USD' );
+$row = DZE_Gmc_Feed::shape( $base, $map );
+$same( 'a product out of quarantine is in the ads', isset( $row['excluded_destination'] ), false );
+
 echo "Left out\n";
 $same( 'a variable product is not an offer', DZE_Gmc_Feed::shape( array_merge( $base, [ 'type' => 'variable' ] ), $map ), 'not-an-offer' );
 $same( 'no price', DZE_Gmc_Feed::shape( array_merge( $base, [ 'regular' => '' ] ), $map ), 'no-price' );

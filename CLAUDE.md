@@ -242,14 +242,46 @@ fait" (4.499.0):
 
 ## Traps learned the hard way
 
+- **GOOGLE ADS: WHAT THE ADS COST BESIDE WHAT THEY SOLD, AND A QUARANTINE**
+  (branch `google-ads`, not released). « Ce sera un module entier réservé à
+  google ads, avec partie GMC et partie Ads pure. » Module `google_ads`, off
+  by default: `DZE_Ads` (the figures, the report, the quarantine), its screen
+  `DZE_Ads_Screen` (Products, Categories, Countries, Quarantine, Merchant
+  Center, Connection) and `DZE_Gmc_Feed` (the Merchant Center part).
+  - **The cost comes from a Google Ads SCRIPT, not the API.** The API needs a
+    developer token approved by Google and an OAuth scope that the « Testing »
+    consent screen drops after seven days. The script (`DZE_Ads::script()`) is
+    pasted once into Google Ads and runs on Google's servers every day. It
+    sends the product report (`shopping_performance_view`, Performance Max
+    included) by country over 7, 30 and 90 days to
+    `/wp-json/dazont/v1/ads-report`, signed with HMAC-SHA256 under the shop's
+    key. Google Ads Query Language has no `LAST_90_DAYS`: the dates are
+    written out. The script only reads the account.
+  - **The sales are the shop's own**, read by `DZE_Sales` — the reading
+    netlinking used, moved there so that both modules count the same orders.
+    The channel comes from WooCommerce's order attribution and from the
+    landing address: gclid / gbraid / wbraid / gad_source mean an ad, srsltid
+    a free listing. On Kula over 90 days: 519 orders came through an ad, 14 of
+    them recorded as « typed in », and nearly all from the United States.
+  - **Quarantine = `excluded_destination` (Shopping_ads, Display_ads) on the
+    offers**, through the Dazont listing. Every campaign obeys it, Performance
+    Max included, and the free listings keep the product. A product goes back
+    only once its page has been opened from the Quarantine tab (`opened`).
+    The automatic rule takes products out (spend ≥ threshold, return below
+    the ROAS asked, counting the better of the shop's ad sales and Google's
+    value); a category is only ever taken out by hand.
+  - Tested on Kula WITHOUT WRITING: a TEMPORARY table of the CLI connection,
+    the options and transients in memory, an invented report on real offers.
+
 - **MERCHANT CENTER PRODUCTS: THE SHOP BUILDS ITS LISTING, AND IT IS COMPARED
-  BEFORE ANYTHING IS SENT** (branch `gmc-feed`, not released). « Arrivé là un
+  BEFORE ANYTHING IS SENT** (branch `gmc-feed`, now part of `google-ads`, not
+  released). « Arrivé là un
   module api merchant center serait presque mieux. Plus direct, plus
   efficace, plus léger. » On Kula, Merchant Center read five files written by
   WP All Export. They stopped being written in August 2026, when the
   scheduling subscription lapsed. On 05/10 the English file still carried
   662 sale prices, 25 prices and 34 stock states the shop no longer had.
-  - `DZE_Gmc_Feed` (module `gmc_feed`, off by default) builds the listing and
+  - `DZE_Gmc_Feed` (part of the `google_ads` module, off by default) builds the listing and
     SENDS NOTHING: « On envoie rien au merchant center ».
   - `tools/on-site/gmc-feed-compare.php` compares it with a WP All Export
     file, field by field. It separates what the shop changed since the file

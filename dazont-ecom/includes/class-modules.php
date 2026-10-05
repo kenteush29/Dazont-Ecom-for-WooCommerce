@@ -120,14 +120,14 @@ final class DZE_Modules {
 				'desc'  => __( 'Chooses which products/variations go to Merchant Center.', 'dazont-ecom' ),
 				'more'  => __( 'Manages the "_merchant_center_activation" flag your Merchant Center feed reads, with a ✔/✘ GMC column on the products list. Goal: one Merchant Center entry per real product photo. Automatic rules, applied product by product: simple products and variable parents on; variations with their own photo on (once per distinct photo, duplicates skipped); variations without any photo → one per colour (detected automatically). Per-product quick strategies — all variations, first of each chosen attribute, none — plus a manual variation picker with thumbnails for tricky cases (e.g. rugs). WPML: one decision per product, mirrored to every translation.', 'dazont-ecom' ),
 			],
-			'gmc_feed' => [
-				'class'   => 'DZE_Gmc_Feed',
+			'google_ads' => [
+				'classes' => [ 'DZE_Ads', 'DZE_Gmc_Feed' ],
 				'group'   => 'marketing',
-				// Off until the owner has compared the listing with the feed Google reads today.
+				// Off until the owner has seen it work on his own account.
 				'default' => false,
-				'label'   => __( 'Merchant Center products', 'dazont-ecom' ),
-				'desc'    => __( 'Builds the product listing of each Merchant Center account from the shop itself.', 'dazont-ecom' ),
-				'more'    => __( 'One listing per language that has a Merchant Center account, built from the products and variations chosen by GMC product activation. Each offer keeps its own id in that language, a variation is grouped under its product, the prices are the ones the page shows, the product type is the longest category path, the Google category is that of the nearest mapped category, and colours and materials are written the way Google reads them. Nothing is sent to Google yet: this version builds the listing so that it can be compared with the feed Merchant Center reads today.', 'dazont-ecom' ),
+				'label'   => __( 'Google Ads', 'dazont-ecom' ),
+				'desc'    => __( 'What the ads cost per product, category and country beside what they sold, and a quarantine that takes a product or a category out of the ads.', 'dazont-ecom' ),
+				'more'    => __( 'Two parts. The ads: a script pasted once into the Google Ads account sends, every day, what each product cost and brought by country over the last 7, 30 and 90 days; it only reads the account. Beside it, the shop\'s own orders tell which sales came through an ad and which did not (WooCommerce order attribution). The figures are shown per product, per category (a category shows the work of its children) and per country. A product or a whole category past the threshold you set can be put in quarantine, by hand or automatically; it comes back only once its page has been opened again. The Merchant Center part builds the product listing of each Merchant Center account from the shop, and marks the offers in quarantine so that every campaign leaves them out while the free listings keep them. Nothing is sent to Merchant Center yet.', 'dazont-ecom' ),
 			],
 			'marketing_ai' => [
 				'class' => 'DZE_Marketing_Ai',
