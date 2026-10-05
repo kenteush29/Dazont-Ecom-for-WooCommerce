@@ -1461,7 +1461,13 @@ final class DZE_Automation {
 			$one = (string) ( $mine[ $code ] ?? '' );
 			// No row at all, or a row WPML has marked as needing an update.
 			// 'done' is WPML being satisfied, and that is not ours to overrule.
-			if ( '' === $one || 'marked' === $one ) {
+			if ( '' === $one ) {
+				$out[] = $code; // never translated: new work.
+			} elseif ( 'marked' === $one && ! DZE_Translate::made_elsewhere( $o, $code ) ) {
+				// MARKED, AND WRITTEN BY THIS MODULE: the register tells which
+				// words moved, and a mark with none is closed for free. Marked and
+				// written ELSEWHERE is the shop's decision, never the pass's: it
+				// would be translated again from its first word to its last.
 				$out[] = $code;
 			}
 		}

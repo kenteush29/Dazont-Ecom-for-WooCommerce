@@ -242,6 +242,35 @@ fait" (4.499.0):
 
 ## Traps learned the hard way
 
+- **A TRANSLATION MADE ELSEWHERE IS NEVER REWRITTEN BY ITSELF** (4.514.0).
+  « Toutes les pages sont passées en mise à jour requise, le module était en
+  train de retraduire tous les sites kula jute et kilim. »
+  - WPML marks translations « to update » for reasons that are not words.
+    On Kula its background task `ProcessNewTranslatableFields` re-marks
+    every content carrying a field it believes newly translatable, and its
+    list of fields flickers (see the WPML trap of 01/10): 115,755 contents
+    on 02/10, 170,892 on 05/10. Jute and Kilim still carried marks from
+    2025 tasks.
+  - For a translation this module wrote, the register makes a mark free: no
+    word moved, the mark is closed. For one it never wrote there is no
+    register, every word read as owed, and the automatic pass retranslated
+    whole catalogues: 7,997 calls on Kula on 01/10 ($49), 2,291 on Kilim
+    on 02/10 ($31).
+  - Now `DZE_Automation::translate_owed()` takes a marked language only when
+    `DZE_Translate::made_elsewhere()` is false. The drain drops what the
+    automatic pass (`by` 0) deposited for such a language, as a safety net.
+  - The dashboard counts them (`elsewhere()`, WPML's tables, one query per
+    kind) and offers « Keep them as they are » (`keep_elsewhere()`: the
+    source is recorded as current and the mark closed, free). Translating
+    some again is the dashboard's ordinary send, chosen by a person.
+  - On 05/10: Kula 136 (68 pages, 60 products, 8 articles), Jute 1,813,
+    Kilim 20.
+  - **4.514.1: closing a mark never dies where WPML's signature filter is
+    not loaded.** From the command line (and in some AJAX actions) nobody
+    answers `wpml_tm_element_md5`, the filter hands back the POST, and
+    `(string)` of it was a fatal error. `DZE_Wpml::mark_done()` then keeps
+    the signature already in the row: WPML's own, written when it raised the
+    mark (`WPML_TM_Post_Actions::get_translation_statuses_updater()`).
 - **GOOGLE ADS: WHAT THE ADS COST BESIDE WHAT THEY SOLD, AND A QUARANTINE**
   (branch `google-ads`, not released). « Ce sera un module entier réservé à
   google ads, avec partie GMC et partie Ads pure. » Module `google_ads`, off

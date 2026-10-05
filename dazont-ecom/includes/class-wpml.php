@@ -341,20 +341,29 @@ final class DZE_Wpml {
 		if ( ! $post ) {
 			return false;
 		}
-		$md5 = (string) apply_filters( 'wpml_tm_element_md5', $post );
-		if ( '' === $md5 ) {
-			// WPML could not sign it — in an AJAX action its translation
-			// management hooks may not be loaded. A mark left standing is a
-			// nuisance; a WRONG signature written in its place is a
-			// translation that never gets flagged again.
-			return false;
+		// WPML'S OWN SIGNATURE, OR WPML'S LAST ONE — never one of ours.
+		//
+		// Where WPML's translation management is not loaded (the command line,
+		// some AJAX actions) nobody answers the filter, which then hands back
+		// the POST itself: cast to a string, that was a fatal error, and the
+		// mark was never closed (found on Kula on 05/10/2026). The signature
+		// already in the row is WPML's own: WPML writes the original's current
+		// one when it raises a mark (WPML_TM_Post_Actions). Keeping it closes
+		// the mark without inventing anything; if the original moves again,
+		// WPML compares on its next save and raises the mark again.
+		$md5    = apply_filters( 'wpml_tm_element_md5', $post );
+		$fields = [ 'status' => 10, 'needs_update' => 0 ];
+		$format = [ '%d', '%d' ];
+		if ( is_string( $md5 ) && '' !== $md5 ) {
+			$fields['md5'] = $md5;
+			$format[]      = '%s';
 		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WPML's own table.
 		return false !== $wpdb->update(
 			$table,
-			[ 'status' => 10, 'needs_update' => 0, 'md5' => $md5 ],
+			$fields,
 			[ 'translation_id' => $translation_id ],
-			[ '%d', '%d', '%s' ],
+			$format,
 			[ '%d' ]
 		);
 	}

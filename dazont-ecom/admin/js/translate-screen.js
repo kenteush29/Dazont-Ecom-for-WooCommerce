@@ -54,6 +54,38 @@
 	}
 
 	// =====================================================================
+	// Translations made elsewhere, kept as they are — a slice at a time,
+	// saying where it stands (DZE_Translate::keep_elsewhere()).
+	// =====================================================================
+	$(document).on('click', '#dze-trd-keep', function () {
+		var $b = $(this).prop('disabled', true);
+		var $said = $('#dze-trd-keep-said');
+		var kept = 0, closed = 0;
+		function step() {
+			post('dze_tr_keep', {}).done(function (r) {
+				if (!r || !r.success) {
+					$said.text(said(r));
+					$b.prop('disabled', false);
+					return;
+				}
+				kept += Number(r.data.kept) || 0;
+				closed += Number(r.data.closed) || 0;
+				if ((Number(r.data.left) || 0) > 0 && (Number(r.data.kept) || 0) > 0) {
+					$said.text(sprintf(i18n.keeping, num(kept), num(r.data.left)));
+					step();
+					return;
+				}
+				$said.text(sprintf(i18n.kept, num(kept)) + (closed < kept ? ' ' + i18n.keptOpen : ''));
+			}).fail(function () {
+				$said.text(i18n.keepFail);
+				$b.prop('disabled', false);
+			});
+		}
+		$said.text(i18n.sending || '…');
+		step();
+	});
+
+	// =====================================================================
 	// The dashboard
 	// =====================================================================
 

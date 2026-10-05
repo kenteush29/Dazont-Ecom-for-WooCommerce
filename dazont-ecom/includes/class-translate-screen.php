@@ -781,6 +781,7 @@ trait DZE_Translate_Screen {
 		$q     = self::queue_said();
 		$picked = self::picked_from_list();
 		self::progress_notice( $q );
+		self::elsewhere_notice();
 		?>
 		<?php if ( $picked['n'] || $picked['skipped'] ) : ?>
 			<div class="notice notice-success inline dze-trd-picked"><p>
@@ -1141,6 +1142,46 @@ trait DZE_Translate_Screen {
 			'found' => (int) $found,
 			'label' => number_format_i18n( (int) $found ),
 		] );
+	}
+
+	/**
+	 * TRANSLATIONS MADE ELSEWHERE, MARKED BY WPML: SAID, AND LEFT TO THE SHOP.
+	 *
+	 * The automatic pass no longer rewrites them (made_elsewhere()); they would
+	 * otherwise sit among « Needs updating » for ever with nothing saying why.
+	 * One sentence of what they are, the count by kind, and the free answer.
+	 * The paid one — translating some of them again — is the dashboard's
+	 * ordinary send, below.
+	 */
+	public static function elsewhere_notice(): void {
+		$e = self::elsewhere();
+		if ( $e['count'] < 1 ) {
+			return;
+		}
+		$parts = [];
+		foreach ( $e['by'] as $key => $n ) {
+			[ $kind, $type ] = array_pad( explode( ':', (string) $key, 2 ), 2, '' );
+			$obj   = 'term' === $kind ? get_taxonomy( $type ) : get_post_type_object( $type );
+			$label = $obj && ! empty( $obj->labels->name ) ? (string) $obj->labels->name : $type;
+			$parts[] = $label . ' ' . number_format_i18n( (int) $n );
+		}
+		echo '<div class="notice notice-warning inline dze-trd-elsewhere" id="dze-trd-elsewhere"><p><strong>'
+			. esc_html( sprintf(
+				/* translators: %s: how many translations */
+				_n( 'WPML marks %s translation « to update » that Dazont did not write.', 'WPML marks %s translations « to update » that Dazont did not write.', (int) $e['count'], 'dazont-ecom' ),
+				number_format_i18n( (int) $e['count'] )
+			) )
+			. '</strong> ' . esc_html( implode( ' · ', $parts ) ) . '</p><p>'
+			. esc_html__( 'The automatic pass does not rewrite them: with no record of its own, nothing tells which of their words changed, and WPML marks translations for reasons that are not words — a field setting, a category, a variation. Kept as they are, they cost nothing, and from then on only the words that change are translated. To translate some of them again, tick them below under « Needs updating » and send them as usual.', 'dazont-ecom' )
+			. '</p><p><button type="button" class="button button-primary" id="dze-trd-keep">' . esc_html__( 'Keep them as they are', 'dazont-ecom' ) . '</button> '
+			. '<span class="dze-trd-keep-said" id="dze-trd-keep-said" aria-live="polite"></span></p></div>';
+	}
+
+	/** Keeps a slice of the translations made elsewhere; the page asks again while some are left. */
+	public function ajax_keep(): void {
+		$this->screen_guard();
+		$r = self::keep_elsewhere( 25 );
+		wp_send_json_success( $r );
 	}
 
 	/** The words and the cost of what is ticked, a slice at a time. */
