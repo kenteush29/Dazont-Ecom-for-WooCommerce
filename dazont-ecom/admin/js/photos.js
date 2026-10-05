@@ -286,7 +286,8 @@
 			: $('<button type="button" class="dze-ai-i">i</button>');
 		$b.attr('title', i18n.aiInfo || '');
 		// WHAT IT SHOWS THAT THE PRODUCT DOES NOT, found by the reader: the
-		// mark turns red, and says what before it is even opened.
+		// mark turns into « ! » — neutral, never red — and says what before it
+		// is even opened.
 		if (flags && flags.length) {
 			$b.addClass('is-flagged').text('!')
 				.attr('title', (i18n.aiFlagged || '') + ' ' + flags.join(' · '));

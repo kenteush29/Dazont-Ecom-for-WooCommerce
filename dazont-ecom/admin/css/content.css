@@ -2247,8 +2247,11 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	font-size: 11px; line-height: 1.45; white-space: pre-wrap;
 }
 /* A picture that invents what the product does not have: the « i » turns
-   into a red « ! », and the card opens on what was found. */
-.dze-ai-i.is-flagged { background: #d63638; font-style: normal; font-family: inherit; }
+   into a « ! », and the card opens on what was found. NEUTRAL, not red:
+   « la pastille rouge sur les images porte à confusion l'utilisateur. Laisser
+   la pastille couleur neutre est mieux. » A red mark read as an error of the
+   screen, on pictures that are often fine to keep. */
+.dze-ai-i.is-flagged { font-style: normal; font-family: inherit; }
 .dze-ai-bad { margin: 0 0 6px; padding: 6px 8px; border-radius: 4px; background: #fcf0f1; color: #8a2424; }
 .dze-ai-bad ul, .dze-ai-list { margin: 2px 0 0; padding-left: 16px; list-style: disc; }
 .dze-ai-bad li, .dze-ai-list li { margin: 0; }

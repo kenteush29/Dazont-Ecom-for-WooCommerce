@@ -167,6 +167,7 @@ class WC_Product {
 }
 function wc_get_product( $id ) { return new WC_Product( $id ); }
 function wc_placeholder_img_src() { return 'http://shop.test/ph.png'; }
+if ( ! function_exists( 'wp_upload_dir' ) ) { function wp_upload_dir( $t = null, $c = true ) { return [ 'basedir' => sys_get_temp_dir() . '/dze-test-uploads', 'baseurl' => 'https://shop.test/wp-content/uploads' ]; } }
 // A REAL META STORE, because a stub that always answers the same cannot be red
 // on a store that is supposed to shrink. Empty by default, so every check
 // written against the old blind stub reads exactly what it read before.
@@ -2174,5 +2175,19 @@ ok( 'une image faite qui ne charge pas est redemandee, puis la carte le dit avec
 	substr_count( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' ) . (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content.js' ), 'window.dzePhotos.madeImg(url)' ),
 	false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' ), "'imgFail'   => __( 'Not loaded from fal.ai — the picture is there.', 'dazont-ecom' )," ),
 ], [ true, true, 2, true ] );
+// « Photographs from elsewhere - demande de sauvegarder les images tant que le produit est dans la liste bulk. »
+$dze_cs3 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+$dze_jb3 = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/content-bulk.js' );
+ok( 'les photos collees sont gardees sur le serveur tant que le produit est dans la liste', [
+	false !== strpos( $dze_cs3, 'public static function keep_pastes( int $pid, array $items ): array {' ),
+	false !== strpos( $dze_cs3, "self::forget_pastes( array_diff( \$was, \$ids ) );" ),
+	false !== strpos( $dze_cs3, "\$kept = self::kept_file( \$uri );" ),
+	false !== strpos( $dze_jb3, 'var pasted = $.extend({}, cfg.keptPastes || {});' ),
+	false !== strpos( $dze_jb3, "pasted[String(id)] = (l || []).slice();\n\t\t\t\t\tkeepPastes(id);" ),
+], [ true, true, true, true, true ] );
+// « la pastille rouge sur les images porte à confusion l'utilisateur. »
+ok( 'la pastille d une image signalee reste neutre', false !== strpos( (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/css/content.css' ), '.dze-ai-i.is-flagged { background: #d63638' ), false );
+// « This press: 16 photographs … ça devrait être 4 »
+ok( 'la facture suit les lignes de prompt ajoutees ou enlevees', false !== strpos( $dze_jb3, "if ('dze-cb-tplrows' === \$wrap.attr('id')) { persist(); drawPicked(); }" ), true );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

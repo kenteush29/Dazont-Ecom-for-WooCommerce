@@ -1810,6 +1810,20 @@ trait DZE_Content_Ajax {
 	 * only way to change your mind was to go back to the products list and
 	 * queue a new selection from scratch.
 	 */
+	/** Keeps (or forgets) the photographs handed in for one product on the list. */
+	public function ajax_paste_keep(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'edit_products' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		if ( ! $pid || ! in_array( $pid, self::bulk_list(), true ) ) {
+			wp_send_json_error( [ 'message' => __( 'That product is not on the list.', 'dazont-ecom' ) ] );
+		}
+		$items = isset( $_POST['items'] ) ? array_map( 'strval', (array) wp_unslash( $_POST['items'] ) ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- data URIs and our own addresses, read by keep_pastes().
+		wp_send_json_success( [ 'urls' => self::keep_pastes( $pid, $items ) ] );
+	}
+
 	public function ajax_bulk_list(): void {
 		$this->guard();
 		$do  = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';

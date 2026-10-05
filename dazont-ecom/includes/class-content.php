@@ -377,6 +377,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_logged', [ $this, 'ajax_logged' ] );
 		add_action( 'wp_ajax_dze_content_log_clear', [ $this, 'ajax_log_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
+		// The photographs handed in from elsewhere, kept while the product is on the list.
+		add_action( 'wp_ajax_dze_content_paste_keep', [ $this, 'ajax_paste_keep' ] );
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
 		// The product page asks after the pictures it ordered, in short calls.
 		add_action( 'wp_ajax_dze_content_job', [ $this, 'ajax_job' ] );
@@ -4138,9 +4140,12 @@ Answer with STRICT JSON and nothing else: "
 	 */
 	public static function set_bulk_list( array $ids ): int {
 		$uid  = get_current_user_id();
+		$was  = self::bulk_list();
 		$ids  = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
 		$over = max( 0, count( $ids ) - self::LIST_MAX );
 		$ids  = array_slice( $ids, 0, self::LIST_MAX );
+		// A product off the list takes its kept photographs with it.
+		self::forget_pastes( array_diff( $was, $ids ) );
 		if ( $ids ) {
 			update_user_meta( $uid, self::LIST_META, $ids );
 		} else {
@@ -4769,6 +4774,8 @@ Answer with STRICT JSON and nothing else: "
 				// What was generated last time and never decided on, so the
 				// screen finds it again after a reload.
 				'pending'   => self::pending_payload(),
+				// And the photographs handed in from elsewhere (keep_pastes()).
+				'keptPastes' => (object) array_filter( array_map( static fn( $p ) => self::kept_pastes( (int) $p['id'] ), array_column( $this->bulk_products(), null, 'id' ) ) ),
 				// A rich editor for what is really HTML; a plain box for a title
 				// or a meta description, which TinyMCE would wrap in a <p>.
 				'rich'      => array_map(
@@ -6364,6 +6371,116 @@ Answer with STRICT JSON and nothing else: "
 	 * @param array<int,string> $uris Raw data URIs from the request.
 	 * @return string[] Validated data URIs.
 	 */
+	/** Where the photographs handed in for one product are kept. */
+	private const KEPT_DIR = 'dazont-pasted';
+
+	/** @return array{path:string,url:string} */
+	private static function kept_dir( int $pid ): array {
+		$up = wp_upload_dir( null, false );
+		return [
+			'path' => rtrim( (string) $up['basedir'], '/\\' ) . '/' . self::KEPT_DIR . '/' . $pid . '/',
+			'url'  => rtrim( (string) $up['baseurl'], '/' ) . '/' . self::KEPT_DIR . '/' . $pid . '/',
+		];
+	}
+
+	/** The file behind a kept photograph's address ('' when it is not one). */
+	private static function kept_file( string $item ): string {
+		if ( ! preg_match( '#/' . preg_quote( self::KEPT_DIR, '#' ) . '/(\d+)/([a-f0-9]{32}\.(?:jpg|png|webp|gif))(?:\?.*)?$#i', trim( $item ), $m ) ) {
+			return '';
+		}
+		$file = self::kept_dir( (int) $m[1] )['path'] . $m[2];
+		return is_file( $file ) ? $file : '';
+	}
+
+	/**
+	 * THE PHOTOGRAPHS HANDED IN FOR A PRODUCT, KEPT WHILE IT IS ON THE LIST.
+	 *
+	 * « Photographs from elsewhere - demande de sauvegarder les images tant
+	 * que le produit est dans la liste bulk. Là elles disparaissent
+	 * facilement. » They lived in the page alone, so a reload — the screen
+	 * reloads itself when its list empties — took them all. They are now
+	 * files under uploads/dazont-pasted/<product>/, named by their own md5,
+	 * in the order they were given (order.json: the first is the subject),
+	 * and deleted when the product leaves the list (set_bulk_list()).
+	 *
+	 * @param array $items Data URIs just pasted, or the addresses kept before.
+	 * @return string[] The kept addresses, in the list's order.
+	 */
+	public static function keep_pastes( int $pid, array $items ): array {
+		$d = self::kept_dir( $pid );
+		if ( $pid < 1 || ! wp_mkdir_p( $d['path'] ) ) {
+			return [];
+		}
+		if ( ! is_file( $d['path'] . 'index.php' ) ) {
+			file_put_contents( $d['path'] . 'index.php', "<?php // Silence is golden.\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		}
+		$names = [];
+		foreach ( array_slice( $items, 0, self::MAX_PASTED ) as $item ) {
+			$item = (string) $item;
+			$file = self::kept_file( $item );
+			if ( '' !== $file && dirname( $file ) . '/' === $d['path'] ) {
+				$name = basename( $file );
+			} else {
+				try {
+					$uri = self::read_data_uri( $item );
+				} catch ( \Throwable $e ) {
+					continue;
+				}
+				if ( ! preg_match( '#^data:image/([a-z0-9.+-]+);base64,(.+)$#i', $uri, $m ) ) {
+					continue;
+				}
+				$bytes = (string) base64_decode( $m[2], true );
+				$ext   = [ 'jpeg' => 'jpg', 'png' => 'png', 'webp' => 'webp', 'gif' => 'gif' ][ strtolower( $m[1] ) ] ?? 'jpg';
+				$name  = md5( $bytes ) . '.' . $ext;
+				if ( ! is_file( $d['path'] . $name ) ) {
+					file_put_contents( $d['path'] . $name, $bytes ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+				}
+			}
+			if ( ! in_array( $name, $names, true ) ) {
+				$names[] = $name;
+			}
+		}
+		foreach ( glob( $d['path'] . '*' ) ?: [] as $f ) {
+			if ( ! in_array( basename( (string) $f ), array_merge( $names, [ 'index.php', 'order.json' ] ), true ) ) {
+				wp_delete_file( (string) $f );
+			}
+		}
+		if ( ! $names ) {
+			self::forget_pastes( [ $pid ] );
+			return [];
+		}
+		file_put_contents( $d['path'] . 'order.json', (string) wp_json_encode( $names ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		return array_map( static fn( $n ) => $d['url'] . $n, $names );
+	}
+
+	/** What is kept for one product, the subject first. @return string[] */
+	public static function kept_pastes( int $pid ): array {
+		$d     = self::kept_dir( $pid );
+		$order = is_file( $d['path'] . 'order.json' ) ? json_decode( (string) file_get_contents( $d['path'] . 'order.json' ), true ) : []; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$out   = [];
+		foreach ( (array) $order as $name ) {
+			$name = basename( (string) $name );
+			if ( '' !== $name && is_file( $d['path'] . $name ) ) {
+				$out[] = $d['url'] . $name;
+			}
+		}
+		return $out;
+	}
+
+	/** Deletes what was kept for products that have left the list. */
+	public static function forget_pastes( array $pids ): void {
+		foreach ( array_filter( array_map( 'intval', $pids ) ) as $pid ) {
+			$d = self::kept_dir( $pid );
+			if ( ! is_dir( $d['path'] ) ) {
+				continue;
+			}
+			foreach ( glob( $d['path'] . '*' ) ?: [] as $f ) {
+				wp_delete_file( (string) $f );
+			}
+			@rmdir( $d['path'] ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
+		}
+	}
+
 	public static function read_data_uris( array $uris, int $max = self::MAX_PASTED, int $budget = self::MAX_PAYLOAD ): array {
 		$out    = [];
 		$weight = 0;
@@ -6392,6 +6509,17 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	public static function read_data_uri( string $uri ): string {
+		// A PHOTOGRAPH KEPT FOR A PRODUCT ON THE LIST (keep_pastes()) is read
+		// from its file, and goes on exactly as if it had just been pasted.
+		$kept = self::kept_file( $uri );
+		if ( '' !== $kept ) {
+			$bytes = (string) file_get_contents( $kept ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- a local file of our own.
+			$info  = '' !== $bytes ? @getimagesizefromstring( $bytes ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( ! $info || empty( $info['mime'] ) || strlen( $bytes ) > self::MAX_REMOTE ) {
+				throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+			}
+			return 'data:' . $info['mime'] . ';base64,' . base64_encode( $bytes );
+		}
 		if ( ! preg_match( '#^data:(image/[a-z0-9.+-]+);base64,(.+)$#i', trim( $uri ), $m ) ) {
 			throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
 		}

@@ -236,7 +236,11 @@
 		rowsChanged($wrap);
 	});
 	function rowsChanged($wrap) {
-		if ('dze-cb-tplrows' === $wrap.attr('id')) { persist(); }
+		// THE BILL FOLLOWS THE ROWS. « This press: 16 photographs … Bug sur le
+		// texte, ça devrait être 4. Visiblement ça n'a pas pris en compte le
+		// fait qu'un prompt a été enlevé. » It was drawn again on a change of
+		// prompt or of attempts, never on a row added or taken away.
+		if ('dze-cb-tplrows' === $wrap.attr('id')) { persist(); drawPicked(); }
 	}
 	// The rows as orders, one entry each, duplicates dropped the same way.
 	function jobsIn($wrap) {
@@ -370,7 +374,8 @@
 		}
 		$out.show().text(said);
 	}
-	$(document).on('change', '#dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-n', function () { drawPicked(); });
+	// The scene and the photographs sent are pictures sent too: they change the bill.
+	$(document).on('change', '#dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-n, #dze-cb-tplrows .dze-tpl-scene, #dze-cb-tplrows .dze-tpl-photos', function () { drawPicked(); });
 	$(document).on('change', '.dze-cb-pick', drawPicked);
 	// Shift+click ticks everything between the last box you touched and this
 	// one, the way every list in WordPress behaves. Picking twelve products out
@@ -520,17 +525,34 @@
 	// bucket — the note would be thrown away by the very press it was written
 	// for. It is never stored on the server and dies with the page.
 	var told  = {};
-	// id => the photographs handed in from outside for that product, as data
-	// URIs. ITS OWN STORE, for the same reason and after the same report:
-	// "Photographs from elsewhere > Se fait dégager automatiquement sur l'écran
-	// bulk. Il me semble au moment de la génération image." The box used to be
-	// mounted on the product's bucket, and a run RESETS the row and deletes
-	// that bucket — so the photographs left the screen at the very press they
-	// were added for, and the order was built without them. Nothing here is
-	// stored on the server: a photograph handed in for the run in front of you
-	// dies with the page, exactly like the note.
-	var pasted = {};
+	// id => the photographs handed in from outside for that product. ITS OWN
+	// STORE, for the same reason and after the same report: "Photographs from
+	// elsewhere > Se fait dégager automatiquement sur l'écran bulk. Il me
+	// semble au moment de la génération image." The box used to be mounted on
+	// the product's bucket, and a run RESETS the row and deletes that bucket —
+	// so the photographs left the screen at the very press they were added
+	// for, and the order was built without them.
+	// AND KEPT ON THE SERVER while the product is on the list (keep_pastes()):
+	// « demande de sauvegarder les images tant que le produit est dans la
+	// liste bulk. Là elles disparaissent facilement. » A reload took them all.
+	var pasted = $.extend({}, cfg.keptPastes || {});
 	function pastedOf(id) { return pasted[String(id)] || []; }
+	var keepTimers = {};
+	function keepPastes(id) {
+		clearTimeout(keepTimers[id]);
+		keepTimers[id] = setTimeout(function () {
+			var sent = pastedOf(id);
+			$.post(cfg.ajaxUrl, { action: 'dze_content_paste_keep', nonce: cfg.nonce, post: id, items: sent })
+				.done(function (r) {
+					var now = pastedOf(id);
+					// The addresses take the place of the pictures only if
+					// nothing was added or taken away meanwhile.
+					if (r && r.success && now.length === sent.length && now.every(function (u, i) { return u === sent[i]; })) {
+						pasted[String(id)] = (r.data.urls || []).slice();
+					}
+				});
+		}, 600);
+	}
 	var results = {}; // id => { texts, shots, built, open }
 
 	var SYMBOL = { wait: '○', run: '', ready: '✓', done: '✓', fail: '✗' };
@@ -1034,6 +1056,7 @@
 				// way to say "this one is the subject" is not on the screen.
 				onChange: function (l) {
 					pasted[String(id)] = (l || []).slice();
+					keepPastes(id);
 					// The « only these » tile appears with the first photograph
 					// and goes with the last.
 					srcState(id);
