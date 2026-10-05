@@ -80,6 +80,7 @@ $GLOBALS['wpdb'] = new dze_fake_wpdb();
 $GLOBALS['wpml_terms'] = [];
 $GLOBALS['wpml_lang']  = [];
 
+require __DIR__ . '/../' . $dir . '/includes/class-sales.php';
 require __DIR__ . '/../' . $dir . '/includes/class-netlinking.php';
 
 $ran = 0; $fails = 0;
@@ -346,12 +347,14 @@ ok( 'et une devise que personne ne sait convertir n est pas additionnee',
 // 1,48 million sur Kula, 674 102 pour une categorie a cinq ventes.
 ok( 'une commande introuvable ne compte pas',
 	false !== strpos( $src2, "continue; // commande disparue, ou qui n est pas une vente." ), true );
+// La lecture des commandes est commune (DZE_Sales) : les regles se lisent la.
+$src_sales = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-sales.php' );
 ok( 'ni une commande annulee, echouee ou en attente de paiement',
-	false !== strpos( $src2, "'wc-pending', 'wc-failed', 'wc-cancelled'" ), true );
+	false !== strpos( $src_sales, "'wc-pending', 'wc-failed', 'wc-cancelled'" ), true );
 ok( 'mais « Shipped » et les statuts propres a la boutique comptent',
-	false !== strpos( $src2, 'in_array( (string) $sale[\'status\'], self::NOT_SOLD, true )' ), true );
+	false !== strpos( $src_sales, 'in_array( (string) $sale[\'status\'], self::NOT_SOLD, true )' ), true );
 ok( 'un remboursement suit sa commande',
-	false !== strpos( $src2, "'shop_order_refund' === (string) \$r['type']" ), true );
+	false !== strpos( $src_sales, "'shop_order_refund' === (string) \$r['type']" ), true );
 
 echo "\nUNE CONSIGNE SANS ADRESSE EST UNE CONSIGNE QU ON NE PEUT PAS SUIVRE\n";
 // « Il manque des explications. Url là ou il faut aller ? » L encart disait

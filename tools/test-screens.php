@@ -56,6 +56,7 @@ $dze_where = [
 	'linking'      => [ 'class-mesh.php', 'MENU_SLUG' ],
 	'netlinking'   => [ 'class-netlinking.php', 'MENU_SLUG' ],
 	'marketing'    => [ 'class-discounts.php', 'MENU_SLUG_EVENTS' ],
+	'ads'          => [ 'class-ads.php', 'MENU_SLUG' ],
 	'translations' => [ 'class-translate-screen.php', 'MENU_SLUG' ],
 	'automation'   => [ 'class-automation.php', 'MENU_SLUG' ],
 	'restock'      => [ 'class-restock.php', 'MENU_SLUG' ],
@@ -554,7 +555,7 @@ ok( 'et lordre du menu ne la nomme plus',
 // LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
 ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
 	'dashboard', 'content', 'bulk', 'linking', 'netlinking', 'lab', 'translations', 'marketing',
-	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
+	'ads', 'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 
 echo "\nUN SEUL ETABLI, UN ONGLET PAR SUJET\n";

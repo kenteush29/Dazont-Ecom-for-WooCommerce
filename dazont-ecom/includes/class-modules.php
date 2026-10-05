@@ -120,6 +120,15 @@ final class DZE_Modules {
 				'desc'  => __( 'Chooses which products/variations go to Merchant Center.', 'dazont-ecom' ),
 				'more'  => __( 'Manages the "_merchant_center_activation" flag your Merchant Center feed reads, with a ✔/✘ GMC column on the products list. Goal: one Merchant Center entry per real product photo. Automatic rules, applied product by product: simple products and variable parents on; variations with their own photo on (once per distinct photo, duplicates skipped); variations without any photo → one per colour (detected automatically). Per-product quick strategies — all variations, first of each chosen attribute, none — plus a manual variation picker with thumbnails for tricky cases (e.g. rugs). WPML: one decision per product, mirrored to every translation.', 'dazont-ecom' ),
 			],
+			'google_ads' => [
+				'classes' => [ 'DZE_Ads', 'DZE_Gmc_Feed' ],
+				'group'   => 'marketing',
+				// Off until a shop switches it on: it reaches Google with the shop's own key.
+				'default' => false,
+				'label'   => __( 'Google Ads', 'dazont-ecom' ),
+				'desc'    => __( 'What the ads cost per product, category and country beside what they sold, a quarantine for what does not sell, and the product listing sent to Merchant Center.', 'dazont-ecom' ),
+				'more'    => __( 'Two parts, one Google key. The ads: every morning the Google Ads API is read with the shop\'s service account — what each product cost and brought, by country, over 7, 30 and 90 days — and the shop\'s own orders say which sales came through an ad (WooCommerce order attribution). The figures are shown per product, per category (a category shows the work of its children) and per country. A product or a whole category past the threshold you set can be put in quarantine, by hand or automatically; it comes back only once its page has been opened again. Merchant Center: the product listing of each account is built from the shop and, once that account is switched to it, sent through the Merchant API — what changes is sent within minutes, everything is compared again every night, and what leaves the shop leaves Merchant Center; products in quarantine leave the ads and keep their free listings. While Google keeps the Cloud project at Test access, a script pasted into Google Ads sends the same figures.', 'dazont-ecom' ),
+			],
 			'marketing_ai' => [
 				'class' => 'DZE_Marketing_Ai',
 				'group' => 'marketing',

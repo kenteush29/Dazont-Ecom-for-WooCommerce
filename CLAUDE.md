@@ -271,6 +271,96 @@ fait" (4.499.0):
     `(string)` of it was a fatal error. `DZE_Wpml::mark_done()` then keeps
     the signature already in the row: WPML's own, written when it raised the
     mark (`WPML_TM_Post_Actions::get_translation_statuses_updater()`).
+- **GOOGLE ADS: WHAT THE ADS COST BESIDE WHAT THEY SOLD, AND A QUARANTINE**
+  (4.515.0, module off by default). « Ce sera un module entier réservé à
+  google ads, avec partie GMC et partie Ads pure. » Module `google_ads`, off
+  by default: `DZE_Ads` (the figures, the report, the quarantine), its screen
+  `DZE_Ads_Screen` (Products, Categories, Countries, Quarantine, Merchant
+  Center, Connection) and `DZE_Gmc_Feed` (the Merchant Center part).
+  - **One Google key for both parts: a SERVICE ACCOUNT** (« il vaut mieux une
+    intégration propre »). It is added as a user to each Merchant Center
+    account and to Google Ads (possible without Workspace delegation since
+    November 2024), and it never expires. Kula's OAuth connection was
+    revoked in September: an app left in « Testing » loses its tokens after
+    seven days. `DZE_Gmc::service_token( $scope )` signs for any API, and a
+    broken OAuth connection now gives way to the service account.
+  - **The Google Ads API (v25, until August 2027) is read every morning**
+    (`DZE_Ads::fetch_report()` → `report_from_api()` → the same `store()`).
+    Since 10/09/2026 Google grants the API to the Cloud PROJECT, not to a
+    developer token: a project at « Test » reads test accounts only, and
+    `explain()` says what to do (branding verified, then Basic access).
+  - **The script stays as the way in until then.** The API used to need a
+    developer token approved by Google and an OAuth scope that the « Testing »
+    consent screen drops after seven days. The script (`DZE_Ads::script()`) is
+    pasted once into Google Ads and runs on Google's servers every day. It
+    sends the product report (`shopping_performance_view`, Performance Max
+    included) by country over 7, 30 and 90 days to
+    `/wp-json/dazont/v1/ads-report`, signed with HMAC-SHA256 under the shop's
+    key. Google Ads Query Language has no `LAST_90_DAYS`: the dates are
+    written out. The script only reads the account.
+  - **The sales are the shop's own**, read by `DZE_Sales` — the reading
+    netlinking used, moved there so that both modules count the same orders.
+    The channel comes from WooCommerce's order attribution and from the
+    landing address: gclid / gbraid / wbraid / gad_source mean an ad, srsltid
+    a free listing. On Kula over 90 days: 519 orders came through an ad, 14 of
+    them recorded as « typed in », and nearly all from the United States.
+  - **Quarantine = `excluded_destination` (Shopping_ads, Display_ads) on the
+    offers**, through the Dazont listing. Every campaign obeys it, Performance
+    Max included, and the free listings keep the product. A product goes back
+    only once its page has been opened from the Quarantine tab (`opened`).
+    The automatic rule takes products out (spend ≥ threshold, return below
+    the ROAS asked, counting the better of the shop's ad sales and Google's
+    value); a category is only ever taken out by hand.
+  - Tested on Kula WITHOUT WRITING: a TEMPORARY table of the CLI connection,
+    the options and transients in memory, an invented report on real offers.
+
+- **MERCHANT CENTER PRODUCTS: THE SHOP BUILDS ITS LISTING, AND IT IS COMPARED
+  BEFORE ANYTHING IS SENT** (branch `gmc-feed`, now part of `google-ads`, not
+  released). « Arrivé là un
+  module api merchant center serait presque mieux. Plus direct, plus
+  efficace, plus léger. » On Kula, Merchant Center read five files written by
+  WP All Export. They stopped being written in August 2026, when the
+  scheduling subscription lapsed. On 05/10 the English file still carried
+  662 sale prices, 25 prices and 34 stock states the shop no longer had.
+  - `DZE_Gmc_Feed` (part of the `google_ads` module, off by default) builds the listing.
+    Nothing is sent until an account is SWITCHED from the Merchant Center
+    tab: then a « Dazont Ecom » data source is made with the language, feed
+    label and countries of the file Google read, the file's daily fetch is
+    switched off (Google does not namespace products by data source: the
+    stale file fetched again would overwrite today's prices every morning),
+    and the listing is sent through `productInputs:insert`, 40 offers per
+    background step. A product saved, a stock change or a discount rule
+    changed is sent within minutes (`dirty()`); every night all offers are
+    compared and only what changed is sent (`_dze_gmc_sent` holds the hash);
+    what leaves the listing is deleted from our data source.
+  - `tools/on-site/gmc-feed-compare.php` compares it with a WP All Export
+    file, field by field. It separates what the shop changed since the file
+    was written (« shop ») from what Dazont's rules change (« rule »).
+  - **Prices are read through WooCommerce's getters, never in 'edit'
+    context.** The automatic discounts of `DZE_Discounts::filter_price()` are
+    computed when a price is read and never stored. One variation stored a
+    $32.90 sale while its page charged $36.90.
+  - **WP All Export's own quirks**, found in its code
+    (`wp-all-export-pro/src/App/Field/`):
+    - `item_group_id` was `md5( parent id . title )`, simple products
+      included. Now it is the parent's id for a variation, and nothing for a
+      simple product.
+    - The « use the variation's description » tick was saved under a
+      misspelt key (`userVariationDescriptionForVariableProducts`), so every
+      variation got its product's description. No variation on Kula has one.
+    - The Google category was that of the first category with no children,
+      exact match only: 1,204 English offers had none. Now it is the nearest
+      mapped category up the tree, from ONE mapping for every language. The
+      French template had its own, coarser one: socks were « Shoes ».
+    - The five templates had drifted apart. German, Polish and Spanish sent
+      one extra picture; English alone had a size system; French read the
+      age from an attribute nobody fills.
+    - Disabled variations and variations of unpublished products were sent;
+      deleted ones stayed in the file.
+  - **An on-site script keeps its arguments out of plain globals.**
+    wp-load.php runs plugin files in the same global scope, and one of them
+    leaves its own `$file` behind. The compare script read a WP All Export
+    template file as the feed.
 
 - **THREE FIXES ON THE BULK SCREEN** (4.513.2).
   - **Photographs from elsewhere are kept** while the product is on the

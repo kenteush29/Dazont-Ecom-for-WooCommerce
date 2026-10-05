@@ -90,6 +90,22 @@ final class DZE_Screens {
 					'gmc'       => [ 'label' => __( 'Google Merchant Center', 'dazont-ecom' ), 'module' => 'gmc' ],
 				],
 			],
+			// GOOGLE ADS, ITS OWN ENTRY. « Ce sera un module entier réservé à google
+			// ads, avec partie GMC et partie Ads pure. » The work tabs first; where
+			// the figures come from last, as the netlinking connection is.
+			'ads'          => [
+				'label'  => __( 'Google Ads', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-ads',
+				'module' => 'google_ads',
+				'tabs'   => [
+					'products'   => [ 'label' => __( 'Products', 'dazont-ecom' ) ],
+					'categories' => [ 'label' => __( 'Categories', 'dazont-ecom' ) ],
+					'countries'  => [ 'label' => __( 'Countries', 'dazont-ecom' ) ],
+					'quarantine' => [ 'label' => __( 'Quarantine', 'dazont-ecom' ) ],
+					'merchant'   => [ 'label' => __( 'Merchant Center', 'dazont-ecom' ) ],
+					'connection' => [ 'label' => __( 'Connection', 'dazont-ecom' ) ],
+				],
+			],
 			'translations' => [
 				'label'  => __( 'WPML Translations', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-translations',
@@ -477,6 +493,7 @@ final class DZE_Screens {
 			'lab',
 			'translations',
 			'marketing',
+			'ads',
 			'restock',
 			'fbt',
 			'sourcing',

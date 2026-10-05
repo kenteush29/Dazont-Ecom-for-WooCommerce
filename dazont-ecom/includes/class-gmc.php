@@ -784,18 +784,23 @@ final class DZE_Gmc {
 		// Prefer the connected Google account (OAuth) — the natural in-plugin flow.
 		$oauth = self::get_oauth();
 		$conn  = self::get_connection();
+		$sa = $this->get_credentials();
 		if ( ! empty( $conn['refresh_token'] ) ) {
 			// Known revoked: say so without asking Google again. Syncing five
 			// feeds asked five times and printed the same refusal five times,
 			// which is neither faster nor clearer than saying it once.
-			if ( ! empty( $conn['broken'] ) ) {
+			// UNLESS A SERVICE ACCOUNT IS THERE: it never expires, and a shop
+			// that added one after its connection broke must not stay stuck on
+			// the broken one (Kula, 05/10/2026: revoked since September).
+			if ( ! empty( $conn['broken'] ) && null === $sa ) {
 				throw new RuntimeException( self::broken_message() );
 			}
-			return $this->oauth_access_token();
+			if ( empty( $conn['broken'] ) ) {
+				return $this->oauth_access_token();
+			}
 		}
 
 		// Fallback: service-account credentials (JWT).
-		$sa = $this->get_credentials();
 		if ( null === $sa ) {
 			throw new RuntimeException( sprintf(
 				/* translators: internal diagnostic state, not translated */
@@ -806,7 +811,26 @@ final class DZE_Gmc {
 			) );
 		}
 
-		$cache_key = 'dze_gmc_token_' . md5( $sa['client_email'] );
+		return $this->service_token( self::SCOPE );
+	}
+
+	/**
+	 * A token signed with the shop's service account, for one Google API.
+	 *
+	 * ONE KEY FOR EVERY GOOGLE API THE SHOP USES. A service account is added
+	 * as a user to the Merchant Center accounts and to Google Ads (since
+	 * November 2024, without Workspace delegation), and it never expires: the
+	 * OAuth connection of an app left in « Testing » is revoked by Google
+	 * after seven days, which is how Kula lost Merchant Center in September.
+	 *
+	 * @param string $scope The API's scope (Merchant API: content; Google Ads: adwords).
+	 */
+	public function service_token( string $scope ): string {
+		$sa = $this->get_credentials();
+		if ( null === $sa ) {
+			throw new RuntimeException( __( 'No service account is set: paste its JSON key under Google Merchant Center → Advanced: service account.', 'dazont-ecom' ) );
+		}
+		$cache_key = 'dze_gmc_token_' . md5( $sa['client_email'] . '|' . $scope );
 		$cached    = get_transient( $cache_key );
 		if ( is_string( $cached ) && $cached !== '' ) {
 			return $cached;
@@ -820,7 +844,7 @@ final class DZE_Gmc {
 		$header = $this->b64url( (string) wp_json_encode( [ 'alg' => 'RS256', 'typ' => 'JWT' ] ) );
 		$claim  = $this->b64url( (string) wp_json_encode( [
 			'iss'   => $sa['client_email'],
-			'scope' => self::SCOPE,
+			'scope' => $scope,
 			'aud'   => $sa['token_uri'],
 			'iat'   => $now,
 			'exp'   => $now + 3600,
@@ -850,6 +874,22 @@ final class DZE_Gmc {
 
 		set_transient( $cache_key, $data['access_token'], self::TOKEN_TTL );
 		return $data['access_token'];
+	}
+
+	/** The service account's address — what the shop adds as a user in Merchant Center and Google Ads. '' when none. */
+	public function service_email(): string {
+		$sa = $this->get_credentials();
+		return null === $sa ? '' : (string) $sa['client_email'];
+	}
+
+	/**
+	 * One call to the Merchant API, with the token this shop has, through
+	 * request() — so the copy of a shop still never writes to Google.
+	 *
+	 * @return array The decoded answer.
+	 */
+	public function api( string $method, string $url, ?array $body = null ): array {
+		return $this->request( $method, $url, $this->get_access_token(), $body );
 	}
 
 	private function b64url( string $data ): string {

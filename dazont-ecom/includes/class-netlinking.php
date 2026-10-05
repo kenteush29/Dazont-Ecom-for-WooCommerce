@@ -538,15 +538,6 @@ final class DZE_Netlinking {
 	// =========================================================================
 
 	/**
-	 * CE QUI N EST PAS UNE VENTE : ce que WooCommerce Analytics ecarte de lui-
-	 * meme (en attente de paiement, echouee, annulee), la corbeille et les
-	 * brouillons. Tout le reste compte — y compris les statuts qu une boutique
-	 * ajoute : sur Kula, « Shipped » porte a lui seul 659 lignes en 90 jours,
-	 * et une liste blanche l aurait jete.
-	 */
-	private const NOT_SOLD = [ 'wc-pending', 'wc-failed', 'wc-cancelled', 'wc-checkout-draft', 'pending', 'failed', 'cancelled', 'checkout-draft', 'trash', 'draft', 'auto-draft' ];
-
-	/**
 	 * LE CHIFFRE D AFFAIRES, RAMENE A LA DEVISE DE LA BOUTIQUE.
 	 *
 	 * « Il faudrait quantité d'articles vendus et chiffre d'affaire. »
@@ -566,113 +557,23 @@ final class DZE_Netlinking {
 	 * @return float|null null quand la somme ne peut pas etre convertie.
 	 */
 	public static function to_shop_currency( float $net, string $cur, float $rate, string $shop, array $wcml ): ?float {
-		if ( $rate > 0 ) {
-			return $net * $rate;
-		}
-		if ( '' === $cur || $cur === $shop ) {
-			return $net;
-		}
-		$r = (float) ( $wcml[ $cur ] ?? 0 );
-		return $r > 0 ? $net / $r : null;
+		return DZE_Sales::to_shop_currency( $net, $cur, $rate, $shop, $wcml );
 	}
 
-	/** Les taux courants de WooCommerce Multilingual, devise => taux. */
+	/** Les taux courants de WooCommerce Multilingual : la lecture commune (DZE_Sales). */
 	private static function wcml_rates(): array {
-		$s   = get_option( '_wcml_settings', [] );
-		$out = [];
-		foreach ( (array) ( is_array( $s ) ? ( $s['currency_options'] ?? [] ) : [] ) as $code => $o ) {
-			$r = (float) ( is_array( $o ) ? ( $o['rate'] ?? 0 ) : 0 );
-			if ( $r > 0 ) {
-				$out[ (string) $code ] = $r;
-			}
-		}
-		return $out;
+		return DZE_Sales::wcml_rates();
 	}
 
 	/**
-	 * CE QUE CHAQUE COMMANDE EST : si elle existe encore, si c est une vente,
-	 * dans quelle devise et a quel taux.
-	 *
-	 * LA TABLE D ANALYSE GARDE LES LIGNES DES COMMANDES SUPPRIMEES. Mesure sur
-	 * Kula : 28 lignes sur 1 529 en 90 jours appartenaient a des commandes qui
-	 * n existent plus, et pesaient 1,48 million — une categorie de vestes a
-	 * cinq ventes affichait 674 102 de chiffre d affaires. Une commande
-	 * introuvable ne compte pas.
-	 *
-	 * UN REMBOURSEMENT COMPTE CE QUE COMPTE SA COMMANDE : ses lignes sont
-	 * negatives, elles se deduisent quand la commande est une vente, et il prend
-	 * la devise et le taux de sa commande s il n a pas les siens.
+	 * CE QUE CHAQUE COMMANDE EST — lu par DZE_Sales, la lecture que partagent
+	 * tous les modules qui comptent des ventes (le maillage externe, Google Ads).
 	 *
 	 * @param int[] $ids
 	 * @return array<int,array{ok:bool,cur:string,rate:float}>
 	 */
 	private static function order_facts( array $ids ): array {
-		global $wpdb;
-		$ids = array_values( array_filter( array_map( 'intval', array_unique( $ids ) ) ) );
-		if ( ! $ids || ! $wpdb ) {
-			return [];
-		}
-		$hpos = 'yes' === get_option( 'woocommerce_custom_orders_table_enabled' )
-			&& $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->prefix . 'wc_orders' ) ) === $wpdb->prefix . 'wc_orders';
-		$read = static function ( array $chunk ) use ( $wpdb, $hpos ): array {
-			$in = implode( ',', array_map( 'intval', $chunk ) );
-			// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- integers only, joined above.
-			if ( $hpos ) {
-				$o = $wpdb->prefix . 'wc_orders';
-				$m = $wpdb->prefix . 'wc_orders_meta';
-				$sql = "SELECT o.id AS id, o.type AS type, o.status AS status, o.parent_order_id AS parent, o.currency AS cur,
-				               ( SELECT meta_value FROM {$m} WHERE order_id = o.id AND meta_key = '_wcpay_multi_currency_stripe_exchange_rate' LIMIT 1 ) AS rate
-				          FROM {$o} o WHERE o.id IN ( {$in} )";
-			} else {
-				$sql = "SELECT p.ID AS id, p.post_type AS type, p.post_status AS status, p.post_parent AS parent,
-				               MAX( CASE WHEN pm.meta_key = '_order_currency' THEN pm.meta_value END ) AS cur,
-				               MAX( CASE WHEN pm.meta_key = '_wcpay_multi_currency_stripe_exchange_rate' THEN pm.meta_value END ) AS rate
-				          FROM {$wpdb->posts} p
-				          LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key IN ( '_order_currency', '_wcpay_multi_currency_stripe_exchange_rate' )
-				         WHERE p.ID IN ( {$in} ) GROUP BY p.ID";
-			}
-			// phpcs:enable
-			$out = [];
-			foreach ( (array) $wpdb->get_results( $sql, ARRAY_A ) as $r ) {
-				$out[ (int) $r['id'] ] = $r;
-			}
-			return $out;
-		};
-		$raw = [];
-		foreach ( array_chunk( $ids, 500 ) as $chunk ) {
-			$raw += $read( $chunk );
-		}
-		// Les commandes des remboursements, lues a leur tour.
-		$parents = [];
-		foreach ( $raw as $r ) {
-			if ( 'shop_order_refund' === (string) $r['type'] && (int) $r['parent'] > 0 && ! isset( $raw[ (int) $r['parent'] ] ) ) {
-				$parents[] = (int) $r['parent'];
-			}
-		}
-		foreach ( array_chunk( array_values( array_unique( $parents ) ), 500 ) as $chunk ) {
-			$raw += $read( $chunk );
-		}
-		$out = [];
-		foreach ( $ids as $id ) {
-			$r = $raw[ $id ] ?? null;
-			if ( ! $r ) {
-				$out[ $id ] = [ 'ok' => false, 'cur' => '', 'rate' => 0.0 ];
-				continue;
-			}
-			$sale = $r;
-			if ( 'shop_order_refund' === (string) $r['type'] ) {
-				$sale = $raw[ (int) $r['parent'] ] ?? null;
-			}
-			$ok = null !== $sale && ! in_array( (string) $sale['status'], self::NOT_SOLD, true );
-			$cur  = (string) ( $r['cur'] ?? '' );
-			$rate = (float) ( $r['rate'] ?? 0 );
-			if ( null !== $sale && $sale !== $r ) {
-				$cur  = '' !== $cur ? $cur : (string) ( $sale['cur'] ?? '' );
-				$rate = $rate > 0 ? $rate : (float) ( $sale['rate'] ?? 0 );
-			}
-			$out[ $id ] = [ 'ok' => $ok, 'cur' => $cur, 'rate' => $rate ];
-		}
-		return $out;
+		return DZE_Sales::order_facts( $ids );
 	}
 
 	/**
