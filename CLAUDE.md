@@ -242,6 +242,25 @@ fait" (4.499.0):
 
 ## Traps learned the hard way
 
+- **THREE FIXES ON THE BULK SCREEN** (4.513.2).
+  - **Photographs from elsewhere are kept** while the product is on the
+    list. « demande de sauvegarder les images tant que le produit est dans
+    la liste bulk. Là elles disparaissent facilement. »
+    - Before, they lived in the page only, and any reload took them.
+    - `keep_pastes( $pid, $items )` writes them as files under
+      uploads/dazont-pasted/<product>/<md5>.<ext>, with order.json (the
+      first one is the subject). `wp_ajax_dze_content_paste_keep` is called
+      by the box's onChange; `cfg.keptPastes` refills the screen.
+    - `read_data_uri()` reads a kept address from its file, so every order
+      and every ✦/HD takes it as if it had just been pasted.
+    - `set_bulk_list()` deletes the folder of every product that leaves the
+      list.
+  - **The « ! » of a flagged picture is neutral**, no longer red: « la
+    pastille rouge sur les images porte à confusion l'utilisateur ».
+  - **The bill follows the rows.** « This press: 16 photographs… ça devrait
+    être 4 »: it was redrawn on a change of prompt or attempts, never when
+    a row was added or removed. It now is, and also on a change of scene or
+    of the photographs sent.
 - **A MADE PICTURE THAT DOES NOT LOAD SAYS SO** (4.513.1, « Les images
   générées par fal ne se chargent pas »). The four pictures of « Two tone
   softshell jacket Wild » were whole at fal.ai: the server fetched each one
