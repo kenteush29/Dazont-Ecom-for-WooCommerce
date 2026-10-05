@@ -4083,6 +4083,30 @@ ok( 'the sweep walks by a cursor, so a row it cannot fill never holds it in plac
 	false !== strpos( $tr_src, "( \$after > 0 ? \$wpdb->prepare( ' AND t.element_id > %d', \$after ) : '' )" ),
 	false !== strpos( $tr_src, "self::variation_images_queue( \$r['last'] );" ),
 ], [ true, true ] );
+// « Toutes les pages sont passées en mise à jour requise, le module était en train de
+// retraduire tous les sites kula jute et kilim » (05/10/2026). WPML re-marked whole
+// catalogues; every translation Dazont had not written read as entirely owed.
+echo "\nWPML MARKS EVERYTHING; THE AUTOMATIC PASS REWRITES ONLY WHAT IT WROTE\n";
+$GLOBALS['posts'][ 920 ] = [ 'type' => 'post', 'post_title' => 'Jute basket', 'post_content' => '<p>Woven by hand.</p>', 'post_excerpt' => '' ];
+$GLOBALS['posts'][ 921 ] = [ 'type' => 'post', 'post_title' => 'Panier en jute', 'post_content' => '<p>Tissé à la main.</p>', 'post_excerpt' => '' ];
+$GLOBALS['translated'][920]['fr'] = 921;
+$dze_else = DZE_Translate::obj( 'post', 920, 'post' );
+ok( 'a translation with no register of ours was made elsewhere', DZE_Translate::made_elsewhere( $dze_else, 'fr' ), true );
+ok( 'a language not translated at all is not: it is new work', DZE_Translate::made_elsewhere( $dze_else, 'de' ), false );
+DZE_Translate::remember( 921, DZE_Translate::obj_read( $dze_else ), $dze_else );
+ok( 'once its words are recorded it is ours', DZE_Translate::made_elsewhere( $dze_else, 'fr' ), false );
+ok( 'and a WPML mark with no word moved owes nothing', DZE_Translate::obj_stale( $dze_else, 'fr' ), [] );
+$dze_au = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
+$tr_src = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+ok( 'the automatic pass never picks a marked translation made elsewhere, and the drain never sends one it deposited', [
+	false !== strpos( $dze_au, "} elseif ( 'marked' === \$one && ! DZE_Translate::made_elsewhere( \$o, \$code ) ) {" ),
+	false !== strpos( $tr_src, "if ( ! \$tout && 0 === (int) ( \$e['by'] ?? 0 ) && self::made_elsewhere( \$o, \$code ) ) {" ),
+], [ true, true ] );
+ok( 'keeping them records their words and closes the mark — it never translates', [
+	false !== strpos( $tr_src, "self::remember( \$target, \$read[ \$ref ], \$o );" ),
+	false !== strpos( $tr_src, "if ( self::obj_settle( \$o, \$row['lang'] ) ) {" ),
+	1 === substr_count( $tr_src, "add_action( 'wp_ajax_dze_tr_keep', [ \$this, 'ajax_keep' ] );" ),
+], [ true, true, true ] );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 

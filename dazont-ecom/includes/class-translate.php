@@ -160,6 +160,8 @@ final class DZE_Translate {
 		add_action( 'wp_ajax_dze_tr_words', [ $this, 'ajax_words' ] );
 		add_action( 'wp_ajax_dze_tr_status', [ $this, 'ajax_status' ] );
 		add_action( 'wp_ajax_dze_tr_cancel', [ $this, 'ajax_cancel' ] );
+		// TRANSLATIONS MADE ELSEWHERE, KEPT AS THEY ARE (made_elsewhere()).
+		add_action( 'wp_ajax_dze_tr_keep', [ $this, 'ajax_keep' ] );
 		// L'ACTION GROUPÉE DE WORDPRESS, sur ses propres listes. Voir ask().
 		add_action( 'admin_init', [ $this, 'hook_bulk' ] );
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
@@ -1585,7 +1587,15 @@ final class DZE_Translate {
 				$drop[] = [ $e, $code, '' ];
 				continue;
 			}
-			$tout  = ! empty( $e['all'] );
+			$tout = ! empty( $e['all'] );
+			// JAMAIS RÉÉCRITE TOUTE SEULE : une traduction que ce module n'a pas
+			// écrite est la décision de la boutique (made_elsewhere()). Ce que la
+			// passe automatique a déposé — personne derrière — la laisse telle
+			// qu'elle est.
+			if ( ! $tout && 0 === (int) ( $e['by'] ?? 0 ) && self::made_elsewhere( $o, $code ) ) {
+				$drop[] = [ $e, $code, '' ];
+				continue;
+			}
 			$texts = $tout ? self::obj_read( $o ) : self::obj_stale( $o, $code );
 			if ( ! $texts ) {
 				// Rien à envoyer : réglé gratuitement. Seul l'envoi ordinaire le
@@ -6060,6 +6070,124 @@ final class DZE_Translate {
 		return self::obj_adopt( [ 'kind' => 'post', 'id' => $pid, 'type' => (string) ( get_post_type( $pid ) ?: 'product' ) ], $lang );
 	}
 
+	/**
+	 * A TRANSLATION THIS MODULE NEVER WROTE, as far as its register can tell.
+	 *
+	 * « Toutes les pages sont passées en mise à jour requise, le module était
+	 * en train de retraduire tous les sites kula jute et kilim. » (05/10/2026)
+	 * WPML marks a translation « to update » for reasons that are not words: a
+	 * category renamed, a variation added, a custom field's setting. On Kula
+	 * its background task « ProcessNewTranslatableFields » re-marks the whole
+	 * catalogue each time its list of translatable fields flickers — 115,755
+	 * contents on 02/10, 170,892 on 05/10.
+	 *
+	 * For a translation this module wrote, the register says which words moved,
+	 * and a mark with none is closed for free. For one it never wrote there is
+	 * no register, every word read as owed, and the automatic pass translated
+	 * whole catalogues again: 7,997 calls on Kula on 01/10, 2,291 on Kilim on
+	 * 02/10. Such a translation is now the shop's decision, never the pass's
+	 * (DZE_Automation::translate_owed(), drain()): keep it as it stands
+	 * (keep_elsewhere(), free) or translate it again from the dashboard.
+	 */
+	public static function made_elsewhere( array $o, string $lang ): bool {
+		$target = self::obj_translation( $o, $lang );
+		return $target > 0 && $target !== (int) ( $o['id'] ?? 0 ) && ! self::src_map( $target, $o );
+	}
+
+	/**
+	 * The translations WPML marks « to update » that this module never wrote,
+	 * in what the shop translates and into the languages it translates to.
+	 * Read in WPML's own tables: one query per kind, never one per object.
+	 *
+	 * @param int $limit How many to hand back for work; 0 counts only.
+	 * @return array{count:int,by:array<string,int>,rows:array<int,array{o:array,lang:string}>}
+	 */
+	public static function elsewhere( int $limit = 0 ): array {
+		global $wpdb;
+		$out = [ 'count' => 0, 'by' => [], 'rows' => [] ];
+		$tr  = $wpdb ? $wpdb->prefix . 'icl_translations' : '';
+		$st  = $wpdb ? $wpdb->prefix . 'icl_translation_status' : '';
+		if ( ! $wpdb || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() || ! DZE_Wpml::has_table( $tr ) || ! DZE_Wpml::has_table( $st ) ) {
+			return $out;
+		}
+		$langs = array_values( array_filter( array_map( 'sanitize_key', self::target_codes() ) ) );
+		if ( ! $langs ) {
+			return $out;
+		}
+		$in_l = "'" . implode( "','", array_map( 'esc_sql', $langs ) ) . "'";
+		$none = "( r.meta_id IS NULL OR r.meta_value IN ( '', '[]', '{}' ) )";
+		foreach ( self::picked_scope() as $scope ) {
+			$kind = 'term' === ( $scope['kind'] ?? '' ) ? 'term' : 'post';
+			$type = (string) ( $scope['type'] ?? '' );
+			$name = DZE_Wpml::element_name( $kind, $type );
+			if ( '' === $name ) {
+				continue;
+			}
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own tables; codes escaped above, the rest prepared.
+			$from = 'term' === $kind
+				? "FROM {$tr} t
+				   INNER JOIN {$tr} o ON o.trid = t.trid AND o.source_language_code IS NULL AND o.element_type = t.element_type
+				   INNER JOIN {$st} s ON s.translation_id = t.translation_id AND s.needs_update = 1
+				   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = t.element_id
+				   INNER JOIN {$wpdb->term_taxonomy} ot ON ot.term_taxonomy_id = o.element_id
+				   LEFT JOIN {$wpdb->termmeta} r ON r.term_id = tt.term_id AND r.meta_key = '" . esc_sql( self::META_SRC ) . "'
+				   WHERE t.element_type = %s AND t.source_language_code IS NOT NULL AND t.language_code IN ( {$in_l} ) AND {$none}"
+				: "FROM {$tr} t
+				   INNER JOIN {$tr} o ON o.trid = t.trid AND o.source_language_code IS NULL AND o.element_type = t.element_type
+				   INNER JOIN {$st} s ON s.translation_id = t.translation_id AND s.needs_update = 1
+				   INNER JOIN {$wpdb->posts} p ON p.ID = t.element_id AND p.post_status IN ( 'publish', 'private' )
+				   INNER JOIN {$wpdb->posts} po ON po.ID = o.element_id AND po.post_status IN ( 'publish', 'private' )
+				   LEFT JOIN {$wpdb->postmeta} r ON r.post_id = t.element_id AND r.meta_key = '" . esc_sql( self::META_SRC ) . "'
+				   WHERE t.element_type = %s AND t.source_language_code IS NOT NULL AND t.language_code IN ( {$in_l} ) AND {$none}";
+			$n = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) {$from}", $name ) );
+			if ( $n < 1 ) {
+				continue;
+			}
+			$out['count']       += $n;
+			$out['by'][ $kind . ':' . $type ] = $n;
+			$want = $limit - count( $out['rows'] );
+			if ( $want > 0 ) {
+				$src  = 'term' === $kind ? 'ot.term_id' : 'o.element_id';
+				$rows = (array) $wpdb->get_results( $wpdb->prepare( "SELECT {$src} AS src, t.language_code AS lang {$from} ORDER BY {$src} LIMIT %d", $name, $want ), ARRAY_A );
+				foreach ( $rows as $r ) {
+					$out['rows'][] = [ 'o' => [ 'kind' => $kind, 'id' => (int) $r['src'], 'type' => $type ], 'lang' => (string) $r['lang'] ];
+				}
+			}
+			// phpcs:enable
+		}
+		return $out;
+	}
+
+	/**
+	 * Keeps some translations made elsewhere as they stand: their words are
+	 * recorded as current (obj_adopt()), free, and from then on only the words
+	 * that change are translated.
+	 *
+	 * @return array{kept:int,closed:int,left:int}
+	 */
+	public static function keep_elsewhere( int $limit = 25 ): array {
+		$kept   = 0;
+		$closed = 0;
+		$read   = [];
+		foreach ( self::elsewhere( max( 1, $limit ) )['rows'] as $row ) {
+			$o      = $row['o'];
+			$target = self::obj_translation( $o, $row['lang'] );
+			if ( ! $target || $target === (int) $o['id'] ) {
+				continue;
+			}
+			$ref = self::ref( $o );
+			if ( ! isset( $read[ $ref ] ) ) {
+				$read[ $ref ] = self::obj_read( $o );
+			}
+			self::remember( $target, $read[ $ref ], $o );
+			$kept++;
+			if ( self::obj_settle( $o, $row['lang'] ) ) {
+				$closed++;
+			}
+		}
+		return [ 'kept' => $kept, 'closed' => $closed, 'left' => self::elsewhere()['count'] ];
+	}
+
 	// =========================================================================
 	// THE WAITING LIST — a batch is translated, and READ before it lands
 	//
@@ -8468,6 +8596,12 @@ final class DZE_Translate {
 				'selecting'    => __( 'Selecting…', 'dazont-ecom' ),
 				/* translators: %s: the most items one selection holds */
 				'capped'       => __( 'Only the first %s were selected: send them, then select the rest.', 'dazont-ecom' ),
+				/* translators: 1: how many were kept so far, 2: how many are left */
+				'keeping'      => __( '%1$s kept, %2$s to go…', 'dazont-ecom' ),
+				/* translators: %s: how many translations were kept */
+				'kept'         => __( 'Done: %s kept as they are. Only the words that change from now on will be translated.', 'dazont-ecom' ),
+				'keptOpen'     => __( 'WPML still shows some of them « to update »: the next automatic pass closes those marks, for free.', 'dazont-ecom' ),
+				'keepFail'     => __( 'Stopped. Reload the page and press again: what was kept stays kept.', 'dazont-ecom' ),
 				'cancelAsk'    => __( 'Take this language out of the queue? Nothing has been spent on it yet.', 'dazont-ecom' ),
 				'cancelAllAsk' => __( 'Take everything out of the queue? Nothing more is spent: what is waiting is taken out, and what is already with Anthropic is stopped there — what it had already finished arrives in « To review », never published.', 'dazont-ecom' ),
 				'oneProgress'  => __( '1 item is being translated in the background.', 'dazont-ecom' ),
