@@ -110,7 +110,23 @@ final class DZE_Gmc_Feed {
 	}
 
 	private function __construct() {
-		// Nothing hooked: this version builds when it is asked and sends nothing.
+		// The background work, registered on every request: cron and Action
+		// Scheduler are not admin screens.
+		add_action( self::HOOK_RUN, [ __CLASS__, 'run_page' ], 10, 3 );
+		add_action( self::HOOK_SWEEP, [ __CLASS__, 'sweep_page' ], 10, 2 );
+		add_action( self::HOOK_DIRTY, [ __CLASS__, 'run_dirty' ] );
+		add_action( self::HOOK_DAILY, [ __CLASS__, 'run_daily' ] );
+		add_action( 'init', [ __CLASS__, 'schedule_daily' ] );
+		// WHAT GOOGLE SHOWS FOLLOWS WHAT THE SHOP CHANGES: a product saved, a
+		// stock level moved, a discount rule changed. Only switched accounts
+		// pay for it (dirty() returns at once otherwise).
+		add_action( 'woocommerce_update_product', [ __CLASS__, 'dirty' ] );
+		add_action( 'woocommerce_update_product_variation', [ __CLASS__, 'dirty' ] );
+		add_action( 'woocommerce_product_set_stock_status', [ __CLASS__, 'dirty' ] );
+		add_action( 'woocommerce_variation_set_stock_status', [ __CLASS__, 'dirty' ] );
+		add_action( 'before_delete_post', [ __CLASS__, 'gone' ] );
+		add_action( 'dze_discount_saved', [ __CLASS__, 'prices_moved' ] );
+		add_action( 'dze_discount_deleted', [ __CLASS__, 'prices_moved' ] );
 	}
 
 	// =========================================================================
@@ -656,6 +672,572 @@ final class DZE_Gmc_Feed {
 	public static function number( string $v ): float {
 		$v = trim( str_replace( ',', '.', $v ) );
 		return is_numeric( $v ) ? (float) $v : 0.0;
+	}
+
+	// =========================================================================
+	// Sending to Merchant Center
+	//
+	// « Arrivé là un module api merchant center serait presque mieux. » Each
+	// account gets a data source of its own, « Dazont Ecom », with the same
+	// language, feed label and countries as the file it read until now: Google
+	// does not keep products apart by data source, so the same offer id, in
+	// the same language and under the same label, IS the same product, and
+	// Google keeps what it knows about it. The file's daily fetch is switched
+	// off at the same moment: fetched again, August's file would overwrite
+	// today's prices every morning.
+	// =========================================================================
+
+	/** Per language: the account's data sources, its label, its countries, where its sending stands. */
+	public const OPT_STATE = 'dze_gmc_feed_state';
+
+	/** Products changed since the last send: original product id => true. */
+	public const OPT_DIRTY = 'dze_gmc_feed_dirty';
+
+	/** On an offer: « hash|time|run » of what Merchant Center was last given. */
+	public const META_SENT = '_dze_gmc_sent';
+
+	public const HOOK_RUN   = 'dze_gmc_feed_run';
+	public const HOOK_SWEEP = 'dze_gmc_feed_sweep';
+	public const HOOK_DIRTY = 'dze_gmc_feed_dirty';
+	public const HOOK_DAILY = 'dze_gmc_feed_daily';
+
+	/** Offers sent per background step. */
+	private const SEND_PAGE = 40;
+
+	/** Google lets a product it has not heard about for 30 days expire: everything is sent again after 20. */
+	private const REFRESH = 20 * 86400;
+
+	private const PRODUCTS_API = 'https://merchantapi.googleapis.com/products/v1';
+	private const SOURCES_API  = 'https://merchantapi.googleapis.com/datasources/v1';
+
+	/** What Google calls the destinations a product in quarantine leaves. */
+	private const DESTINATION = [ 'Shopping_ads' => 'SHOPPING_ADS', 'Display_ads' => 'DISPLAY_ADS' ];
+
+	/**
+	 * One row, as the Merchant API's ProductInput (products_v1).
+	 *
+	 * Pure: the rules are tested without Google (tools/test-gmc-feed.php).
+	 */
+	public static function to_api( array $row, string $lang, string $label ): array {
+		$money = static function ( string $v ): ?array {
+			if ( ! preg_match( '/^([0-9]+(?:\.[0-9]+)?)\s+([A-Za-z]{3})$/', trim( $v ), $m ) ) {
+				return null;
+			}
+			return [ 'amountMicros' => (string) (int) round( (float) $m[1] * 1000000 ), 'currencyCode' => strtoupper( $m[2] ) ];
+		};
+		$cm = static function ( string $v ): ?array {
+			return preg_match( '/^([0-9]+(?:\.[0-9]+)?)\s*cm$/', trim( $v ), $m ) ? [ 'value' => (float) $m[1], 'unit' => 'cm' ] : null;
+		};
+		$a = [
+			'title'            => (string) ( $row['title'] ?? '' ),
+			'description'      => (string) ( $row['description'] ?? '' ),
+			'link'             => (string) ( $row['link'] ?? '' ),
+			'imageLink'        => (string) ( $row['image_link'] ?? '' ),
+			'availability'     => 'in_stock' === ( $row['availability'] ?? '' ) ? 'IN_STOCK' : 'OUT_OF_STOCK',
+			'condition'        => 'NEW',
+			'identifierExists' => false,
+			'ageGroup'         => strtoupper( (string) ( $row['age_group'] ?? 'adult' ) ),
+		];
+		$more = array_values( array_filter( array_map( 'trim', explode( ',', (string) ( $row['additional_image_link'] ?? '' ) ) ) ) );
+		if ( $more ) {
+			$a['additionalImageLinks'] = $more;
+		}
+		if ( $p = $money( (string) ( $row['price'] ?? '' ) ) ) {
+			$a['price'] = $p;
+		}
+		if ( $p = $money( (string) ( $row['sale_price'] ?? '' ) ) ) {
+			$a['salePrice'] = $p;
+			$when = explode( '/', (string) ( $row['sale_price_effective_date'] ?? '' ) );
+			if ( 2 === count( $when ) && '' !== $when[0] && '' !== $when[1] ) {
+				$a['salePriceEffectiveDate'] = [ 'startTime' => $when[0], 'endTime' => $when[1] ];
+			}
+		}
+		foreach ( [ 'product_type' => 'productTypes' ] as $from => $to ) {
+			if ( '' !== (string) ( $row[ $from ] ?? '' ) ) {
+				$a[ $to ] = [ (string) $row[ $from ] ];
+			}
+		}
+		foreach ( [ 'google_product_category' => 'googleProductCategory', 'color' => 'color', 'material' => 'material', 'size' => 'size', 'item_group_id' => 'itemGroupId' ] as $from => $to ) {
+			if ( '' !== (string) ( $row[ $from ] ?? '' ) ) {
+				$a[ $to ] = (string) $row[ $from ];
+			}
+		}
+		if ( '' !== (string) ( $row['gender'] ?? '' ) ) {
+			$a['gender'] = strtoupper( (string) $row['gender'] );
+		}
+		foreach ( [ 'length', 'width', 'height' ] as $side ) {
+			if ( $d = $cm( (string) ( $row[ 'shipping_' . $side ] ?? '' ) ) ) {
+				$a[ 'shipping' . ucfirst( $side ) ] = $d;
+			}
+		}
+		$out = [];
+		foreach ( array_filter( array_map( 'trim', explode( ',', (string) ( $row['excluded_destination'] ?? '' ) ) ) ) as $d ) {
+			if ( isset( self::DESTINATION[ $d ] ) ) {
+				$out[] = self::DESTINATION[ $d ];
+			}
+		}
+		if ( $out ) {
+			$a['excludedDestinations'] = $out;
+		}
+		return [
+			'offerId'           => (string) ( $row['id'] ?? '' ),
+			'contentLanguage'   => $lang,
+			'feedLabel'         => $label,
+			'productAttributes' => $a,
+		];
+	}
+
+	/** The state of every account, by language. */
+	public static function states(): array {
+		$s = get_option( self::OPT_STATE, [] );
+		return is_array( $s ) ? $s : [];
+	}
+
+	public static function state( string $lang ): array {
+		return (array) ( self::states()[ $lang ] ?? [] );
+	}
+
+	private static function save_state( string $lang, array $changes ): array {
+		$all          = self::states();
+		$all[ $lang ] = array_merge( (array) ( $all[ $lang ] ?? [] ), $changes );
+		update_option( self::OPT_STATE, $all, false );
+		return $all[ $lang ];
+	}
+
+	/** The Merchant Center account of a language, '' when it has none. */
+	public static function merchant( string $lang ): string {
+		foreach ( DZE_Gmc::get_accounts() as $key => $acc ) {
+			if ( (string) ( $acc['language'] ?? $key ) === $lang && '' !== (string) ( $acc['merchant_id'] ?? '' ) ) {
+				return (string) $acc['merchant_id'];
+			}
+		}
+		return '';
+	}
+
+	/** Has this account been switched to the Dazont listing? */
+	public static function switched( string $lang ): bool {
+		return ! empty( self::state( $lang )['switched'] );
+	}
+
+	/**
+	 * What the account holds today: its primary data sources, ours among them.
+	 *
+	 * Read only. The label and countries the shop's listing must carry are
+	 * the ones of the file Google reads now; when that file says nothing,
+	 * the label of the products Google already holds.
+	 *
+	 * @return array{ours:string,file:string,file_name:string,fetch:bool,label:string,countries:string[],language:string}
+	 */
+	public static function inspect( string $lang ): array {
+		$id = self::merchant( $lang );
+		if ( '' === $id ) {
+			throw new RuntimeException( __( 'This language has no Merchant Center account.', 'dazont-ecom' ) );
+		}
+		$g    = DZE_Gmc::instance();
+		$list = $g->api( 'GET', self::SOURCES_API . '/accounts/' . $id . '/dataSources?pageSize=200' );
+		$out  = [ 'ours' => '', 'file' => '', 'file_name' => '', 'fetch' => false, 'label' => '', 'countries' => [], 'language' => $lang ];
+		foreach ( (array) ( $list['dataSources'] ?? [] ) as $ds ) {
+			$p = $ds['primaryProductDataSource'] ?? null;
+			if ( ! is_array( $p ) ) {
+				continue;
+			}
+			if ( 'API' === ( $ds['input'] ?? '' ) && 0 === strpos( (string) ( $ds['displayName'] ?? '' ), 'Dazont Ecom' ) ) {
+				$out['ours'] = (string) $ds['name'];
+				continue;
+			}
+			if ( 'FILE' === ( $ds['input'] ?? '' ) && '' === $out['file'] ) {
+				$out['file']      = (string) $ds['name'];
+				$out['file_name'] = (string) ( $ds['displayName'] ?? '' );
+				$out['fetch']     = ! empty( $ds['fileInput']['fetchSettings']['enabled'] );
+				$out['label']     = (string) ( $p['feedLabel'] ?? '' );
+				$out['countries'] = array_values( array_map( 'strval', (array) ( $p['countries'] ?? [] ) ) );
+				if ( ! empty( $p['contentLanguage'] ) ) {
+					$out['language'] = (string) $p['contentLanguage'];
+				}
+			}
+		}
+		if ( '' === $out['label'] ) {
+			$one          = $g->api( 'GET', self::PRODUCTS_API . '/accounts/' . $id . '/products?pageSize=1' );
+			$out['label'] = (string) ( $one['products'][0]['feedLabel'] ?? '' );
+		}
+		if ( '' === $out['label'] ) {
+			$c            = DZE_Gmc::country_for_language( $lang );
+			$out['label'] = (string) ( $c[0] ?? 'US' );
+		}
+		if ( ! $out['countries'] ) {
+			$out['countries'] = [ $out['label'] ];
+		}
+		return $out;
+	}
+
+	/**
+	 * Switches one account to the Dazont listing: our data source made (once),
+	 * the file's daily fetch switched off, and the whole listing sent.
+	 *
+	 * @return array The account's state.
+	 */
+	public static function switch_account( string $lang ): array {
+		$id  = self::merchant( $lang );
+		$now = self::inspect( $lang );
+		$g   = DZE_Gmc::instance();
+		$ours = $now['ours'];
+		if ( '' === $ours ) {
+			$made = $g->api( 'POST', self::SOURCES_API . '/accounts/' . $id . '/dataSources', [
+				'displayName'              => 'Dazont Ecom',
+				'primaryProductDataSource' => [
+					'contentLanguage' => $now['language'],
+					'feedLabel'       => $now['label'],
+					'countries'       => $now['countries'],
+				],
+			] );
+			$ours = (string) ( $made['name'] ?? '' );
+			if ( '' === $ours ) {
+				throw new RuntimeException( __( 'Merchant Center did not make the data source.', 'dazont-ecom' ) );
+			}
+		}
+		// THE FILE STOPS BEING FETCHED, or it overwrites today's data with
+		// August's every morning. Asked of Google, then read back.
+		if ( '' !== $now['file'] && $now['fetch'] ) {
+			$g->api( 'PATCH', self::SOURCES_API . '/' . $now['file'] . '?updateMask=fileInput.fetchSettings.enabled', [
+				'fileInput' => [ 'fetchSettings' => [ 'enabled' => false ] ],
+			] );
+			$back = $g->api( 'GET', self::SOURCES_API . '/' . $now['file'] );
+			if ( ! empty( $back['fileInput']['fetchSettings']['enabled'] ) ) {
+				throw new RuntimeException( __( 'Merchant Center still fetches the old file every day. Switch its fetch schedule off under Merchant Center → Settings → Data sources, then press again.', 'dazont-ecom' ) );
+			}
+		}
+		$state = self::save_state( $lang, [
+			'source'    => $ours,
+			'file'      => $now['file'],
+			'file_name' => $now['file_name'],
+			'label'     => $now['label'],
+			'countries' => $now['countries'],
+			'language'  => $now['language'],
+			'switched'  => (int) ( self::state( $lang )['switched'] ?? 0 ) ?: time(),
+			'error'     => '',
+		] );
+		self::start( $lang );
+		return $state;
+	}
+
+	/** Starts a full pass over one account: every offer compared, sent when it changed. */
+	public static function start( string $lang ): void {
+		if ( ! self::switched( $lang ) ) {
+			return;
+		}
+		$run = (string) time();
+		self::save_state( $lang, [ 'run' => $run, 'running' => 1, 'seen' => 0, 'sent' => 0, 'refused' => 0, 'refusals' => [], 'started' => time() ] );
+		self::queue( self::HOOK_RUN, [ $lang, $run, 0 ] );
+	}
+
+	private static function queue( string $hook, array $args, int $delay = 0 ): void {
+		if ( function_exists( 'as_enqueue_async_action' ) && 0 === $delay ) {
+			as_enqueue_async_action( $hook, $args, 'dazont-ecom' );
+		} elseif ( function_exists( 'as_schedule_single_action' ) ) {
+			as_schedule_single_action( time() + max( 1, $delay ), $hook, $args, 'dazont-ecom' );
+		} else {
+			wp_schedule_single_event( time() + max( 1, $delay ), $hook, $args );
+		}
+	}
+
+	/**
+	 * One step of a full pass: a page of offers, each sent when what Google
+	 * would read changed or has not been sent for 20 days.
+	 */
+	public static function run_page( $lang = '', $run = '', $after = 0 ): void {
+		$lang  = (string) $lang;
+		$state = self::state( $lang );
+		if ( ! self::switched( $lang ) || (string) ( $state['run'] ?? '' ) !== (string) $run ) {
+			return; // switched back, or a newer pass took over.
+		}
+		$ids = self::ids( $lang, (int) $after, self::SEND_PAGE );
+		if ( $ids ) {
+			$r = self::send( $lang, self::rows( $ids, $lang ), (string) $run );
+			if ( 'quota' === $r['stop'] ) {
+				self::queue( self::HOOK_RUN, [ $lang, (string) $run, (int) $after ], 15 * MINUTE_IN_SECONDS );
+				return; // Google asked to slow down: the same page, a little later.
+			}
+		}
+		if ( count( $ids ) === self::SEND_PAGE ) {
+			self::queue( self::HOOK_RUN, [ $lang, (string) $run, (int) end( $ids ) ] );
+			return;
+		}
+		// Every offer of the listing has been seen: what Google still holds and
+		// the listing no longer has is taken off.
+		self::queue( self::HOOK_SWEEP, [ $lang, (string) $run ] );
+	}
+
+	/**
+	 * Sends some rows; reasons (left out) take the offer off when Google had it.
+	 *
+	 * @param array<int,array|string> $rows
+	 * @return array{sent:int,refused:int,stop:string}
+	 */
+	private static function send( string $lang, array $rows, string $run ): array {
+		$state  = self::state( $lang );
+		$g      = DZE_Gmc::instance();
+		$id     = self::merchant( $lang );
+		$label  = (string) ( $state['label'] ?? 'US' );
+		$source = (string) ( $state['source'] ?? '' );
+		$out    = [ 'sent' => 0, 'refused' => 0, 'stop' => '' ];
+		$refusals = (array) ( $state['refusals'] ?? [] );
+		foreach ( $rows as $offer => $row ) {
+			$offer = (int) $offer;
+			$had   = explode( '|', (string) get_post_meta( $offer, self::META_SENT, true ) );
+			if ( ! is_array( $row ) ) {
+				if ( '' !== $had[0] ) {
+					self::take_off( $lang, $offer );
+				}
+				continue;
+			}
+			$body = self::to_api( $row, (string) ( $state['language'] ?? $lang ), $label );
+			$hash = md5( (string) wp_json_encode( $body ) );
+			if ( $hash === $had[0] && (int) ( $had[1] ?? 0 ) > time() - self::REFRESH ) {
+				update_post_meta( $offer, self::META_SENT, $hash . '|' . (int) $had[1] . '|' . $run );
+				continue; // Google already has exactly this.
+			}
+			try {
+				$g->api( 'POST', self::PRODUCTS_API . '/accounts/' . $id . '/productInputs:insert?dataSource=' . rawurlencode( $source ), $body );
+				update_post_meta( $offer, self::META_SENT, $hash . '|' . time() . '|' . $run );
+				$out['sent']++;
+			} catch ( \Throwable $e ) {
+				$msg = $e->getMessage();
+				if ( preg_match( '/quota|rate|RESOURCE_EXHAUSTED|429/i', $msg ) ) {
+					$out['stop'] = 'quota';
+					break;
+				}
+				$out['refused']++;
+				if ( count( $refusals ) < 20 ) {
+					$refusals[] = [ 'offer' => $offer, 'said' => mb_substr( $msg, 0, 300 ) ];
+				}
+			}
+		}
+		self::save_state( $lang, [
+			'seen'     => (int) ( $state['seen'] ?? 0 ) + count( $rows ),
+			'sent'     => (int) ( $state['sent'] ?? 0 ) + $out['sent'],
+			'refused'  => (int) ( $state['refused'] ?? 0 ) + $out['refused'],
+			'refusals' => $refusals,
+			'last'     => time(),
+		] );
+		return $out;
+	}
+
+	/** Takes one offer off Merchant Center (our data source only) and forgets it was sent. */
+	private static function take_off( string $lang, int $offer ): void {
+		$state = self::state( $lang );
+		$name  = 'accounts/' . self::merchant( $lang ) . '/productInputs/' . rawurlencode( (string) ( $state['language'] ?? $lang ) . '~' . (string) ( $state['label'] ?? 'US' ) . '~' . $offer );
+		try {
+			DZE_Gmc::instance()->api( 'DELETE', self::PRODUCTS_API . '/' . $name . '?dataSource=' . rawurlencode( (string) ( $state['source'] ?? '' ) ) );
+		} catch ( \Throwable $e ) {
+			// Already gone is what was wanted; anything else is said by the next pass.
+			unset( $e );
+		}
+		delete_post_meta( $offer, self::META_SENT );
+	}
+
+	/** The end of a full pass: offers Google holds from us that this pass did not see are taken off. */
+	public static function sweep_page( $lang = '', $run = '' ): void {
+		global $wpdb;
+		$lang  = (string) $lang;
+		$state = self::state( $lang );
+		if ( (string) ( $state['run'] ?? '' ) !== (string) $run ) {
+			return;
+		}
+		$icl  = $wpdb->prefix . 'icl_translations';
+		$join = DZE_Wpml::is_active() && 'default' !== $lang && DZE_Wpml::has_table( $icl )
+			? $wpdb->prepare( "INNER JOIN {$icl} t ON t.element_id = m.post_id AND t.element_type IN ( 'post_product', 'post_product_variation' ) AND t.language_code = %s", $lang )
+			: '';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared -- our own meta key; the join is prepared above.
+		$stale = $wpdb->get_col( $wpdb->prepare( "SELECT m.post_id FROM {$wpdb->postmeta} m {$join} WHERE m.meta_key = %s AND m.meta_value NOT LIKE %s LIMIT %d", self::META_SENT, '%|' . $wpdb->esc_like( (string) $run ), self::SEND_PAGE ) );
+		foreach ( (array) $stale as $offer ) {
+			self::take_off( $lang, (int) $offer );
+		}
+		if ( count( (array) $stale ) === self::SEND_PAGE ) {
+			self::queue( self::HOOK_SWEEP, [ $lang, (string) $run ] );
+			return;
+		}
+		self::save_state( $lang, [ 'running' => 0, 'done' => time() ] );
+		delete_transient( 'dze_gmc_issues_' . $lang );
+	}
+
+	/** A product changed: its offers are sent again within minutes, in every switched account. */
+	public static function dirty( $product_id ): void {
+		$product_id = (int) $product_id;
+		if ( $product_id < 1 || ! array_filter( array_keys( self::states() ), [ __CLASS__, 'switched' ] ) ) {
+			return;
+		}
+		$set                = (array) get_option( self::OPT_DIRTY, [] );
+		$set[ $product_id ] = true;
+		update_option( self::OPT_DIRTY, array_slice( $set, -2000, null, true ), false );
+		if ( function_exists( 'as_next_scheduled_action' ) ? false === as_next_scheduled_action( self::HOOK_DIRTY ) : ! wp_next_scheduled( self::HOOK_DIRTY ) ) {
+			self::queue( self::HOOK_DIRTY, [], 5 * MINUTE_IN_SECONDS );
+		}
+	}
+
+	/** A deleted product leaves Merchant Center at once, rather than after its 30 days. */
+	public static function gone( $post_id ): void {
+		$post_id = (int) $post_id;
+		$had     = (string) get_post_meta( $post_id, self::META_SENT, true );
+		if ( '' === $had ) {
+			return;
+		}
+		$lang = self::language_of( $post_id );
+		$lang = '' !== $lang ? $lang : 'default';
+		if ( self::switched( $lang ) ) {
+			self::take_off( $lang, $post_id );
+		}
+	}
+
+	/** A discount rule changed: prices move on many products at once, so every switched account is passed over. */
+	public static function prices_moved(): void {
+		foreach ( array_keys( self::states() ) as $lang ) {
+			if ( self::switched( (string) $lang ) ) {
+				self::start( (string) $lang );
+			}
+		}
+	}
+
+	/** The changed products, sent in every switched account. */
+	public static function run_dirty(): void {
+		$set = array_map( 'intval', array_keys( (array) get_option( self::OPT_DIRTY, [] ) ) );
+		delete_option( self::OPT_DIRTY );
+		if ( ! $set ) {
+			return;
+		}
+		// The products and their variations, in every language.
+		$all = [];
+		foreach ( DZE_Ads::originals( $set ) as $orig ) {
+			if ( $orig ) {
+				$all[ $orig ] = true;
+			}
+		}
+		foreach ( array_keys( self::states() ) as $lang ) {
+			$lang = (string) $lang;
+			if ( ! self::switched( $lang ) ) {
+				continue;
+			}
+			$offers = self::offers_of( $lang, array_keys( $all ) );
+			foreach ( array_chunk( $offers, self::SEND_PAGE ) as $chunk ) {
+				$listed = self::ids_of_language( $lang, $chunk );
+				$rows   = $listed ? self::rows( $listed, $lang ) : [];
+				// An offer that left the listing (unpublished, unflagged) is a reason here.
+				foreach ( array_diff( $chunk, $listed ) as $off ) {
+					$rows[ (int) $off ] = 'not-listed';
+				}
+				self::send( $lang, $rows, (string) ( self::state( $lang )['run'] ?? '' ) );
+			}
+		}
+	}
+
+	/**
+	 * Every offer (simple product or variation) of some original products, in one language.
+	 *
+	 * @param int[] $originals
+	 * @return int[]
+	 */
+	private static function offers_of( string $lang, array $originals ): array {
+		global $wpdb;
+		$family = self::family( $originals );
+		if ( ! $family ) {
+			return [];
+		}
+		$in = implode( ',', array_map( 'intval', $family ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- integers only.
+		$ids = (array) $wpdb->get_col( "SELECT ID FROM {$wpdb->posts} WHERE ( ID IN ( {$in} ) AND post_type = 'product' ) OR ( post_parent IN ( {$in} ) AND post_type = 'product_variation' )" );
+		$ids = array_map( 'intval', $ids );
+		// Those of this language, and those Google had from us even if they left it.
+		$mine = self::ids_of_language( $lang, $ids );
+		foreach ( $ids as $one ) {
+			if ( '' !== (string) get_post_meta( $one, self::META_SENT, true ) && ! in_array( $one, $mine, true ) && self::language_of( $one ) === $lang ) {
+				$mine[] = $one;
+			}
+		}
+		return $mine;
+	}
+
+	/** Of some ids, those the listing of this language holds today. @return int[] */
+	private static function ids_of_language( string $lang, array $ids ): array {
+		global $wpdb;
+		$ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+		if ( ! $ids ) {
+			return [];
+		}
+		[ $sql, $args ] = self::offers_sql( $lang, 'p.ID' );
+		$sql .= ' AND p.ID IN ( ' . implode( ',', $ids ) . ' )';
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared -- built by offers_sql(), integers joined above.
+		return array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( $sql, $args ) ) );
+	}
+
+	/** The language of one product or variation, '' without WPML. */
+	private static function language_of( int $id ): string {
+		$type = (string) get_post_type( $id );
+		return '' !== $type ? DZE_Wpml::post_language( $id, $type ) : '';
+	}
+
+	/** Every night, a full pass over every switched account: only what changed is sent. */
+	public static function run_daily(): void {
+		foreach ( array_keys( self::states() ) as $lang ) {
+			if ( self::switched( (string) $lang ) ) {
+				self::start( (string) $lang );
+			}
+		}
+	}
+
+	public static function schedule_daily(): void {
+		if ( ! wp_next_scheduled( self::HOOK_DAILY ) ) {
+			$at = strtotime( 'tomorrow 03:30', (int) current_time( 'timestamp' ) ) - ( (int) current_time( 'timestamp' ) - time() );
+			wp_schedule_event( $at, 'daily', self::HOOK_DAILY );
+		}
+	}
+
+	/** Leaves the shop: the night pass is no longer scheduled. */
+	public static function clear_cron(): void {
+		wp_clear_scheduled_hook( self::HOOK_DAILY );
+	}
+
+	/**
+	 * What Google says about the products of one account: its remarks, the
+	 * most common first. Read at most 5,000 products, kept six hours.
+	 *
+	 * @return array{products:int,with:int,issues:array<int,array{said:string,n:int,severity:string}>}
+	 */
+	public static function issues( string $lang, bool $fresh = false ): array {
+		$key = 'dze_gmc_issues_' . $lang;
+		$got = $fresh ? false : get_transient( $key );
+		if ( is_array( $got ) ) {
+			return $got;
+		}
+		$id    = self::merchant( $lang );
+		$g     = DZE_Gmc::instance();
+		$out   = [ 'products' => 0, 'with' => 0, 'issues' => [] ];
+		$token = '';
+		$count = [];
+		for ( $page = 0; $page < 5; $page++ ) {
+			$list = $g->api( 'GET', self::PRODUCTS_API . '/accounts/' . $id . '/products?pageSize=1000' . ( '' !== $token ? '&pageToken=' . rawurlencode( $token ) : '' ) );
+			foreach ( (array) ( $list['products'] ?? [] ) as $p ) {
+				$out['products']++;
+				$issues = (array) ( $p['productStatus']['itemLevelIssues'] ?? [] );
+				if ( $issues ) {
+					$out['with']++;
+				}
+				foreach ( $issues as $i ) {
+					$said = (string) ( $i['description'] ?? $i['code'] ?? '' );
+					$k    = $said . '|' . (string) ( $i['severity'] ?? '' );
+					$count[ $k ] = ( $count[ $k ] ?? 0 ) + 1;
+				}
+			}
+			$token = (string) ( $list['nextPageToken'] ?? '' );
+			if ( '' === $token ) {
+				break;
+			}
+		}
+		arsort( $count );
+		foreach ( array_slice( $count, 0, 8, true ) as $k => $n ) {
+			[ $said, $severity ] = array_pad( explode( '|', (string) $k, 2 ), 2, '' );
+			$out['issues'][] = [ 'said' => $said, 'n' => (int) $n, 'severity' => $severity ];
+		}
+		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
+		return $out;
 	}
 
 	/** A shipping dimension in centimetres, '' when the product has none. */

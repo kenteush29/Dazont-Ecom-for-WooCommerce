@@ -123,11 +123,11 @@ final class DZE_Modules {
 			'google_ads' => [
 				'classes' => [ 'DZE_Ads', 'DZE_Gmc_Feed' ],
 				'group'   => 'marketing',
-				// Off until the owner has seen it work on his own account.
+				// Off until a shop switches it on: it reaches Google with the shop's own key.
 				'default' => false,
 				'label'   => __( 'Google Ads', 'dazont-ecom' ),
-				'desc'    => __( 'What the ads cost per product, category and country beside what they sold, and a quarantine that takes a product or a category out of the ads.', 'dazont-ecom' ),
-				'more'    => __( 'Two parts. The ads: a script pasted once into the Google Ads account sends, every day, what each product cost and brought by country over the last 7, 30 and 90 days; it only reads the account. Beside it, the shop\'s own orders tell which sales came through an ad and which did not (WooCommerce order attribution). The figures are shown per product, per category (a category shows the work of its children) and per country. A product or a whole category past the threshold you set can be put in quarantine, by hand or automatically; it comes back only once its page has been opened again. The Merchant Center part builds the product listing of each Merchant Center account from the shop, and marks the offers in quarantine so that every campaign leaves them out while the free listings keep them. Nothing is sent to Merchant Center yet.', 'dazont-ecom' ),
+				'desc'    => __( 'What the ads cost per product, category and country beside what they sold, a quarantine for what does not sell, and the product listing sent to Merchant Center.', 'dazont-ecom' ),
+				'more'    => __( 'Two parts, one Google key. The ads: every morning the Google Ads API is read with the shop\'s service account — what each product cost and brought, by country, over 7, 30 and 90 days — and the shop\'s own orders say which sales came through an ad (WooCommerce order attribution). The figures are shown per product, per category (a category shows the work of its children) and per country. A product or a whole category past the threshold you set can be put in quarantine, by hand or automatically; it comes back only once its page has been opened again. Merchant Center: the product listing of each account is built from the shop and, once that account is switched to it, sent through the Merchant API — what changes is sent within minutes, everything is compared again every night, and what leaves the shop leaves Merchant Center; products in quarantine leave the ads and keep their free listings. While Google keeps the Cloud project at Test access, a script pasted into Google Ads sends the same figures.', 'dazont-ecom' ),
 			],
 			'marketing_ai' => [
 				'class' => 'DZE_Marketing_Ai',

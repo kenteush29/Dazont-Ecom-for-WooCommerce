@@ -2334,3 +2334,10 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-ads .is-ads { background: #2271b1; }
 .dze-ads .is-other { background: #8fbbe0; }
 .dze-ads .is-cost { background: #b32d2e; }
+.dze-ads-warn { color: #b32d2e; }
+.dze-ads-email { font-size: 13px; padding: 3px 6px; user-select: all; }
+.dze-ads-pick { margin: 6px 0 0; }
+.dze-ads-pick li { margin: 0 0 6px; }
+.dze-ads-issues { margin: 6px 0 0 18px; list-style: disc; }
+.dze-ads-gmc td { vertical-align: top; }
+.dze-ads-issues-row td { background: #f6f7f7; }

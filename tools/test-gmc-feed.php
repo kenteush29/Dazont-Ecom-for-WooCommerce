@@ -157,6 +157,18 @@ $same( 'a price with a comma', DZE_Gmc_Feed::number( '12,5' ), 12.5 );
 $same( 'a long title is cut between two words', DZE_Gmc_Feed::cut( str_repeat( 'abcd ', 40 ), 150 ), rtrim( str_repeat( 'abcd ', 30 ) ) );
 $same( 'a non-breaking space is a space', DZE_Gmc_Feed::plain( "Gilet\u{00A0} tactique" ), 'Gilet tactique' );
 
+echo "What the Merchant API is sent\n";
+$api = DZE_Gmc_Feed::to_api( DZE_Gmc_Feed::shape( array_merge( $base, [ 'sale' => '983.61', 'sale_from' => $now - 86400, 'sale_to' => $now + 86400, 'held' => true ] ), $map ), 'fr', 'FR' );
+$pa  = $api['productAttributes'] ?? [];
+$same( 'the offer keeps its id, language and label', [ $api['offerId'] ?? '', $api['contentLanguage'] ?? '', $api['feedLabel'] ?? '' ], [ '987595930', 'fr', 'FR' ] );
+$same( 'a price in micros, as a string', $pa['price'] ?? null, [ 'amountMicros' => '1092900000', 'currencyCode' => 'USD' ] );
+$same( 'the sale and its dates', [ $pa['salePrice']['amountMicros'] ?? '', isset( $pa['salePriceEffectiveDate']['startTime'], $pa['salePriceEffectiveDate']['endTime'] ) ], [ '983610000', true ] );
+$same( 'the words Google uses', [ $pa['availability'] ?? '', $pa['condition'] ?? '', $pa['ageGroup'] ?? '', $pa['gender'] ?? '', $pa['identifierExists'] ?? null ], [ 'IN_STOCK', 'NEW', 'ADULT', 'UNISEX', false ] );
+$same( 'a product in quarantine leaves the ads, in the names Google uses', $pa['excludedDestinations'] ?? null, [ 'SHOPPING_ADS', 'DISPLAY_ADS' ] );
+$same( 'lists stay lists', [ count( $pa['additionalImageLinks'] ?? [] ), $pa['productTypes'] ?? null ], [ 2, [ 'Military Gear > Tactical vests > Body Armors' ] ] );
+$same( 'a dimension in centimetres', $pa['shippingLength'] ?? null, [ 'value' => 30.0, 'unit' => 'cm' ] );
+$same( 'and nothing Google would refuse: no brand, no empty field', [ isset( $pa['brand'] ), in_array( '', $pa, true ) ], [ false, false ] );
+
 echo "File\n";
 $tsv   = DZE_Gmc_Feed::tsv( [ 1 => [ 'id' => '1', 'title' => "A\tB" ], 2 => 'no-price' ] );
 $lines = explode( "\n", rtrim( $tsv, "\n" ) );

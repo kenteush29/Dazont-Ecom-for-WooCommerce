@@ -74,6 +74,57 @@
 			} );
 	} );
 
+	// ONE KIND OF BUTTON FOR EVERY PRESS THAT ASKS GOOGLE: it says it is working,
+	// then what happened, in the line beside it; a list it brings back is put
+	// where data-into says; a change of state reloads the page.
+	$( document ).on( "click", ".dze-ads-do", function () {
+		var $b = $( this );
+		if ( $b.data( "sure" ) && ! window.confirm( t.sureSwitch ) ) {
+			return;
+		}
+		var $said = $b.siblings( ".dze-ads-said" ).first();
+		var data = { lang: $b.data( "lang" ) || "", cid: $b.data( "cid" ) || "", name: $b.data( "name" ) || "" };
+		if ( $b.data( "typed" ) ) {
+			data.cid = $( "#dze-ads-cid" ).val();
+			data.login = $( "#dze-ads-login" ).val();
+		}
+		$b.prop( "disabled", true );
+		$said.text( t.working );
+		post( $b.data( "action" ), data )
+			.done( function ( res ) {
+				var d = ( res && res.data ) || {};
+				if ( ! res || ! res.success ) {
+					$said.text( d.message || t.failed );
+					$b.prop( "disabled", false );
+					return;
+				}
+				if ( d.html && $b.data( "into" ) ) {
+					$( "#" + $b.data( "into" ) ).html( d.html ).prop( "hidden", false );
+					$said.text( "" );
+					$b.prop( "disabled", false );
+					return;
+				}
+				$said.text( d.message || "" );
+				if ( d.reload ) {
+					window.setTimeout( function () { window.location.reload(); }, 1200 );
+				} else {
+					$b.prop( "disabled", false );
+				}
+			} )
+			.fail( function () {
+				$said.text( t.failed );
+				$b.prop( "disabled", false );
+			} );
+	} );
+
+	$( "#dze-ads-copy-email" ).on( "click", function () {
+		var text = $( "#dze-ads-email" ).text();
+		var $b = $( this );
+		if ( navigator.clipboard && navigator.clipboard.writeText ) {
+			navigator.clipboard.writeText( text ).then( function () { $b.text( t.copied ); } );
+		}
+	} );
+
 	// The script, to paste into Google Ads.
 	$( '#dze-ads-copy' ).on( 'click', function () {
 		var box = document.getElementById( 'dze-ads-script' );

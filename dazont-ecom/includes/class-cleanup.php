@@ -58,7 +58,7 @@ final class DZE_Cleanup {
 			],
 			'gmc' => [
 				'options'    => [ 'dze_gmc_credentials', 'dze_gmc_accounts', 'dze_gmc_oauth', 'dze_gmc_advanced', 'dze_gmc_connection', 'dze_gmc_datasources', 'dze_gmc_ads_only', 'dze_gmc_auto' ],
-				'transients' => [ 'dze_gmc_oauth_token', 'dze_gmc_ads_', 'dze_gmc_pc_', 'dze_gmc_run_', 'dze_gmc_q_' ],
+				'transients' => [ 'dze_gmc_oauth_token', 'dze_gmc_token_', 'dze_gmc_ads_', 'dze_gmc_pc_', 'dze_gmc_run_', 'dze_gmc_q_' ],
 			],
 			// Le maillage externe ne pose ni meta ni table : quatre options et un
 			// jeton, et le jeton d acces expire de lui-meme.
@@ -70,11 +70,11 @@ final class DZE_Cleanup {
 				'post_meta' => [ '_merchant_center_activation' ],
 			],
 			'google_ads' => [
-				'options'    => [ 'dze_ads_secret', 'dze_ads_accounts', 'dze_ads_rule', 'dze_ads_schema' ],
-				'post_meta'  => [ '_dze_ads_quarantine' ],
+				'options'    => [ 'dze_ads_secret', 'dze_ads_accounts', 'dze_ads_rule', 'dze_ads_schema', 'dze_ads_api', 'dze_gmc_feed_state', 'dze_gmc_feed_dirty' ],
+				'post_meta'  => [ '_dze_ads_quarantine', '_dze_gmc_sent' ],
 				'term_meta'  => [ '_dze_ads_quarantine', '_dze_gmc_category' ],
 				'tables'     => [ 'dze_ads_stats' ],
-				'transients' => [ 'dze_ads_fig_' ],
+				'transients' => [ 'dze_ads_fig_', 'dze_gmc_issues_' ],
 			],
 			'marketing_ai' => [
 				'options'    => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage', 'dze_ai_trace', 'dze_ai_last' ],

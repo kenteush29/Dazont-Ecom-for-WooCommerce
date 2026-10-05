@@ -41,6 +41,7 @@ final class DZE_Ads_Screen {
 				'copied'   => __( 'Copied', 'dazont-ecom' ),
 				'copyFail' => __( 'Select the text and copy it yourself.', 'dazont-ecom' ),
 				'sureKey'  => __( 'A new key stops the script already pasted in Google Ads. Make a new key?', 'dazont-ecom' ),
+				'sureSwitch' => __( 'Switch this Merchant Center account to the Dazont listing? Its WP All Export file stops being fetched, and every offer is sent from the shop.', 'dazont-ecom' ),
 				'sureCat'  => __( 'Take every product of this category, and of the categories under it, out of the ads?', 'dazont-ecom' ),
 			],
 		] );
@@ -523,8 +524,6 @@ final class DZE_Ads_Screen {
 
 	private static function render_merchant( array $holds ): void {
 		$langs = DZE_Gmc_Feed::languages();
-		echo '<div class="notice notice-warning inline dze-ads-notice"><p><strong>' . esc_html__( 'Nothing is sent to Merchant Center yet.', 'dazont-ecom' ) . '</strong> '
-			. esc_html__( 'The listing below is built from the shop; Merchant Center still reads the feed it was given before.', 'dazont-ecom' ) . '</p></div>';
 		if ( ! $langs ) {
 			echo '<p class="dze-ads-empty">' . esc_html__( 'No Merchant Center account is set up.', 'dazont-ecom' ) . ' ';
 			$where = DZE_Screens::url( 'marketing', 'gmc' );
@@ -534,8 +533,13 @@ final class DZE_Ads_Screen {
 			echo '</p>';
 			return;
 		}
+		$access = self::google_access();
+		if ( ! $access['ok'] ) {
+			echo '<div class="notice notice-error inline dze-ads-notice"><p><strong>' . esc_html__( 'Merchant Center cannot be reached.', 'dazont-ecom' ) . '</strong> '
+				. esc_html( $access['said'] ) . ' <a href="' . esc_url( self::url( 'connection' ) ) . '">' . esc_html( DZE_Screens::label( 'ads', 'connection' ) ) . ' →</a></p></div>';
+		}
 		$held = DZE_Ads::held_products();
-		echo '<div class="dze-ads-frame"><table class="widefat striped dze-ads-table"><thead><tr><th>' . esc_html__( 'Account', 'dazont-ecom' ) . '</th><th class="num">' . esc_html__( 'Offers in the listing', 'dazont-ecom' ) . '</th><th class="num">' . esc_html__( 'Of which out of the ads', 'dazont-ecom' ) . '</th></tr></thead><tbody>';
+		echo '<div class="dze-ads-frame"><table class="widefat dze-ads-table dze-ads-gmc"><thead><tr><th>' . esc_html__( 'Account', 'dazont-ecom' ) . '</th><th class="num">' . esc_html__( 'Offers in the listing', 'dazont-ecom' ) . '</th><th class="num">' . esc_html__( 'Out of the ads', 'dazont-ecom' ) . '</th><th>' . esc_html__( 'Merchant Center reads', 'dazont-ecom' ) . '</th><th></th></tr></thead><tbody>';
 		foreach ( $langs as $lang ) {
 			$all  = DZE_Gmc_Feed::count( $lang );
 			$out  = $held ? DZE_Gmc_Feed::count( $lang, array_keys( $held ) ) : 0;
@@ -546,13 +550,79 @@ final class DZE_Ads_Screen {
 					$name = '' !== (string) ( $acc['name'] ?? '' ) ? (string) $acc['name'] : (string) ( $acc['merchant_id'] ?? '' );
 				}
 			}
+			$st = DZE_Gmc_Feed::state( $lang );
 			echo '<tr><td>' . $flag . ' ' . esc_html( '' !== $name ? $name : __( 'The shop', 'dazont-ecom' ) ) . '</td>' // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- flag_html() escapes.
-				. '<td class="num">' . esc_html( number_format_i18n( $all ) ) . '</td><td class="num">' . ( $out ? esc_html( number_format_i18n( $out ) ) : self::dash() ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+				. '<td class="num">' . esc_html( number_format_i18n( $all ) ) . '</td><td class="num">' . ( $out ? esc_html( number_format_i18n( $out ) ) : self::dash() ) . '</td><td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+			if ( DZE_Gmc_Feed::switched( $lang ) ) {
+				/* translators: %s: a date */
+				echo '<strong>' . esc_html( sprintf( __( 'The Dazont listing, since %s', 'dazont-ecom' ), wp_date( get_option( 'date_format' ), (int) $st['switched'] ) ) ) . '</strong>';
+				if ( ! empty( $st['running'] ) ) {
+					echo '<span class="dze-ads-sub">' . esc_html( sprintf(
+						/* translators: 1: offers looked at, 2: offers in all, 3: sent, 4: refused */
+						__( 'Sending: %1$s of %2$s looked at, %3$s sent, %4$s refused by Google', 'dazont-ecom' ),
+						number_format_i18n( (int) ( $st['seen'] ?? 0 ) ),
+						number_format_i18n( $all ),
+						number_format_i18n( (int) ( $st['sent'] ?? 0 ) ),
+						number_format_i18n( (int) ( $st['refused'] ?? 0 ) )
+					) ) . '</span>';
+				} elseif ( ! empty( $st['done'] ) ) {
+					echo '<span class="dze-ads-sub">' . esc_html( sprintf(
+						/* translators: 1: how long ago, 2: sent, 3: refused */
+						__( 'Up to date %1$s ago: %2$s sent, %3$s refused by Google', 'dazont-ecom' ),
+						human_time_diff( (int) $st['done'] ),
+						number_format_i18n( (int) ( $st['sent'] ?? 0 ) ),
+						number_format_i18n( (int) ( $st['refused'] ?? 0 ) )
+					) ) . '</span>';
+				}
+				if ( ! empty( $st['refusals'] ) ) {
+					echo '<details class="dze-ads-sub"><summary>' . esc_html__( 'Why Google refused some', 'dazont-ecom' ) . '</summary><ul>';
+					foreach ( array_slice( (array) $st['refusals'], 0, 5 ) as $r ) {
+						echo '<li><a href="' . esc_url( (string) get_edit_post_link( (int) wp_get_post_parent_id( (int) $r['offer'] ) ?: (int) $r['offer'] ) ) . '">#' . (int) $r['offer'] . '</a> ' . esc_html( (string) $r['said'] ) . '</li>';
+					}
+					echo '</ul></details>';
+				}
+			} else {
+				echo esc_html__( 'The file it was given before (WP All Export)', 'dazont-ecom' );
+			}
+			echo '</td><td class="dze-ads-act">';
+			if ( DZE_Gmc_Feed::switched( $lang ) ) {
+				echo '<button type="button" class="button dze-ads-do" data-action="dze_ads_gmc_start" data-lang="' . esc_attr( $lang ) . '">' . esc_html__( 'Send everything now', 'dazont-ecom' ) . '</button> ';
+				echo '<button type="button" class="button dze-ads-do" data-action="dze_ads_gmc_issues" data-lang="' . esc_attr( $lang ) . '" data-into="dze-ads-issues-' . esc_attr( $lang ) . '">' . esc_html__( 'What Google says', 'dazont-ecom' ) . '</button>';
+			} else {
+				echo '<button type="button" class="button button-primary dze-ads-do" data-action="dze_ads_gmc_switch" data-lang="' . esc_attr( $lang ) . '" data-sure="1"' . disabled( $access['ok'], false, false ) . '>' . esc_html__( 'Switch to the Dazont listing', 'dazont-ecom' ) . '</button> ';
+				echo '<button type="button" class="button dze-ads-do" data-action="dze_ads_gmc_issues" data-lang="' . esc_attr( $lang ) . '" data-into="dze-ads-issues-' . esc_attr( $lang ) . '"' . disabled( $access['ok'], false, false ) . '>' . esc_html__( 'What Google says today', 'dazont-ecom' ) . '</button>';
+			}
+			echo '<span class="dze-ads-said" aria-live="polite"></span></td></tr>';
+			echo '<tr class="dze-ads-issues-row"><td colspan="5" id="dze-ads-issues-' . esc_attr( $lang ) . '" hidden></td></tr>';
 		}
 		echo '</tbody></table></div>';
-		echo '<details class="dze-ads-explain"><summary>' . esc_html__( 'What the listing holds', 'dazont-ecom' ) . '</summary><p>'
-			. esc_html__( 'One offer per published simple product and per enabled variation chosen for Merchant Center (GMC product activation), in the language of its account. Each keeps its own id, so Google keeps what it knows about it; a variation is grouped under its product; prices are the ones the page shows; no brand is sent. An offer without a price is left out.', 'dazont-ecom' )
+		echo '<details class="dze-ads-explain"><summary>' . esc_html__( 'What switching does', 'dazont-ecom' ) . '</summary><p>'
+			. esc_html__( 'Dazont adds a data source of its own to that Merchant Center account, « Dazont Ecom », in the same language, under the same feed label and for the same countries as the file Google reads now. It switches off the daily fetch of that file — fetched again, it would put back August\'s prices every morning — and sends every offer of the listing. Each offer keeps its id, so it is the same product to Google, with its history. From then on, a product saved, a stock change or a discount rule changed is sent within minutes, and everything is compared again every night; only what changed is sent. An offer that leaves the listing leaves Merchant Center.', 'dazont-ecom' )
+			. '</p><p>' . esc_html__( 'One offer per published simple product and per enabled variation chosen for Merchant Center (GMC product activation). A variation is grouped under its product; prices are the ones the page shows; no brand is sent; an offer without a price is left out. A product in quarantine stays listed and leaves the ads.', 'dazont-ecom' )
 			. '</p></details>';
+	}
+
+	/**
+	 * Can Merchant Center be reached? Read from what is stored, never asked of
+	 * Google while the page loads.
+	 *
+	 * @return array{ok:bool,said:string,email:string}
+	 */
+	private static function google_access(): array {
+		$g     = DZE_Gmc::instance();
+		$email = $g->service_email();
+		if ( '' !== $email ) {
+			return [ 'ok' => true, 'said' => '', 'email' => $email ];
+		}
+		$c = DZE_Gmc::get_connection();
+		if ( ! empty( $c['refresh_token'] ) && empty( $c['broken'] ) ) {
+			return [ 'ok' => true, 'said' => '', 'email' => '' ];
+		}
+		return [
+			'ok'    => false,
+			'said'  => ! empty( $c['refresh_token'] ) ? DZE_Gmc::broken_message() : __( 'No Google access is set up yet.', 'dazont-ecom' ),
+			'email' => '',
+		];
 	}
 
 	// =========================================================================
@@ -561,9 +631,70 @@ final class DZE_Ads_Screen {
 
 	private static function render_connection(): void {
 		$accounts = DZE_Ads::accounts();
-		echo '<div class="dze-ads-steps">';
-		echo '<p>' . esc_html__( 'Google Ads tells the shop what each product cost through a short script, pasted once into the Google Ads account. It runs on Google\'s servers every day and only reads: it changes nothing in the account.', 'dazont-ecom' ) . '</p>';
-		echo '<ol>';
+		$access   = self::google_access();
+		$api      = DZE_Ads::api_settings();
+		$where    = DZE_Screens::url( 'marketing', 'gmc' );
+
+		// 1. ONE GOOGLE KEY FOR MERCHANT CENTER AND GOOGLE ADS.
+		echo '<h2>' . esc_html__( 'Google access', 'dazont-ecom' ) . '</h2><div class="dze-ads-steps">';
+		if ( '' !== $access['email'] ) {
+			echo '<p>' . esc_html__( 'Merchant Center and Google Ads are read with this service account:', 'dazont-ecom' ) . '</p>';
+			echo '<p><code class="dze-ads-email" id="dze-ads-email">' . esc_html( $access['email'] ) . '</code> <button type="button" class="button" id="dze-ads-copy-email">' . esc_html__( 'Copy the address', 'dazont-ecom' ) . '</button></p>';
+			echo '<p>' . esc_html__( 'It must be a user of each Merchant Center account (Settings → People and access, role Standard) and of the Google Ads account (Admin → Access and security; read only is enough).', 'dazont-ecom' ) . '</p>';
+		} else {
+			echo '<p>' . esc_html__( 'Google is reached with a service account: one key for Merchant Center and Google Ads, which never expires. A Google account connected through an app left in « Testing » is disconnected by Google after seven days.', 'dazont-ecom' ) . '</p><ol>';
+			echo '<li>' . wp_kses_post( sprintf(
+				/* translators: %s: link to Google Cloud service accounts */
+				__( 'In %s, in the project of your Google app, create a service account, then « Keys » → « Add key » → JSON.', 'dazont-ecom' ),
+				'<a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener">' . esc_html__( 'Google Cloud → Service accounts', 'dazont-ecom' ) . ' ↗</a>'
+			) ) . '</li>';
+			echo '<li>' . esc_html__( 'In that project, enable the Merchant API and the Google Ads API (APIs & Services → Library).', 'dazont-ecom' ) . '</li>';
+			echo '<li>' . ( '' !== $where
+				? wp_kses_post( sprintf(
+					/* translators: %s: link to the Merchant Center settings */
+					__( 'Paste the whole JSON file under %s → « Advanced: service account ».', 'dazont-ecom' ),
+					'<a href="' . esc_url( $where ) . '">' . esc_html( DZE_Screens::name( 'marketing', 'gmc' ) ) . '</a>'
+				) )
+				: esc_html__( 'Switch the Google Merchant Center module on, and paste the JSON file under its « Advanced: service account ».', 'dazont-ecom' ) ) . '</li>';
+			echo '<li>' . esc_html__( 'Add the service account\'s address as a user of each Merchant Center account and of Google Ads: it is shown here once the key is in.', 'dazont-ecom' ) . '</li></ol>';
+			if ( ! $access['ok'] && '' !== $access['said'] ) {
+				echo '<p class="dze-ads-warn">' . esc_html( $access['said'] ) . '</p>';
+			}
+		}
+		echo '</div>';
+
+		// 2. THE GOOGLE ADS ACCOUNT, READ THROUGH ITS API.
+		echo '<h2>' . esc_html__( 'Google Ads account', 'dazont-ecom' ) . '</h2><div class="dze-ads-steps">';
+		if ( '' !== $api['customer'] ) {
+			echo '<p><strong>' . esc_html( ( '' !== $api['name'] ? $api['name'] . ' · ' : '' ) . self::account_id( $api['customer'] ) ) . '</strong>'
+				. ( '' !== $api['login'] ? ' <span class="dze-ads-sub">' . esc_html( sprintf(
+					/* translators: %s: a manager account id */
+					__( 'through the manager account %s', 'dazont-ecom' ),
+					self::account_id( $api['login'] )
+				) ) . '</span>' : '' ) . '</p>';
+			if ( $api['read_at'] ) {
+				/* translators: %s: how long ago */
+				echo '<p>' . esc_html( sprintf( __( 'Last read %s ago, every morning from then on.', 'dazont-ecom' ), human_time_diff( $api['read_at'] ) ) ) . '</p>';
+			}
+			if ( '' !== $api['error'] ) {
+				echo '<p class="dze-ads-warn"><strong>' . esc_html__( 'Google Ads refused the last reading:', 'dazont-ecom' ) . '</strong> ' . esc_html( $api['error'] ) . '</p>';
+			}
+		}
+		echo '<p><button type="button" class="button dze-ads-do" data-action="dze_ads_find" data-into="dze-ads-found"' . disabled( '' === $access['email'], true, false ) . '>' . esc_html__( 'Find the Google Ads accounts I can read', 'dazont-ecom' ) . '</button>';
+		if ( '' !== $api['customer'] ) {
+			echo ' <button type="button" class="button button-primary dze-ads-do" data-action="dze_ads_fetch">' . esc_html__( 'Read now', 'dazont-ecom' ) . '</button>';
+		}
+		echo '<span class="dze-ads-said" aria-live="polite"></span></p>';
+		echo '<div id="dze-ads-found" hidden></div>';
+		echo '<details class="dze-ads-sub"><summary>' . esc_html__( 'Type the account id instead', 'dazont-ecom' ) . '</summary><p>'
+			. '<label>' . esc_html__( 'Google Ads account id', 'dazont-ecom' ) . ' <input type="text" id="dze-ads-cid" value="' . esc_attr( $api['customer'] ) . '" placeholder="123-456-7890" class="regular-text" /></label></p><p>'
+			. '<label>' . esc_html__( 'Manager account id, when the access comes through one', 'dazont-ecom' ) . ' <input type="text" id="dze-ads-login" value="' . esc_attr( $api['login'] ) . '" class="regular-text" /></label></p><p>'
+			. '<button type="button" class="button dze-ads-do" data-action="dze_ads_account" data-typed="1">' . esc_html__( 'Use this account', 'dazont-ecom' ) . '</button><span class="dze-ads-said" aria-live="polite"></span></p></details>';
+		echo '</div>';
+
+		// 3. THE SCRIPT, while Google has not granted the API to the project.
+		echo '<details class="dze-ads-explain"' . ( '' === $api['customer'] && $accounts ? ' open' : '' ) . '><summary>' . esc_html__( 'Without access to the Google Ads API yet: the script', 'dazont-ecom' ) . '</summary><div class="dze-ads-steps">';
+		echo '<p>' . esc_html__( 'While Google keeps the project at « Test » access, a short script pasted into Google Ads sends the same figures every day. It only reads: it changes nothing in the account.', 'dazont-ecom' ) . '</p><ol>';
 		echo '<li>' . wp_kses_post( sprintf(
 			/* translators: %s: link to Google Ads scripts */
 			__( 'In Google Ads, open %s and add a new script (the « + » button).', 'dazont-ecom' ),
@@ -571,36 +702,33 @@ final class DZE_Ads_Screen {
 		) ) . '</li>';
 		echo '<li>' . esc_html__( 'Replace everything in the editor with the script below.', 'dazont-ecom' ) . '</li>';
 		echo '<li>' . esc_html__( 'Press « Authorise », then « Run » once: its first report reaches this page within a minute.', 'dazont-ecom' ) . '</li>';
-		echo '<li>' . esc_html__( 'Set its frequency to « Daily ». With several Google Ads accounts, paste it into each one.', 'dazont-ecom' ) . '</li>';
-		echo '</ol>';
-		echo '<p><button type="button" class="button button-primary" id="dze-ads-copy">' . esc_html__( 'Copy the script', 'dazont-ecom' ) . '</button> <span class="dze-ads-said" id="dze-ads-copied" aria-live="polite"></span></p>';
-		echo '<textarea id="dze-ads-script" class="large-text code" rows="14" readonly="readonly">' . esc_textarea( DZE_Ads::script() ) . '</textarea>';
-		echo '</div>';
+		echo '<li>' . esc_html__( 'Set its frequency to « Daily ». Once the API reads the account, delete the script.', 'dazont-ecom' ) . '</li></ol>';
+		echo '<p><button type="button" class="button" id="dze-ads-copy">' . esc_html__( 'Copy the script', 'dazont-ecom' ) . '</button> <span class="dze-ads-said" id="dze-ads-copied" aria-live="polite"></span></p>';
+		echo '<textarea id="dze-ads-script" class="large-text code" rows="12" readonly="readonly">' . esc_textarea( DZE_Ads::script() ) . '</textarea>';
+		echo '<p class="dze-ads-sub">' . esc_html__( 'The shop accepts only reports signed with the key written in the script.', 'dazont-ecom' ) . ' <button type="button" class="button-link" id="dze-ads-newkey">' . esc_html__( 'Make a new key', 'dazont-ecom' ) . '</button></p>';
+		echo '</div></details>';
 
-		echo '<h2>' . esc_html__( 'Reports received', 'dazont-ecom' ) . '</h2>';
+		// 4. WHAT HAS COME IN.
+		echo '<h2>' . esc_html__( 'Figures received', 'dazont-ecom' ) . '</h2>';
 		if ( ! $accounts ) {
 			echo '<p class="dze-ads-empty">' . esc_html__( 'None yet.', 'dazont-ecom' ) . '</p>';
-		} else {
-			echo '<div class="dze-ads-frame"><table class="widefat striped dze-ads-table"><thead><tr><th>' . esc_html__( 'Google Ads account', 'dazont-ecom' ) . '</th><th>' . esc_html__( 'Last report', 'dazont-ecom' ) . '</th><th>' . esc_html__( 'Up to', 'dazont-ecom' ) . '</th><th class="num">' . esc_html__( 'Rows', 'dazont-ecom' ) . '</th><th>' . esc_html__( 'Currency', 'dazont-ecom' ) . '</th></tr></thead><tbody>';
-			foreach ( $accounts as $id => $a ) {
-				$late = time() - (int) $a['received'] > 2 * DAY_IN_SECONDS;
-				echo '<tr><td>' . esc_html( ( '' !== (string) $a['name'] ? $a['name'] . ' · ' : '' ) . self::account_id( (string) $id ) ) . '</td>'
-					. '<td>' . esc_html( sprintf(
-						/* translators: %s: how long ago */
-						__( '%s ago', 'dazont-ecom' ),
-						human_time_diff( (int) $a['received'] )
-					) ) . ( $late ? ' <span class="dze-ads-chip is-over">' . esc_html__( 'Late: is the script still scheduled?', 'dazont-ecom' ) . '</span>' : '' ) . '</td>'
-					. '<td>' . esc_html( (string) $a['until'] ) . '</td>'
-					. '<td class="num">' . esc_html( number_format_i18n( (int) $a['rows'] ) ) . '</td>'
-					. '<td>' . esc_html( (string) $a['currency'] ) . '</td></tr>';
-			}
-			echo '</tbody></table></div>';
+			return;
 		}
-		echo '<details class="dze-ads-explain"><summary>' . esc_html__( 'The script\'s key', 'dazont-ecom' ) . '</summary><p>'
-			. esc_html__( 'The shop accepts only reports signed with the key written in the script. A new key stops the script already pasted: paste the new one in its place.', 'dazont-ecom' )
-			. '</p><p><button type="button" class="button" id="dze-ads-newkey">' . esc_html__( 'Make a new key', 'dazont-ecom' ) . '</button></p></details>';
+		echo '<div class="dze-ads-frame"><table class="widefat striped dze-ads-table"><thead><tr><th>' . esc_html__( 'Google Ads account', 'dazont-ecom' ) . '</th><th>' . esc_html__( 'Last received', 'dazont-ecom' ) . '</th><th>' . esc_html__( 'Up to', 'dazont-ecom' ) . '</th><th class="num">' . esc_html__( 'Rows', 'dazont-ecom' ) . '</th><th>' . esc_html__( 'Currency', 'dazont-ecom' ) . '</th></tr></thead><tbody>';
+		foreach ( $accounts as $id => $a ) {
+			$late = time() - (int) $a['received'] > 2 * DAY_IN_SECONDS;
+			echo '<tr><td>' . esc_html( ( '' !== (string) $a['name'] ? $a['name'] . ' · ' : '' ) . self::account_id( (string) $id ) ) . '</td>'
+				. '<td>' . esc_html( sprintf(
+					/* translators: %s: how long ago */
+					__( '%s ago', 'dazont-ecom' ),
+					human_time_diff( (int) $a['received'] )
+				) ) . ( $late ? ' <span class="dze-ads-chip is-over">' . esc_html__( 'Late', 'dazont-ecom' ) . '</span>' : '' ) . '</td>'
+				. '<td>' . esc_html( (string) $a['until'] ) . '</td>'
+				. '<td class="num">' . esc_html( number_format_i18n( (int) $a['rows'] ) ) . '</td>'
+				. '<td>' . esc_html( (string) $a['currency'] ) . '</td></tr>';
+		}
+		echo '</tbody></table></div>';
 	}
-
 	private static function account_id( string $id ): string {
 		return 10 === strlen( $id ) ? substr( $id, 0, 3 ) . '-' . substr( $id, 3, 3 ) . '-' . substr( $id, 6 ) : $id;
 	}
@@ -647,5 +775,101 @@ final class DZE_Ads_Screen {
 		self::guard();
 		DZE_Ads::new_secret();
 		wp_send_json_success( [ 'script' => DZE_Ads::script() ] );
+	}
+
+	/** The Google Ads accounts the service account can read, offered as a list to pick from. */
+	public static function ajax_find(): void {
+		self::guard();
+		try {
+			$list = DZE_Ads::accessible();
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		if ( ! $list ) {
+			wp_send_json_error( [ 'message' => __( 'The service account cannot read any Google Ads account yet. Add its address under Google Ads → Admin → Access and security.', 'dazont-ecom' ) ] );
+		}
+		$html = '<p>' . esc_html__( 'Pick the account whose campaigns show your products:', 'dazont-ecom' ) . '</p><ul class="dze-ads-pick">';
+		foreach ( $list as $c ) {
+			$html .= '<li><button type="button" class="button dze-ads-do" data-action="dze_ads_account" data-cid="' . esc_attr( $c['id'] ) . '" data-name="' . esc_attr( $c['name'] ) . '"' . disabled( $c['manager'], true, false ) . '>'
+				. esc_html( ( '' !== $c['name'] ? $c['name'] . ' · ' : '' ) . self::account_id( $c['id'] ) . ( '' !== $c['currency'] ? ' · ' . $c['currency'] : '' ) ) . '</button>'
+				. ( $c['manager'] ? ' <span class="dze-ads-sub">' . esc_html__( 'A manager account: type the id of the account under it, with this one as manager.', 'dazont-ecom' ) . '</span>' : '' )
+				. '<span class="dze-ads-said" aria-live="polite"></span></li>';
+		}
+		wp_send_json_success( [ 'html' => $html . '</ul>' ] );
+	}
+
+	/** The account to read, picked or typed. */
+	public static function ajax_account(): void {
+		self::guard();
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- guard() checked it.
+		$cid   = preg_replace( '/[^0-9]/', '', (string) wp_unslash( $_POST['cid'] ?? '' ) );
+		$login = preg_replace( '/[^0-9]/', '', (string) wp_unslash( $_POST['login'] ?? '' ) );
+		$name  = sanitize_text_field( (string) wp_unslash( $_POST['name'] ?? '' ) );
+		// phpcs:enable
+		if ( 10 !== strlen( $cid ) ) {
+			wp_send_json_error( [ 'message' => __( 'A Google Ads account id has ten digits, as in 123-456-7890.', 'dazont-ecom' ) ] );
+		}
+		DZE_Ads::save_api( [ 'customer' => $cid, 'login' => 10 === strlen( $login ) ? $login : '', 'name' => $name, 'error' => '' ] );
+		wp_send_json_success( [ 'message' => __( 'Saved. Press « Read now » to read it.', 'dazont-ecom' ), 'reload' => 1 ] );
+	}
+
+	/** Reads the chosen account now, and says what came in. */
+	public static function ajax_fetch(): void {
+		self::guard();
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- the host may refuse.
+		}
+		try {
+			$n = DZE_Ads::fetch_report();
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		/* translators: %s: how many rows */
+		wp_send_json_success( [ 'message' => sprintf( __( 'Read: %s rows of figures. The other tabs show them now.', 'dazont-ecom' ), number_format_i18n( $n ) ) ] );
+	}
+
+	/** One Merchant Center account switched to the Dazont listing. */
+	public static function ajax_gmc_switch(): void {
+		self::guard();
+		$lang = sanitize_key( (string) wp_unslash( $_POST['lang'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- guard() checked it.
+		try {
+			DZE_Gmc_Feed::switch_account( $lang );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [ 'message' => __( 'Switched. The listing is being sent in the background; this page shows where it stands.', 'dazont-ecom' ), 'reload' => 1 ] );
+	}
+
+	/** Everything compared and sent again for one account. */
+	public static function ajax_gmc_start(): void {
+		self::guard();
+		$lang = sanitize_key( (string) wp_unslash( $_POST['lang'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- guard() checked it.
+		DZE_Gmc_Feed::start( $lang );
+		wp_send_json_success( [ 'message' => __( 'Started: every offer is compared, and what changed is sent.', 'dazont-ecom' ), 'reload' => 1 ] );
+	}
+
+	/** What Google says about the products of one account. */
+	public static function ajax_gmc_issues(): void {
+		self::guard();
+		$lang = sanitize_key( (string) wp_unslash( $_POST['lang'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- guard() checked it.
+		try {
+			$r = DZE_Gmc_Feed::issues( $lang, true );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		$html = '<p>' . esc_html( sprintf(
+			/* translators: 1: products read, 2: products with a remark */
+			__( '%1$s products read in Merchant Center, %2$s with a remark from Google.', 'dazont-ecom' ),
+			number_format_i18n( (int) $r['products'] ),
+			number_format_i18n( (int) $r['with'] )
+		) ) . '</p>';
+		if ( $r['issues'] ) {
+			$html .= '<ul class="dze-ads-issues">';
+			foreach ( $r['issues'] as $i ) {
+				$html .= '<li><strong>' . esc_html( number_format_i18n( (int) $i['n'] ) ) . '</strong> × ' . esc_html( $i['said'] ) . ( '' !== $i['severity'] ? ' <span class="dze-ads-sub">' . esc_html( strtolower( str_replace( '_', ' ', $i['severity'] ) ) ) . '</span>' : '' ) . '</li>';
+			}
+			$html .= '</ul>';
+		}
+		wp_send_json_success( [ 'html' => $html ] );
 	}
 }

@@ -38,6 +38,11 @@ final class DZE_Ads {
 	public const ROUTE_NS      = 'dazont/v1';
 	public const ROUTE         = '/ads-report';
 	public const SPANS         = [ 7, 30, 90 ];
+	public const OPT_API       = 'dze_ads_api';
+	public const HOOK_FETCH    = 'dze_ads_fetch';
+	/** Google Ads API v25: released July 2026, answered until August 2027. */
+	public const ADS_API       = 'https://googleads.googleapis.com/v25';
+	private const ADS_SCOPE    = 'https://www.googleapis.com/auth/adwords';
 	private const SCHEMA       = 1;
 	private const MAX_BODY     = 25 * 1048576;
 
@@ -53,6 +58,9 @@ final class DZE_Ads {
 	private function __construct() {
 		// The report comes from Google's servers: a REST route, not an admin page.
 		add_action( 'rest_api_init', [ $this, 'routes' ] );
+		// THE DAILY READING OF GOOGLE ADS, through its API (fetch_report()).
+		add_action( self::HOOK_FETCH, [ __CLASS__, 'cron_fetch' ] );
+		add_action( 'init', [ __CLASS__, 'schedule_fetch' ] );
 		if ( ! is_admin() ) {
 			return;
 		}
@@ -63,6 +71,12 @@ final class DZE_Ads {
 		add_action( 'wp_ajax_dze_ads_hold', [ 'DZE_Ads_Screen', 'ajax_hold' ] );
 		add_action( 'wp_ajax_dze_ads_opened', [ 'DZE_Ads_Screen', 'ajax_opened' ] );
 		add_action( 'wp_ajax_dze_ads_new_key', [ 'DZE_Ads_Screen', 'ajax_new_key' ] );
+		add_action( 'wp_ajax_dze_ads_find', [ 'DZE_Ads_Screen', 'ajax_find' ] );
+		add_action( 'wp_ajax_dze_ads_account', [ 'DZE_Ads_Screen', 'ajax_account' ] );
+		add_action( 'wp_ajax_dze_ads_fetch', [ 'DZE_Ads_Screen', 'ajax_fetch' ] );
+		add_action( 'wp_ajax_dze_ads_gmc_switch', [ 'DZE_Ads_Screen', 'ajax_gmc_switch' ] );
+		add_action( 'wp_ajax_dze_ads_gmc_start', [ 'DZE_Ads_Screen', 'ajax_gmc_start' ] );
+		add_action( 'wp_ajax_dze_ads_gmc_issues', [ 'DZE_Ads_Screen', 'ajax_gmc_issues' ] );
 	}
 
 	// =========================================================================
@@ -706,6 +720,258 @@ final class DZE_Ads {
 			}
 		}
 		return $out;
+	}
+
+	// =========================================================================
+	// The Google Ads API, read with the shop's service account
+	//
+	// « Google ads, il vaut mieux une intégration propre ! » The figures come
+	// from the API itself, read every morning with the service account the
+	// Merchant Center module already holds (DZE_Gmc::service_token()): one
+	// key for both, and no OAuth consent screen whose « Testing » status gets
+	// the connection revoked after seven days. Since 10/09/2026 Google grants
+	// API access to the Google Cloud PROJECT (no more developer token): a
+	// project still at « Test » access reads test accounts only, and
+	// explain() says what to do. Until then the script below sends the same
+	// figures, into the same table, through store().
+	// =========================================================================
+
+	/** The Google Ads account to read, as the shop chose it. */
+	public static function api_settings(): array {
+		$s = get_option( self::OPT_API, [] );
+		$s = is_array( $s ) ? $s : [];
+		return [
+			'customer' => preg_replace( '/[^0-9]/', '', (string) ( $s['customer'] ?? '' ) ),
+			'login'    => preg_replace( '/[^0-9]/', '', (string) ( $s['login'] ?? '' ) ),
+			'name'     => (string) ( $s['name'] ?? '' ),
+			'error'    => (string) ( $s['error'] ?? '' ),
+			'error_at' => (int) ( $s['error_at'] ?? 0 ),
+			'read_at'  => (int) ( $s['read_at'] ?? 0 ),
+		];
+	}
+
+	public static function save_api( array $changes ): array {
+		$now = array_merge( self::api_settings(), $changes );
+		update_option( self::OPT_API, $now, false );
+		return $now;
+	}
+
+	/**
+	 * One call to the Google Ads API.
+	 *
+	 * @return array The decoded answer (searchStream answers a list of batches).
+	 */
+	public static function ads_call( string $method, string $path, ?array $body = null, string $login = '' ): array {
+		$token    = DZE_Gmc::instance()->service_token( self::ADS_SCOPE );
+		$headers  = [ 'Authorization' => 'Bearer ' . $token, 'Content-Type' => 'application/json' ];
+		if ( '' !== $login ) {
+			$headers['login-customer-id'] = $login;
+		}
+		$response = wp_remote_request( self::ADS_API . $path, [
+			'method'  => $method,
+			'timeout' => 45,
+			'headers' => $headers,
+			'body'    => null !== $body ? wp_json_encode( $body ) : null,
+		] );
+		if ( is_wp_error( $response ) ) {
+			throw new RuntimeException( $response->get_error_message() );
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$data = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		if ( $code < 200 || $code >= 300 ) {
+			$err = is_array( $data ) ? ( $data['error'] ?? ( $data[0]['error'] ?? [] ) ) : [];
+			throw new RuntimeException( self::explain( (int) ( $err['code'] ?? $code ), (string) ( $err['status'] ?? '' ), (string) ( $err['message'] ?? 'HTTP ' . $code ), (string) wp_json_encode( $err['details'] ?? [] ) ) );
+		}
+		return is_array( $data ) ? $data : [];
+	}
+
+	/**
+	 * Google's refusal, said as the one thing to do about it.
+	 *
+	 * Pure (tools/test-ads.php). The details carry the Google Ads error codes.
+	 */
+	public static function explain( int $code, string $status, string $message, string $details = '' ): string {
+		$all = $status . ' ' . $message . ' ' . $details;
+		if ( preg_match( '/DEVELOPER_TOKEN_NOT_APPROVED|only approved for use with test accounts|test account|ACCESS_LEVEL|access level/i', $all ) ) {
+			return __( 'Google Ads lets this Google Cloud project read test accounts only. Verify the project\'s branding (Google Cloud → Google Auth Platform → Branding), then apply for Basic access (Google Cloud → Google Ads API → Access): the review takes minutes once the branding is verified. Until then, the script below sends the same figures.', 'dazont-ecom' );
+		}
+		if ( preg_match( '/SERVICE_DISABLED|has not been used in project|is disabled/i', $all ) ) {
+			return __( 'The Google Ads API is not enabled in the Google Cloud project of the service account. Enable it under Google Cloud → APIs & Services → Library → Google Ads API, then read again.', 'dazont-ecom' );
+		}
+		if ( preg_match( '/USER_PERMISSION_DENIED|CUSTOMER_NOT_FOUND|NOT_ADS_USER|does not have permission|PERMISSION_DENIED/i', $all ) || 403 === $code ) {
+			return __( 'The service account is not a user of this Google Ads account. Add its address under Google Ads → Admin → Access and security (read only is enough), then read again.', 'dazont-ecom' );
+		}
+		if ( 401 === $code || preg_match( '/UNAUTHENTICATED|invalid_grant/i', $all ) ) {
+			return __( 'Google refused the service account\'s key. Paste a new JSON key under Google Merchant Center → Advanced: service account.', 'dazont-ecom' );
+		}
+		return trim( $message ) !== '' ? $message : __( 'Google Ads did not answer.', 'dazont-ecom' );
+	}
+
+	/**
+	 * The Google Ads accounts the service account can read: the shop picks one.
+	 *
+	 * @return array<int,array{id:string,name:string,currency:string,manager:bool}>
+	 */
+	public static function accessible(): array {
+		$list = self::ads_call( 'GET', '/customers:listAccessibleCustomers' );
+		$out  = [];
+		foreach ( array_slice( (array) ( $list['resourceNames'] ?? [] ), 0, 25 ) as $res ) {
+			$id = preg_replace( '/[^0-9]/', '', (string) $res );
+			try {
+				$rows = self::search( $id, 'SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.manager FROM customer LIMIT 1' );
+				$c    = (array) ( $rows[0]['customer'] ?? [] );
+				$out[] = [ 'id' => $id, 'name' => (string) ( $c['descriptiveName'] ?? '' ), 'currency' => (string) ( $c['currencyCode'] ?? '' ), 'manager' => ! empty( $c['manager'] ) ];
+			} catch ( \Throwable $e ) {
+				$out[] = [ 'id' => $id, 'name' => '', 'currency' => '', 'manager' => false ];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * One query of the Google Ads Query Language, every row of its answer.
+	 *
+	 * @return array<int,array> The rows, as Google writes them (camelCase).
+	 */
+	public static function search( string $customer, string $query, string $login = '' ): array {
+		$batches = self::ads_call( 'POST', '/customers/' . $customer . '/googleAds:searchStream', [ 'query' => $query ], $login );
+		$rows    = [];
+		foreach ( $batches as $b ) {
+			foreach ( (array) ( $b['results'] ?? [] ) as $r ) {
+				$rows[] = (array) $r;
+			}
+		}
+		return $rows;
+	}
+
+	/**
+	 * The same report the script sends, built from the API's answers.
+	 *
+	 * Pure (tools/test-ads.php): what store() reads must not depend on how the
+	 * figures came in.
+	 *
+	 * @param array<int,array<int,array>> $products  span => shopping_performance_view rows.
+	 * @param array<int,array<int,array>> $campaigns span => campaign rows.
+	 * @param array<int,array>            $places    geo_target_constant rows.
+	 */
+	public static function report_from_api( string $customer, array $info, string $until, array $products, array $campaigns, array $places ): array {
+		$report = [
+			'account'   => $customer,
+			'name'      => (string) ( $info['descriptiveName'] ?? '' ),
+			'currency'  => (string) ( $info['currencyCode'] ?? '' ),
+			'until'     => $until,
+			'spans'     => [],
+			'campaigns' => [],
+			'countries' => [],
+		];
+		foreach ( $products as $span => $rows ) {
+			foreach ( $rows as $r ) {
+				$report['spans'][ $span ][] = [
+					(string) ( $r['segments']['productItemId'] ?? '' ),
+					(string) ( $r['segments']['productCountry'] ?? '' ),
+					(int) ( $r['metrics']['costMicros'] ?? 0 ),
+					(int) ( $r['metrics']['clicks'] ?? 0 ),
+					(int) ( $r['metrics']['impressions'] ?? 0 ),
+					(float) ( $r['metrics']['conversions'] ?? 0 ),
+					(float) ( $r['metrics']['conversionsValue'] ?? 0 ),
+				];
+			}
+			$report['spans'][ $span ] = $report['spans'][ $span ] ?? [];
+		}
+		foreach ( $campaigns as $span => $rows ) {
+			foreach ( $rows as $r ) {
+				$report['campaigns'][ $span ][] = [
+					(string) ( $r['campaign']['id'] ?? '' ),
+					(string) ( $r['campaign']['name'] ?? '' ),
+					(string) ( $r['campaign']['advertisingChannelType'] ?? '' ),
+					(int) ( $r['metrics']['costMicros'] ?? 0 ),
+					(int) ( $r['metrics']['clicks'] ?? 0 ),
+					(float) ( $r['metrics']['conversions'] ?? 0 ),
+					(float) ( $r['metrics']['conversionsValue'] ?? 0 ),
+				];
+			}
+		}
+		foreach ( $places as $p ) {
+			$res = (string) ( $p['geoTargetConstant']['resourceName'] ?? '' );
+			if ( '' !== $res ) {
+				$report['countries'][ $res ] = (string) ( $p['geoTargetConstant']['countryCode'] ?? '' );
+			}
+		}
+		return $report;
+	}
+
+	/**
+	 * Reads the chosen Google Ads account through the API and files the figures.
+	 *
+	 * @return int Rows written.
+	 */
+	public static function fetch_report(): int {
+		$set = self::api_settings();
+		if ( '' === $set['customer'] ) {
+			throw new RuntimeException( __( 'No Google Ads account is chosen yet.', 'dazont-ecom' ) );
+		}
+		try {
+			$cid   = $set['customer'];
+			$login = $set['login'];
+			$info  = (array) ( self::search( $cid, 'SELECT customer.descriptive_name, customer.currency_code FROM customer LIMIT 1', $login )[0]['customer'] ?? [] );
+			$until = wp_date( 'Y-m-d', time() - DAY_IN_SECONDS );
+			$products  = [];
+			$campaigns = [];
+			$places    = [];
+			foreach ( self::SPANS as $n ) {
+				$from  = wp_date( 'Y-m-d', time() - $n * DAY_IN_SECONDS );
+				$range = "segments.date BETWEEN '{$from}' AND '{$until}'";
+				$products[ $n ]  = self::search( $cid, 'SELECT segments.product_item_id, segments.product_country, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value FROM shopping_performance_view WHERE ' . $range . ' AND metrics.impressions > 0', $login );
+				$campaigns[ $n ] = self::search( $cid, 'SELECT campaign.id, campaign.name, campaign.advertising_channel_type, metrics.cost_micros, metrics.clicks, metrics.conversions, metrics.conversions_value FROM campaign WHERE ' . $range . ' AND metrics.cost_micros > 0', $login );
+				foreach ( $products[ $n ] as $r ) {
+					$c = (string) ( $r['segments']['productCountry'] ?? '' );
+					if ( '' !== $c ) {
+						$places[ $c ] = true;
+					}
+				}
+			}
+			$geo = [];
+			if ( $places ) {
+				$geo = self::search( $cid, "SELECT geo_target_constant.resource_name, geo_target_constant.country_code FROM geo_target_constant WHERE geo_target_constant.resource_name IN ('" . implode( "','", array_map( 'esc_sql', array_keys( $places ) ) ) . "')", $login );
+			}
+			$written = self::store( self::report_from_api( $cid, $info, $until, $products, $campaigns, $geo ) );
+			if ( is_wp_error( $written ) ) {
+				throw new RuntimeException( $written->get_error_message() );
+			}
+		} catch ( \Throwable $e ) {
+			self::save_api( [ 'error' => $e->getMessage(), 'error_at' => time() ] );
+			throw $e;
+		}
+		self::save_api( [ 'error' => '', 'error_at' => 0, 'read_at' => time(), 'name' => (string) ( $info['descriptiveName'] ?? $set['name'] ) ] );
+		self::forget_cache();
+		self::apply_rule();
+		return (int) $written;
+	}
+
+	/** Every morning: the chosen account read again. Its failure is kept for the screen. */
+	public static function cron_fetch(): void {
+		if ( '' === self::api_settings()['customer'] ) {
+			return;
+		}
+		try {
+			self::fetch_report();
+		} catch ( \Throwable $e ) {
+			unset( $e ); // saved by fetch_report(), said on the Connection tab.
+		}
+	}
+
+	public static function schedule_fetch(): void {
+		if ( ! wp_next_scheduled( self::HOOK_FETCH ) ) {
+			$offset = (int) current_time( 'timestamp' ) - time();
+			wp_schedule_event( strtotime( 'tomorrow 05:30', (int) current_time( 'timestamp' ) ) - $offset, 'daily', self::HOOK_FETCH );
+		}
+	}
+
+	public static function clear_cron(): void {
+		wp_clear_scheduled_hook( self::HOOK_FETCH );
+		if ( class_exists( 'DZE_Gmc_Feed' ) ) {
+			DZE_Gmc_Feed::clear_cron();
+		}
 	}
 
 	// =========================================================================

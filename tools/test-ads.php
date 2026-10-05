@@ -17,6 +17,7 @@ define( 'HOUR_IN_SECONDS', 3600 );
 
 $GLOBALS['opts'] = [ 'home' => 'https://shop.example' ];
 function add_action() {} function add_filter() {} function do_action() {}
+function __( $s, $d = "" ) { return $s; }
 function is_admin() { return false; }
 function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
@@ -91,4 +92,18 @@ $same( 'signed in UTF-8, as PHP checks it', false !== strpos( $js, 'computeHmacS
 $same( 'it changes nothing in the account', 0 === preg_match( '/\.(pause|enable|remove|set[A-Z]\w*|mutate|newCampaign)\(/', $js ), true );
 $same( 'a refusal shows in Google Ads\' own log', false !== strpos( $js, "throw new Error('The shop refused the report" ), true );
 
+echo "The Google Ads API, read with the service account\n";
+$api = DZE_Ads::report_from_api( "1234567890", [ "descriptiveName" => "Kula", "currencyCode" => "USD" ], "2026-10-04",
+	[ 30 => [ [ "segments" => [ "productItemId" => "987595930", "productCountry" => "geoTargetConstants/2840" ], "metrics" => [ "costMicros" => "12500000", "clicks" => "7", "impressions" => "900", "conversions" => 1.0, "conversionsValue" => 375.9 ] ] ], 7 => [] ],
+	[ 30 => [ [ "campaign" => [ "id" => "23403492171", "name" => "PMax US", "advertisingChannelType" => "PERFORMANCE_MAX" ], "metrics" => [ "costMicros" => "9000000", "clicks" => "40", "conversions" => 2.0, "conversionsValue" => 500 ] ] ] ],
+	[ [ "geoTargetConstant" => [ "resourceName" => "geoTargetConstants/2840", "countryCode" => "US" ] ] ] );
+$same( "the same report as the script sends", $api["spans"][30][0] ?? null, [ "987595930", "geoTargetConstants/2840", 12500000, 7, 900, 1.0, 375.9 ] );
+$same( "a span with nothing in it is still a span", $api["spans"][7] ?? null, [] );
+$same( "its campaigns and its countries", [ $api["campaigns"][30][0][2] ?? "", $api["countries"]["geoTargetConstants/2840"] ?? "" ], [ "PERFORMANCE_MAX", "US" ] );
+$same( "and the account it came from", [ $api["account"], $api["name"], $api["currency"], $api["until"] ], [ "1234567890", "Kula", "USD", "2026-10-04" ] );
+$same( "a project still at Test access: what to do", false !== strpos( DZE_Ads::explain( 403, "PERMISSION_DENIED", "The developer token is only approved for use with test accounts.", "" ), "Basic access" ), true );
+$same( "the API not enabled in the project", false !== strpos( DZE_Ads::explain( 403, "PERMISSION_DENIED", "Google Ads API has not been used in project 5494 before or it is disabled.", "SERVICE_DISABLED" ), "Library" ), true );
+$same( "the service account not a user of the account", false !== strpos( DZE_Ads::explain( 403, "PERMISSION_DENIED", "User doesnt have permission to access customer.", "USER_PERMISSION_DENIED" ), "Access and security" ), true );
+$same( "a key Google refuses", false !== strpos( DZE_Ads::explain( 401, "UNAUTHENTICATED", "Request had invalid authentication credentials.", "" ), "new JSON key" ), true );
+$same( "anything else, in Google own words", DZE_Ads::explain( 400, "INVALID_ARGUMENT", "Error in query.", "" ), "Error in query." );
 echo $wrong ? "\n$wrong wrong\n" : "\nall right\n";
