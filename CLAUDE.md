@@ -265,6 +265,12 @@ fait" (4.499.0):
     some again is the dashboard's ordinary send, chosen by a person.
   - On 05/10: Kula 136 (68 pages, 60 products, 8 articles), Jute 1,813,
     Kilim 20.
+  - **4.514.1: closing a mark never dies where WPML's signature filter is
+    not loaded.** From the command line (and in some AJAX actions) nobody
+    answers `wpml_tm_element_md5`, the filter hands back the POST, and
+    `(string)` of it was a fatal error. `DZE_Wpml::mark_done()` then keeps
+    the signature already in the row: WPML's own, written when it raised the
+    mark (`WPML_TM_Post_Actions::get_translation_statuses_updater()`).
 
 - **THREE FIXES ON THE BULK SCREEN** (4.513.2).
   - **Photographs from elsewhere are kept** while the product is on the

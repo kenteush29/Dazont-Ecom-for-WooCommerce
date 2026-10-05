@@ -163,6 +163,9 @@ function apply_filters( $tag, $value = null, ...$a ) {
 		return [ 'language_code' => (string) ( $GLOBALS['post_lang'][ $id ] ?? 'en' ) ];
 	}
 	if ( 'wpml_tm_element_md5' === $tag ) {
+		// NOBODY ANSWERS where WPML's translation management is not loaded:
+		// a filter nobody registered hands back what it was given.
+		if ( ! empty( $GLOBALS['wpml_md5_off'] ) ) { return $value; }
 		$GLOBALS['asked_md5'][] = is_object( $value ) ? (int) $value->ID : 0;
 		return (string) $GLOBALS['wpml_md5'];
 	}
@@ -1003,13 +1006,19 @@ ok( 'and no longer needing an update',    (int) ( $w['data']['needs_update'] ?? 
 ok( 'with the signature WPML computes',   (string) ( $w['data']['md5'] ?? '' ), 'WPML-SIGNATURE' );
 ok( 'asked of the ORIGINAL, not the translation', $GLOBALS['asked_md5'] ?? [], [ 7 ] );
 
-// A SIGNATURE WPML CANNOT GIVE IS NOT ONE TO INVENT. In an AJAX action its
-// translation-management hooks may not be loaded; a mark left standing is a
-// nuisance, a wrong signature is a translation that is never flagged again.
+// A SIGNATURE WPML CANNOT GIVE IS NOT ONE TO INVENT — nor a reason to leave the
+// mark standing. WPML wrote the original's current signature into the row when
+// it raised the mark; that one is kept. On 05/10/2026, from the command line,
+// nobody answered the filter, it handed back the POST, and the cast was fatal.
 shop();
 $GLOBALS['wpml_md5'] = '';
-ok( 'no signature, no write',            DZE_Translate::settle( 7, 'fr' ), false );
-ok( 'and nothing was written',           $GLOBALS['wpdb']->written, [] );
+ok( 'no signature: the mark is closed all the same', DZE_Translate::settle( 7, 'fr' ), true );
+$dze_w = $GLOBALS['wpdb']->written[0] ?? [];
+ok( 'and the signature in the row is left as WPML wrote it', [ (int) ( $dze_w['data']['needs_update'] ?? 1 ), array_key_exists( 'md5', (array) ( $dze_w['data'] ?? [] ) ) ], [ 0, false ] );
+shop();
+$GLOBALS['wpml_md5_off'] = true;
+ok( 'nobody answering the filter is not a fatal error', DZE_Translate::settle( 7, 'fr' ), true );
+unset( $GLOBALS['wpml_md5_off'] );
 $GLOBALS['wpml_md5'] = 'WPML-SIGNATURE';
 
 // Nothing to settle when there is no translation at all.
