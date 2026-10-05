@@ -333,6 +333,11 @@ fait" (4.499.0):
     changed is sent within minutes (`dirty()`); every night all offers are
     compared and only what changed is sent (`_dze_gmc_sent` holds the hash);
     what leaves the listing is deleted from our data source.
+  - **The Google category lives on the product category** (term meta
+    `_dze_gmc_category`, a field on the category screen; a translation
+    follows its original; empty takes the nearest parent's). WP All Export's
+    table (`catMappings` of the default-language Google export) is taken
+    over once, never over a value already set (`import_categories()`).
   - `tools/on-site/gmc-feed-compare.php` compares it with a WP All Export
     file, field by field. It separates what the shop changed since the file
     was written (« shop ») from what Dazont's rules change (« rule »).

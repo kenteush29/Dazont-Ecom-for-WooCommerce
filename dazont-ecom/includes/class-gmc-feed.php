@@ -127,6 +127,117 @@ final class DZE_Gmc_Feed {
 		add_action( 'before_delete_post', [ __CLASS__, 'gone' ] );
 		add_action( 'dze_discount_saved', [ __CLASS__, 'prices_moved' ] );
 		add_action( 'dze_discount_deleted', [ __CLASS__, 'prices_moved' ] );
+		if ( ! is_admin() ) {
+			return;
+		}
+		// THE GOOGLE CATEGORY LIVES ON THE PRODUCT CATEGORY: taken over once
+		// from WP All Export, then read and changed where the category is.
+		add_action( 'admin_init', [ __CLASS__, 'import_categories' ] );
+		add_action( 'product_cat_edit_form_fields', [ __CLASS__, 'category_field' ], 20 );
+		add_action( 'edited_product_cat', [ __CLASS__, 'save_category_field' ] );
+	}
+
+	/** Set once WP All Export's table has been taken over (or there was none). */
+	public const OPT_CAT_IMPORTED = 'dze_gmc_categories_imported';
+
+	/**
+	 * WP ALL EXPORT'S TABLE OF GOOGLE CATEGORIES, TAKEN OVER ONCE.
+	 *
+	 * The shop chose a Google category for its product categories in WP All
+	 * Export's Google template (`catMappings` of the export in the default
+	 * language). It is copied onto the categories themselves, never over a
+	 * value already there, so the listing carries the same categories the
+	 * day the shop switches, and WP All Export can go.
+	 *
+	 * @return int How many categories received one.
+	 */
+	public static function import_categories(): int {
+		global $wpdb;
+		if ( get_option( self::OPT_CAT_IMPORTED ) ) {
+			return 0;
+		}
+		update_option( self::OPT_CAT_IMPORTED, time(), false );
+		$table = $wpdb->prefix . 'pmxe_exports';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			return 0;
+		}
+		$default = DZE_Wpml::default_language();
+		$map     = [];
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WP All Export's own table.
+		foreach ( (array) $wpdb->get_col( "SELECT options FROM {$table}" ) as $raw ) {
+			$o = maybe_unserialize( $raw );
+			if ( ! is_array( $o ) || 'XmlGoogleMerchants' !== ( $o['xml_template_type'] ?? '' ) ) {
+				continue;
+			}
+			if ( '' !== $default && $default !== (string) ( $o['wpml_lang'] ?? $default ) ) {
+				continue;
+			}
+			foreach ( (array) ( $o['google_merchants_post_data']['productCategories']['catMappings'] ?? [] ) as $tid => $m ) {
+				if ( is_array( $m ) && '' !== (string) ( $m['id'] ?? '' ) && ! isset( $map[ (int) $tid ] ) ) {
+					$map[ (int) $tid ] = preg_replace( '/[^0-9]/', '', (string) $m['id'] );
+				}
+			}
+			if ( $map ) {
+				break;
+			}
+		}
+		$n = 0;
+		foreach ( $map as $tid => $google ) {
+			$term = get_term( (int) $tid, 'product_cat' );
+			if ( '' === $google || ! $term || is_wp_error( $term ) || '' !== (string) get_term_meta( (int) $tid, self::META_CATEGORY, true ) ) {
+				continue;
+			}
+			update_term_meta( (int) $tid, self::META_CATEGORY, $google );
+			$n++;
+		}
+		return $n;
+	}
+
+	/** The Google category, on the product category's own screen. */
+	public static function category_field( $term ): void {
+		if ( ! is_object( $term ) || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$tid  = (int) $term->term_id;
+		$orig = DZE_Wpml::is_active() ? DZE_Wpml::translated_term( $tid, 'product_cat', DZE_Wpml::default_language() ) : 0;
+		$own  = (string) get_term_meta( $orig ? $orig : $tid, self::META_CATEGORY, true );
+		$from = '';
+		if ( '' === $own ) {
+			foreach ( get_ancestors( $orig ? $orig : $tid, 'product_cat', 'taxonomy' ) as $up ) {
+				$v = (string) get_term_meta( (int) $up, self::META_CATEGORY, true );
+				if ( '' !== $v ) {
+					$t    = get_term( (int) $up, 'product_cat' );
+					$from = $v . ( $t && ! is_wp_error( $t ) ? ' — ' . $t->name : '' );
+					break;
+				}
+			}
+		}
+		wp_nonce_field( 'dze_gmc_cat', 'dze_gmc_cat_nonce' );
+		echo '<tr class="form-field"><th scope="row"><label for="dze-gmc-cat">' . esc_html__( 'Google product category', 'dazont-ecom' ) . '</label></th><td>';
+		if ( $orig ) {
+			echo '<p>' . esc_html( '' !== $own ? $own : __( 'None of its own', 'dazont-ecom' ) ) . '</p><p class="description">' . esc_html__( 'Set on the category in the shop\'s main language; every translation follows it.', 'dazont-ecom' ) . '</p>';
+		} else {
+			echo '<input type="text" name="dze_gmc_cat" id="dze-gmc-cat" value="' . esc_attr( $own ) . '" inputmode="numeric" class="regular-text" placeholder="' . esc_attr( $from ) . '" />';
+			echo '<p class="description">' . wp_kses_post( sprintf(
+				/* translators: %s: link to Google's list of product categories */
+				__( 'The number of the category in %s, sent to Merchant Center for the products filed here. Empty: the nearest parent category\'s is used.', 'dazont-ecom' ),
+				'<a href="https://www.google.com/basepages/producttype/taxonomy-with-ids.en-US.txt" target="_blank" rel="noopener">' . esc_html__( 'Google\'s list', 'dazont-ecom' ) . ' ↗</a>'
+			) ) . '</p>';
+		}
+		echo '</td></tr>';
+	}
+
+	public static function save_category_field( $term_id ): void {
+		if ( ! isset( $_POST['dze_gmc_cat_nonce'], $_POST['dze_gmc_cat'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['dze_gmc_cat_nonce'] ) ), 'dze_gmc_cat' ) || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$v = preg_replace( '/[^0-9]/', '', (string) wp_unslash( $_POST['dze_gmc_cat'] ) );
+		if ( '' === $v ) {
+			delete_term_meta( (int) $term_id, self::META_CATEGORY );
+		} else {
+			update_term_meta( (int) $term_id, self::META_CATEGORY, $v );
+		}
+		self::prices_moved(); // what Google reads changed for every product filed there.
 	}
 
 	// =========================================================================

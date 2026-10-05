@@ -70,7 +70,7 @@ final class DZE_Cleanup {
 				'post_meta' => [ '_merchant_center_activation' ],
 			],
 			'google_ads' => [
-				'options'    => [ 'dze_ads_secret', 'dze_ads_accounts', 'dze_ads_rule', 'dze_ads_schema', 'dze_ads_api', 'dze_gmc_feed_state', 'dze_gmc_feed_dirty' ],
+				'options'    => [ 'dze_ads_secret', 'dze_ads_accounts', 'dze_ads_rule', 'dze_ads_schema', 'dze_ads_api', 'dze_gmc_feed_state', 'dze_gmc_feed_dirty', 'dze_gmc_categories_imported' ],
 				'post_meta'  => [ '_dze_ads_quarantine', '_dze_gmc_sent' ],
 				'term_meta'  => [ '_dze_ads_quarantine', '_dze_gmc_category' ],
 				'tables'     => [ 'dze_ads_stats' ],
