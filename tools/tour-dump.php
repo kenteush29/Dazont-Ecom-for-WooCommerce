@@ -59,7 +59,7 @@ function has_action( ...$a ) { return false; }
 function is_admin() { return true; }
 function current_user_can( ...$a ) { return true; }
 function get_current_user_id() { return 1; }
-function wp_get_current_user() { return (object) [ 'ID' => 1, 'display_name' => 'Quentin', 'user_email' => 'shop@kula.test' ]; }
+function wp_get_current_user() { return (object) [ 'ID' => 1, 'display_name' => 'Admin', 'user_email' => 'shop@kula.test' ]; }
 function admin_url( $p = '' ) { return 'http://shop.test/wp-admin/' . $p; }
 function home_url( $p = '/' ) { return 'https://kula-tactical.com' . $p; }
 function site_url( $p = '/' ) { return home_url( $p ); }
@@ -143,8 +143,8 @@ function get_admin_page_title() { return ''; }
 function submit_button( $t = 'Save Changes', $type = 'primary', $n = 'submit', $wrap = true ) { echo '<p class="submit"><button class="button button-primary">' . esc_html( $t ) . '</button></p>'; }
 function wp_dropdown_categories( $a = [] ) { echo '<select><option>All categories</option></select>'; }
 function selected_helper() {}
-function get_user_by( $f, $v ) { return (object) [ 'ID' => 1, 'display_name' => 'Quentin' ]; }
-function get_userdata( $id ) { return (object) [ 'ID' => 1, 'display_name' => 'Quentin' ]; }
+function get_user_by( $f, $v ) { return (object) [ 'ID' => 1, 'display_name' => 'Admin' ]; }
+function get_userdata( $id ) { return (object) [ 'ID' => 1, 'display_name' => 'Admin' ]; }
 function size_format( $b ) { return round( $b / 1024 ) . ' KB'; }
 function wp_normalize_path( $p ) { return $p; }
 function trailingslashit( $p ) { return rtrim( $p, '/' ) . '/'; }

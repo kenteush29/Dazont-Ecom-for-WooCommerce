@@ -5,6 +5,10 @@ dazont-ecom-*.zip
 # Scratch / working data files (SEMrush exports, trimmed CSVs, etc.)
 *.csv
 
+# Working notes: kept on the server (~/dazont-notes), never published
+CLAUDE.md
+HANDOFF.md
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

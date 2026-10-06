@@ -1117,9 +1117,9 @@ final class DZE_Netlinking {
 	 * « Le score est mauvais. Le revenu par clic et les ventes par rapport à la
 	 * position de la catégorie actuelle, c'est ce qui m'intéresse vraiment. »
 	 * L ancienne priorite ponderait les clics a gagner par le LOGARITHME des
-	 * unites vendues : les ventes n y pesaient presque rien, et Gorka Suits
-	 * (19 038 impressions, 3 ventes, 0,90 $ le clic) passait devant Tactical
-	 * belt suspenders (76 ventes, 63 $ le clic).
+	 * unites vendues : les ventes n y pesaient presque rien, et une categorie
+	 * a fort volume mais presque sans ventes passait devant une autre qui
+	 * vendait vingt fois plus pour chaque clic.
 	 *
 	 * La position entre par les clics a gagner — la cinquieme place contre la
 	 * place actuelle —, les ventes par ce qu un clic rapporte : le chiffre

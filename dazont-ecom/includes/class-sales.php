@@ -10,8 +10,8 @@ defined( 'ABSPATH' ) || exit;
  * It was written for netlinking (4.498.1) and moved here unchanged:
  * - the lines come from the table WooCommerce Analytics fills
  *   (wc_order_product_lookup), but only for orders that still exist and are
- *   sales. Deleted orders keep their lines there: on Kula, 28 lines out of
- *   1,529 over 90 days weighed 1.48 million;
+ *   sales. Deleted orders keep their lines there, and a handful of them
+ *   once outweighed everything the shop really sold;
  * - not a sale: pending, failed, cancelled, checkout-draft, trash, drafts —
  *   what WooCommerce Analytics leaves out. A refund follows its order;
  * - money is converted to the shop's currency: the order's own exchange rate

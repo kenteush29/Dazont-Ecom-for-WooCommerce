@@ -404,8 +404,8 @@ ok( 'et plus aucun script ne vit apres lui', false !== strpos( $apres, '<script>
 echo "\nLA PRIORITE : CE QU UN CLIC RAPPORTE, SUR LES CLICS A GAGNER\n";
 // « Le score est mauvais. Le revenu par clic et les ventes par rapport à la
 // position de la catégorie actuelle, c'est ce qui m'intéresse vraiment. »
-// Les vrais chiffres de Kula sur 90 jours (30/09/2026) : Gorka Suits passait
-// premier avec 3 ventes et 0,90 $ le clic, devant 76 ventes a 63 $ le clic.
+// Le cas qui a fait changer la regle : une categorie a fort volume et presque
+// sans ventes passait devant une autre qui rapportait bien plus par clic.
 $gorka = [ 'url' => 'https://kula-tactical.com/casques', 'clicks' => 624.0, 'impr' => 19038.0, 'ctr' => 624 / 19038, 'pos' => 7.6, 'terms' => [] ];
 $bret  = [ 'url' => 'https://kula-tactical.com/bottes', 'clicks' => 53.0, 'impr' => 3793.0, 'ctr' => 53 / 3793, 'pos' => 12.3, 'terms' => [] ];
 $duo   = DZE_Netlinking::rank( [ $gorka, $bret ], [ 22 => [ 'units' => 3, 'revenue' => 564.0 ], 11 => [ 'units' => 76, 'revenue' => 3362.0 ] ], $map );
