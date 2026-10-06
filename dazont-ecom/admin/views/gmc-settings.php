@@ -29,7 +29,19 @@ foreach ( $languages as $l ) {
 		<div class="notice notice-error is-dismissible"><p><?php echo esc_html( sanitize_text_field( wp_unslash( $_GET['gmc_error'] ) ) ); ?></p></div>
 	<?php endif; ?>
 
-	<h2 class="title"><?php esc_html_e( 'Connect with Google (recommended)', 'dazont-ecom' ); ?></h2>
+	<h2 class="title"><?php esc_html_e( 'Google access', 'dazont-ecom' ); ?></h2>
+	<?php
+	// THE SERVICE ACCOUNT FIRST (06/10/2026): one key for every Google module,
+	// which never expires and needs no published app. The same block sits on
+	// the Google Ads and Netlinking screens.
+	echo DZE_Google::block(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+	// The OAuth connection stays for a shop that uses it, folded unless it is
+	// the access this shop actually has.
+	$dze_oauth_open = $connected && ! $has_creds;
+	?>
+	<details style="max-width:820px;margin:14px 0;"<?php echo $dze_oauth_open ? ' open' : ''; ?>>
+	<summary style="cursor:pointer;font-weight:600;"><?php esc_html_e( 'Or: a Google account, connected through an OAuth app', 'dazont-ecom' ); ?></summary>
+	<p class="description" style="max-width:820px;"><?php esc_html_e( 'Google drops this connection every seven days while the app is in « Testing », and lets an app out of « Testing » only with a verified brand. When a service account key is set above, it is used instead and this connection is not needed.', 'dazont-ecom' ); ?></p>
 	<?php
 	// THE WAY THERE, AS LINKS. "Aucun lien externe pour un setup rapide et
 	// instinctif… C'est une opération que je dois refaire assez souvent."
@@ -132,11 +144,13 @@ foreach ( $languages as $l ) {
 			<?php endif; ?>
 		<?php endif; ?>
 	</div>
+	</details>
 
 	<form method="post" action="options.php">
 		<?php settings_fields( 'dze_gmc_options' ); ?>
 
-		<h2 class="title"><?php esc_html_e( 'OAuth client', 'dazont-ecom' ); ?></h2>
+		<details style="max-width:820px;margin:10px 0;"<?php echo $dze_oauth_open ? ' open' : ''; ?>>
+		<summary style="cursor:pointer;font-weight:600;"><?php esc_html_e( 'OAuth client (only for a Google account connection)', 'dazont-ecom' ); ?></summary>
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><label for="dze-oauth-id"><?php esc_html_e( 'Client ID', 'dazont-ecom' ); ?></label></th>
@@ -147,30 +161,6 @@ foreach ( $languages as $l ) {
 				<td><input type="text" id="dze-oauth-secret" name="<?php echo esc_attr( DZE_Gmc::OPT_OAUTH . '[client_secret]' ); ?>" value="<?php echo esc_attr( $oauth['client_secret'] ?? '' ); ?>" class="large-text" placeholder="GOCSPX-…" /></td>
 			</tr>
 		</table>
-
-		<details style="max-width:820px;margin:10px 0;">
-			<summary style="cursor:pointer;font-weight:600;"><?php esc_html_e( 'Advanced: service account instead of OAuth', 'dazont-ecom' ); ?></summary>
-		<h2 class="title"><?php esc_html_e( 'Service account credentials', 'dazont-ecom' ); ?></h2>
-		<?php if ( $creds_locked ) : ?>
-			<div class="notice notice-info inline"><p><?php esc_html_e( 'Credentials are provided by the DZE_GMC_SERVICE_ACCOUNT constant (wp-config.php). This is the recommended, most secure option.', 'dazont-ecom' ); ?></p></div>
-		<?php else : ?>
-			<p class="description" style="max-width:820px;">
-				<?php esc_html_e( 'Paste the JSON key of a Google Cloud service account that has access to your Merchant Center (Merchant API enabled). For maximum security you can instead define DZE_GMC_SERVICE_ACCOUNT in wp-config.php (a file path or the raw JSON) and leave this blank.', 'dazont-ecom' ); ?>
-			</p>
-			<table class="form-table" role="presentation">
-				<tr>
-					<th scope="row"><label for="dze-gmc-creds"><?php esc_html_e( 'Service account JSON', 'dazont-ecom' ); ?></label></th>
-					<td>
-						<textarea id="dze-gmc-creds" name="<?php echo esc_attr( DZE_Gmc::OPT_CREDENTIALS ); ?>" rows="6" class="large-text code" placeholder='{ "type": "service_account", "client_email": "...", "private_key": "...", "token_uri": "https://oauth2.googleapis.com/token" }'></textarea>
-						<p class="description">
-							<?php echo $has_creds
-								? '<span style="color:#0a7040;">&#10003; ' . esc_html__( 'Credentials are set. Leave blank to keep them.', 'dazont-ecom' ) . '</span>'
-								: esc_html__( 'No credentials set yet.', 'dazont-ecom' ); ?>
-						</p>
-					</td>
-				</tr>
-			</table>
-		<?php endif; ?>
 		</details>
 
 		<h2 class="title"><?php esc_html_e( 'Advanced (parent) account', 'dazont-ecom' ); ?></h2>

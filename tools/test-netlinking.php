@@ -527,5 +527,31 @@ ok( 'le rang est refait a l affichage',    false !== strpos( $src5, '$all = self
 // « la police d'écriture, elle est toute petite ».
 ok( 'la police du tableau se lit',         false !== strpos( $css, '.widefat.dze-nl-table td { font-size: 15px;' ), true );
 
+echo "\nSEARCH CONSOLE PAR LE COMPTE DE SERVICE\n";
+// « Possible de faire passer toutes les fonctions google par le compte de
+// service ? » (06/10/2026). Une cle qui ne tombe jamais, au lieu d un compte
+// Google que Google retire au bout de sept jours.
+$GLOBALS['opts'][ DZE_Netlinking::OPT_CONN ] = [ 'refresh_token' => 'r', 'broken' => time() ];
+ok( 'un compte Google retire ne lit plus',  DZE_Netlinking::via(), '' );
+ok( 'et l ecran le dit',                    DZE_Netlinking::connected(), false );
+function wp_json_encode( $v ) { return json_encode( $v ); }
+require __DIR__ . '/../' . $dir . '/includes/class-google.php';
+$GLOBALS['opts']['dze_gmc_credentials'] = json_encode( [
+	'type' => 'service_account', 'client_email' => 'sa@p.iam.gserviceaccount.com',
+	'private_key' => 'k', 'token_uri' => 'https://oauth2.googleapis.com/token',
+] );
+ok( 'la cle de la boutique prend le relais', DZE_Netlinking::via(), 'service' );
+ok( 'et la liste revient',                  DZE_Netlinking::connected(), true );
+$GLOBALS['opts'][ DZE_Netlinking::OPT_CONN ] = [ 'refresh_token' => 'r' ];
+ok( 'meme un compte Google vivant passe apres elle', DZE_Netlinking::via(), 'service' );
+$GLOBALS['tr'][ 'dze_gmc_token_' . md5( 'sa@p.iam.gserviceaccount.com|https://www.googleapis.com/auth/webmasters.readonly' ) ] = 'SA-SC';
+$GLOBALS['tr']['dze_nl_token'] = 'OAUTH-OLD';
+ok( 'le jeton est celui du compte de service, en lecture seule', DZE_Netlinking::token(), 'SA-SC' );
+$refus = DZE_Netlinking::said( 'User does not have sufficient permission for site https://kula-tactical.com/.' );
+ok( 'un refus nomme l adresse a ajouter',   false !== strpos( $refus, 'sa@p.iam.gserviceaccount.com' ), true );
+ok( 'et le droit qui suffit',               false !== strpos( $refus, 'Restricted is enough' ), true );
+unset( $GLOBALS['opts']['dze_gmc_credentials'] );
+ok( 'sans cle, le compte Google vivant lit comme avant', DZE_Netlinking::via(), 'oauth' );
+ok( 'et un refus parle de lui',             false !== strpos( DZE_Netlinking::said( 'insufficient permission' ), 'the connected Google account' ), true );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

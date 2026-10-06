@@ -118,6 +118,37 @@ final class DZE_Setup {
 			$out[] = $one;
 		}
 
+		// ONE GOOGLE KEY FOR EVERY GOOGLE MODULE (06/10/2026). « Possible de
+		// faire passer toutes les fonctions google par le compte de service ? »
+		// The row says whether the key is in and gives the address to add at
+		// Google. What Google has been told is never read from here, so
+		// « done » means the key is in, and nothing more.
+		$google_on = self::on( 'gmc' ) || self::on( 'netlinking' ) || self::on( 'google_ads' );
+		if ( $google_on && class_exists( 'DZE_Google' ) ) {
+			$sa_mail = DZE_Google::email();
+			$sa_go   = [ [ __( 'Google Cloud → Service accounts', 'dazont-ecom' ), DZE_Google::console( 'iam-admin/serviceaccounts' ) ] ];
+			foreach ( DZE_Google::places() as $place ) {
+				/* translators: %s: the name of a Google API */
+				$sa_go[] = [ sprintf( __( 'Switch on the %s', 'dazont-ecom' ), $place['api'] ), $place['api_url'] ];
+			}
+			$out[] = [
+				'id'     => 'google_key',
+				'group'  => 'keys',
+				'label'  => __( 'Google service account', 'dazont-ecom' ),
+				'why'    => __( 'One key for everything this plugin does at Google: Merchant Center, Google Ads, Search Console. No app to publish, no brand to verify, and it never expires.', 'dazont-ecom' ),
+				'module' => '',
+				'need'   => true,
+				'state'  => '' !== $sa_mail ? 'done' : 'todo',
+				'said'   => '' !== $sa_mail
+					? __( 'Key set. Add this address as a user wherever the plugin reads Google:', 'dazont-ecom' )
+					: __( 'No key yet.', 'dazont-ecom' ),
+				'copy'   => $sa_mail,
+				'links'  => $sa_go,
+				'url'    => DZE_Google::screen_url(),
+				'do'     => '' !== $sa_mail ? __( 'Open', 'dazont-ecom' ) : __( 'Add the key', 'dazont-ecom' ),
+			];
+		}
+
 		// GMC is not a key in a field: it is an authorisation Google can take
 		// back, so it is read from the connection rather than from a setting.
 		$gmc_on   = self::on( 'gmc' );
@@ -152,7 +183,9 @@ final class DZE_Setup {
 		// module suivant ne connait pas. Cette ligne-ci est la seule chose a
 		// coller chez Google, et elle ne changera plus.
 		$any_google = self::on( 'gmc' ) || self::on( 'netlinking' );
-		if ( $any_google && class_exists( 'DZE_Oauth' ) ) {
+		// Only while no service account key is set: with one, nothing signs in
+		// through an OAuth app, and there is no address to paste anywhere.
+		if ( $any_google && class_exists( 'DZE_Oauth' ) && ( ! class_exists( 'DZE_Google' ) || '' === DZE_Google::email() ) ) {
 			$out[] = [
 				'id'     => 'oauth_uri',
 				'group'  => 'keys',
@@ -201,9 +234,11 @@ final class DZE_Setup {
 					: ( $nl_read
 						? __( 'Connected, and reading.', 'dazont-ecom' )
 						// CONNECTE MAIS JAMAIS LU : c est presque toujours l API.
-						: __( 'Connected, but nothing read yet — usually the API below is still off.', 'dazont-ecom' ) ),
+						: ( 'service' === DZE_Netlinking::via()
+							? __( 'Read with the service account, but nothing read yet — usually the API below is still off, or the address is not yet a user of the properties.', 'dazont-ecom' )
+							: __( 'Connected, but nothing read yet — usually the API below is still off.', 'dazont-ecom' ) ) ),
 				'links'  => [
-					[ __( 'Enable the Search Console API', 'dazont-ecom' ), 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com' ],
+					[ __( 'Enable the Search Console API', 'dazont-ecom' ), class_exists( 'DZE_Google' ) ? DZE_Google::console( 'apis/library/searchconsole.googleapis.com' ) : 'https://console.cloud.google.com/apis/library/searchconsole.googleapis.com' ],
 					[ __( 'Check your properties in Search Console', 'dazont-ecom' ), 'https://search.google.com/search-console' ],
 				],
 				'url'    => class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'netlinking' ) : '',

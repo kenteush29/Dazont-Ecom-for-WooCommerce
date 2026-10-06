@@ -111,7 +111,7 @@ final class DZE_Modules {
 				'group' => 'marketing',
 				'label' => __( 'Google Merchant Center', 'dazont-ecom' ),
 				'desc'  => __( 'Pushes your scheduled sale promotions to Merchant Center.', 'dazont-ecom' ),
-				'more'  => __( 'No product feed involved. Each scheduled sale from the Discounts module is filed as a Merchant Center PROMOTION through Google\'s Merchant API, one account per language. Nothing is pushed by hand: a promotion that is switched on and dated goes by itself shortly after it is saved, and is sent again when something Google would see changes — its title, its percentage, its dates. Needs a Google account connected, or a service account, under Dazont Ecom → Marketing → Google Merchant Center. Whether the account is linked to Google Ads is read from Google rather than typed here.', 'dazont-ecom' ),
+				'more'  => __( 'No product feed involved. Each scheduled sale from the Discounts module is filed as a Merchant Center PROMOTION through Google\'s Merchant API, one account per language. Nothing is pushed by hand: a promotion that is switched on and dated goes by itself shortly after it is saved, and is sent again when something Google would see changes — its title, its percentage, its dates. Needs the shop\'s Google service account key — the one key every Google module of this plugin uses — or a connected Google account, under Dazont Ecom → Marketing → Google Merchant Center. Whether the account is linked to Google Ads is read from Google rather than typed here.', 'dazont-ecom' ),
 			],
 			'gmc_activation' => [
 				'class' => 'DZE_Gmc_Activation',

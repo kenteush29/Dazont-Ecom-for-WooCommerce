@@ -80,6 +80,7 @@ class DZE_Modules { public static function enabled( $id ) { return true; } }
 require __DIR__ . '/../' . $dir . '/includes/class-site.php';
 // The catalogue of screens: every page reads its name and its tabs from it.
 require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
+require __DIR__ . '/../' . $dir . '/includes/class-google.php';
 require __DIR__ . '/../' . $dir . '/includes/class-gmc.php';
 
 $fails = 0;
@@ -308,6 +309,39 @@ ok( 'and falls back where it cannot tell',
 // disconnection, not after the second.
 ok( 'the condition is stated plainly',    false !== strpos( DZE_Gmc::keeps_said(), 'Publish app' ), true );
 ok( 'with the seven days in it',          false !== strpos( DZE_Gmc::keeps_said(), 'seven days' ), true );
+ok( 'and the way out of it',              false !== strpos( DZE_Gmc::keeps_said(), 'service account key never expires' ), true );
 
+echo "\nThe service account goes first\n";
+// « Possible de faire passer toutes les fonctions google par le compte de
+// service ? » Once the shop has a key, Merchant Center is reached through it,
+// whatever the state of the connected Google account.
+$dze_pair = openssl_pkey_new( [ 'private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA ] );
+openssl_pkey_export( $dze_pair, $dze_pem );
+$GLOBALS['opts'][ DZE_Gmc::OPT_CREDENTIALS ] = json_encode( [
+	'type' => 'service_account', 'client_email' => 'sa@p.iam.gserviceaccount.com',
+	'private_key' => $dze_pem, 'token_uri' => 'https://oauth2.googleapis.com/token',
+] );
+connected();
+$GLOBALS['opts'][ DZE_Gmc::OPT_CREDENTIALS ] = json_encode( [
+	'type' => 'service_account', 'client_email' => 'sa@p.iam.gserviceaccount.com',
+	'private_key' => $dze_pem, 'token_uri' => 'https://oauth2.googleapis.com/token',
+] );
+$GLOBALS['reply'] = [ 'body' => json_encode( [ 'access_token' => 'SA1', 'expires_in' => 3600 ] ) ];
+[ $tok, ] = token();
+ok( 'a live Google account does not take precedence', $tok, 'SA1' );
+ok( 'the token was signed, not refreshed', $GLOBALS['asked'][0]['body']['grant_type'] ?? '', 'urn:ietf:params:oauth:grant-type:jwt-bearer' );
+connected( [ 'broken' => time() ] );
+$GLOBALS['opts'][ DZE_Gmc::OPT_CREDENTIALS ] = json_encode( [
+	'type' => 'service_account', 'client_email' => 'sa@p.iam.gserviceaccount.com',
+	'private_key' => $dze_pem, 'token_uri' => 'https://oauth2.googleapis.com/token',
+] );
+$GLOBALS['reply'] = [ 'body' => json_encode( [ 'access_token' => 'SA2', 'expires_in' => 3600 ] ) ];
+[ $tok, $err ] = token();
+ok( 'a revoked Google account does not stop it either', [ $tok, $err ], [ 'SA2', '' ] );
+ok( 'and its address is the one to add at Google', DZE_Gmc::instance()->service_email(), 'sa@p.iam.gserviceaccount.com' );
+unset( $GLOBALS['opts'][ DZE_Gmc::OPT_CREDENTIALS ] );
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [];
+[ , $err ] = token();
+ok( 'with neither, the screen to paste it on is named', false !== strpos( $err, 'Paste the service account key' ), true );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

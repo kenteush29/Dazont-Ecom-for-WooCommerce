@@ -609,8 +609,7 @@ final class DZE_Ads_Screen {
 	 * @return array{ok:bool,said:string,email:string}
 	 */
 	private static function google_access(): array {
-		$g     = DZE_Gmc::instance();
-		$email = $g->service_email();
+		$email = DZE_Google::email();
 		if ( '' !== $email ) {
 			return [ 'ok' => true, 'said' => '', 'email' => $email ];
 		}
@@ -633,33 +632,13 @@ final class DZE_Ads_Screen {
 		$accounts = DZE_Ads::accounts();
 		$access   = self::google_access();
 		$api      = DZE_Ads::api_settings();
-		$where    = DZE_Screens::url( 'marketing', 'gmc' );
 
-		// 1. ONE GOOGLE KEY FOR MERCHANT CENTER AND GOOGLE ADS.
+		// 1. ONE GOOGLE KEY FOR EVERY GOOGLE MODULE, pasted here as well as on
+		// the other Google screens — never « switch another module on first ».
 		echo '<h2>' . esc_html__( 'Google access', 'dazont-ecom' ) . '</h2><div class="dze-ads-steps">';
-		if ( '' !== $access['email'] ) {
-			echo '<p>' . esc_html__( 'Merchant Center and Google Ads are read with this service account:', 'dazont-ecom' ) . '</p>';
-			echo '<p><code class="dze-ads-email" id="dze-ads-email">' . esc_html( $access['email'] ) . '</code> <button type="button" class="button" id="dze-ads-copy-email">' . esc_html__( 'Copy the address', 'dazont-ecom' ) . '</button></p>';
-			echo '<p>' . esc_html__( 'It must be a user of each Merchant Center account (Settings → People and access, role Standard) and of the Google Ads account (Admin → Access and security; read only is enough).', 'dazont-ecom' ) . '</p>';
-		} else {
-			echo '<p>' . esc_html__( 'Google is reached with a service account: one key for Merchant Center and Google Ads, which never expires. A Google account connected through an app left in « Testing » is disconnected by Google after seven days.', 'dazont-ecom' ) . '</p><ol>';
-			echo '<li>' . wp_kses_post( sprintf(
-				/* translators: %s: link to Google Cloud service accounts */
-				__( 'In %s, in the project of your Google app, create a service account, then « Keys » → « Add key » → JSON.', 'dazont-ecom' ),
-				'<a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener">' . esc_html__( 'Google Cloud → Service accounts', 'dazont-ecom' ) . ' ↗</a>'
-			) ) . '</li>';
-			echo '<li>' . esc_html__( 'In that project, enable the Merchant API and the Google Ads API (APIs & Services → Library).', 'dazont-ecom' ) . '</li>';
-			echo '<li>' . ( '' !== $where
-				? wp_kses_post( sprintf(
-					/* translators: %s: link to the Merchant Center settings */
-					__( 'Paste the whole JSON file under %s → « Advanced: service account ».', 'dazont-ecom' ),
-					'<a href="' . esc_url( $where ) . '">' . esc_html( DZE_Screens::name( 'marketing', 'gmc' ) ) . '</a>'
-				) )
-				: esc_html__( 'Switch the Google Merchant Center module on, and paste the JSON file under its « Advanced: service account ».', 'dazont-ecom' ) ) . '</li>';
-			echo '<li>' . esc_html__( 'Add the service account\'s address as a user of each Merchant Center account and of Google Ads: it is shown here once the key is in.', 'dazont-ecom' ) . '</li></ol>';
-			if ( ! $access['ok'] && '' !== $access['said'] ) {
-				echo '<p class="dze-ads-warn">' . esc_html( $access['said'] ) . '</p>';
-			}
+		echo DZE_Google::block(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+		if ( '' === $access['email'] && ! $access['ok'] && '' !== $access['said'] ) {
+			echo '<p class="dze-ads-warn">' . esc_html( $access['said'] ) . '</p>';
 		}
 		echo '</div>';
 

@@ -431,5 +431,33 @@ ok( 'et la publication de l application',
 ok( 'une ligne sait porter des liens',   false !== strpos( $dze_src, '$row[\'links\']' ), true );
 ok( 'et une adresse a copier',           false !== strpos( $dze_src, '$row[\'copy\']' ), true );
 
+echo "\nUNE CLE GOOGLE POUR TOUT LE PLUGIN\n";
+// « Possible de faire passer toutes les fonctions google par le compte de
+// service ? » (06/10/2026) : la ligne dit si la cle est la, donne l adresse a
+// copier, et ou allumer chaque API — dans le projet de la cle.
+function wp_json_encode( $v ) { return json_encode( $v ); }
+function get_transient( $k ) { return false; }
+require DZE_DIR . 'includes/class-google.php';
+blank();
+ok( 'sans cle : a faire',                      step( 'google_key' )['state'] ?? '', 'todo' );
+ok( 'et elle compte',                          step( 'google_key' )['need'] ?? null, true );
+$GLOBALS['opts']['dze_gmc_credentials'] = json_encode( [
+	'type' => 'service_account', 'project_id' => 'p-1', 'client_email' => 'sa@p-1.iam.gserviceaccount.com',
+	'private_key' => 'k', 'token_uri' => 'https://oauth2.googleapis.com/token',
+] );
+ok( 'avec la cle : fait',                      step( 'google_key' )['state'] ?? '', 'done' );
+ok( 'et l adresse est a copier',               step( 'google_key' )['copy'] ?? '', 'sa@p-1.iam.gserviceaccount.com' );
+ok( 'chaque API s allume dans le projet de la cle',
+	in_array( 'https://console.cloud.google.com/apis/library/googleads.googleapis.com?project=p-1', array_column( (array) ( step( 'google_key' )['links'] ?? [] ), 1 ), true ), true );
+eval( 'class DZE_Oauth { public static function redirect_uri() { return "https://shop.test/wp-admin/admin-post.php?action=dze_oauth"; } }' );
+ok( 'plus d adresse de retour OAuth a coller', step( 'oauth_uri' ), [] );
+$dze_key = $GLOBALS['opts']['dze_gmc_credentials'];
+unset( $GLOBALS['opts']['dze_gmc_credentials'] );
+ok( 'sans cle, elle revient', step( 'oauth_uri' )['copy'] ?? '', 'https://shop.test/wp-admin/admin-post.php?action=dze_oauth' );
+$GLOBALS['opts']['dze_gmc_credentials'] = $dze_key;
+$GLOBALS['mods'] = [ 'gmc' => false, 'netlinking' => false, 'google_ads' => false ];
+ok( 'aucun module Google : pas de ligne',      step( 'google_key' ), [] );
+unset( $GLOBALS['opts']['dze_gmc_credentials'] );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

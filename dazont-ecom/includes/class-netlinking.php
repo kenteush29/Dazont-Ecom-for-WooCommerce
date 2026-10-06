@@ -91,7 +91,7 @@ final class DZE_Netlinking {
 		if ( ! self::connected() ) {
 			$c = self::connection();
 			if ( ! empty( $c['broken'] ) ) {
-				return [ 'state' => 'down', 'message' => __( 'Google revoked the authorisation. While the Google app is in "Testing" it drops every seven days; publishing the app stops that.', 'dazont-ecom' ) ];
+				return [ 'state' => 'down', 'message' => __( 'Google revoked the authorisation. While the Google app is in "Testing" it drops every seven days. A service account key never drops: paste it on the Netlinking screen.', 'dazont-ecom' ) ];
 			}
 			return [ 'state' => 'off', 'message' => __( 'Not connected.', 'dazont-ecom' ) ];
 		}
@@ -246,9 +246,33 @@ final class DZE_Netlinking {
 		return is_array( $c ) ? $c : [];
 	}
 
-	public static function connected(): bool {
+	/**
+	 * PAR OU GOOGLE EST LU : 'service', 'oauth' ou ''.
+	 *
+	 * « Possible de faire passer toutes les fonctions google par le compte de
+	 * service ? » (06/10/2026). Le compte de service d abord, des que la
+	 * boutique en a un : il ne tombe jamais. Sinon le compte Google connecte,
+	 * tant que Google ne l a pas retire — et il le retire au bout de sept
+	 * jours quand l application est restee en « Testing ».
+	 */
+	public static function via(): string {
+		if ( class_exists( 'DZE_Google' ) && '' !== DZE_Google::email() ) {
+			return 'service';
+		}
 		$c = self::connection();
-		return ! empty( $c['refresh_token'] ) && empty( $c['broken'] );
+		return ( ! empty( $c['refresh_token'] ) && empty( $c['broken'] ) ) ? 'oauth' : '';
+	}
+
+	public static function connected(): bool {
+		return '' !== self::via();
+	}
+
+	/** Qui lit, dit dans une phrase : l adresse du compte de service, ou le compte connecte. */
+	private static function reader(): string {
+		return 'service' === self::via()
+			/* translators: %s: the service account's address */
+			? sprintf( __( 'the service account %s', 'dazont-ecom' ), DZE_Google::email() )
+			: __( 'the connected Google account', 'dazont-ecom' );
 	}
 
 	/** L adresse commune a tout le plugin — voir DZE_Oauth. */
@@ -345,6 +369,9 @@ final class DZE_Netlinking {
 
 	/** Un jeton d acces, garde le temps qu il vaut. */
 	public static function token(): string {
+		if ( 'service' === self::via() ) {
+			return DZE_Google::token( self::SCOPE );
+		}
 		$cached = get_transient( 'dze_nl_token' );
 		if ( is_string( $cached ) && '' !== $cached ) {
 			return $cached;
@@ -441,8 +468,9 @@ final class DZE_Netlinking {
 		}
 		if ( false !== stripos( $raw, 'insufficient' ) || false !== stripos( $raw, 'permission' ) || false !== stripos( $raw, 'forbidden' ) ) {
 			return sprintf(
-				/* translators: %s: Google's own wording */
-				__( 'Google refused: the connected account cannot read one of this shop\'s Search Console properties. Add it in Search Console under Settings → Users and permissions, then read again. (%s)', 'dazont-ecom' ),
+				/* translators: 1: who reads (the service account's address, or the connected account), 2: Google's own wording */
+				__( 'Google refused: %1$s cannot read one of this shop\'s Search Console properties. Add it in Search Console under Settings → Users and permissions (Restricted is enough), then read again. (%2$s)', 'dazont-ecom' ),
+				self::reader(),
 				$raw
 			);
 		}
@@ -1270,6 +1298,13 @@ final class DZE_Netlinking {
 	public static function refresh(): array {
 		$props = self::pick_properties();
 		if ( ! $props ) {
+			if ( 'service' === self::via() ) {
+				throw new RuntimeException( sprintf(
+					/* translators: %s: the service account's address */
+					__( 'The service account %s sees no Search Console property of this site yet. Add it as a user of each property (Settings → Users and permissions, Restricted is enough), then read again.', 'dazont-ecom' ),
+					DZE_Google::email()
+				) );
+			}
 			throw new RuntimeException( __( 'No Search Console property matches this site.', 'dazont-ecom' ) );
 		}
 		$days  = self::window();
@@ -1490,20 +1525,27 @@ final class DZE_Netlinking {
 		if ( ! empty( $c['broken'] ) ) {
 			echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>'
 				. esc_html__( 'The connection to Google came apart.', 'dazont-ecom' ) . '</strong> '
-				. esc_html__( 'While the Google app is still in "Testing", Google drops the authorisation after seven days. Publishing the app stops that; connecting again brings it back until then.', 'dazont-ecom' )
+				. esc_html__( 'While the Google app is still in "Testing", Google drops the authorisation after seven days. A service account key, below, never drops.', 'dazont-ecom' )
 				. ' <a href="' . esc_url( self::GOOGLE_CONSENT ) . '" target="_blank" rel="noopener">'
 				. esc_html__( 'Publish the app', 'dazont-ecom' ) . ' ↗</a></p></div>';
 		}
 
+		echo '<p>' . esc_html__( 'Read-only access: this can see your Search Console figures and can never change anything there.', 'dazont-ecom' ) . '</p>';
+
+		// LE COMPTE DE SERVICE D ABORD : une cle pour tout Google, qui ne tombe
+		// jamais. Une fois collee, cet ecran laisse la place a la liste.
+		echo '<h3>' . esc_html__( 'With the shop\'s Google service account (recommended)', 'dazont-ecom' ) . '</h3>';
+		echo DZE_Google::block(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+
+		// LE COMPTE GOOGLE CONNECTE, replie : il reste pour qui s en sert.
+		echo '<details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:600;">' . esc_html__( 'Or connect a Google account instead', 'dazont-ecom' ) . '</summary>';
 		if ( ! $has ) {
 			echo '<p>' . esc_html__( 'This uses the same Google app as the Merchant Center, and that app is not set up yet. Create an OAuth client of type "Web application" in Google Cloud, then come back here.', 'dazont-ecom' ) . '</p>';
 			echo '<p><a class="button" href="' . esc_url( self::GOOGLE_CREDENTIALS ) . '" target="_blank" rel="noopener">'
 				. esc_html__( 'Open Google Cloud credentials', 'dazont-ecom' ) . ' ↗</a></p>';
-			echo '</div>';
+			echo '</details></div>';
 			return;
 		}
-
-		echo '<p>' . esc_html__( 'Read-only access: this can see your Search Console figures and can never change anything there.', 'dazont-ecom' ) . '</p>';
 
 		echo '<p><strong>' . esc_html__( 'Two things to do at Google first, once.', 'dazont-ecom' ) . '</strong></p>';
 		echo '<ol style="margin:0 0 14px 18px;">';
@@ -1537,6 +1579,7 @@ final class DZE_Netlinking {
 
 		echo '<p><a class="button button-primary" href="' . esc_url( $me->authorize_url() ) . '">'
 			. esc_html__( 'Connect Search Console', 'dazont-ecom' ) . '</a></p>';
+		echo '</details>';
 
 		// CE QUI SERA LU, dit avant de connecter : cinq domaines, cinq
 		// proprietes, et c est le reglage de WPML qui l a decide.
@@ -1545,7 +1588,7 @@ final class DZE_Netlinking {
 			echo '<p class="description">';
 			printf(
 				/* translators: 1: how many domains, 2: the list of domains */
-				esc_html__( 'WPML keeps this shop on %1$s domains, so Search Console holds one property for each and all %1$s are read: %2$s. Your Google account has to be able to see them.', 'dazont-ecom' ),
+				esc_html__( 'WPML keeps this shop on %1$s domains, so Search Console holds one property for each and all %1$s are read: %2$s. Whoever reads has to be a user of each of them.', 'dazont-ecom' ),
 				esc_html( number_format_i18n( count( $doms ) ) ),
 				esc_html( implode( ', ', $doms ) )
 			);
@@ -1565,6 +1608,24 @@ final class DZE_Netlinking {
 		$d = self::data();
 		echo '<div class="dze-trd-sec dze-nl-card"><div class="dze-nl-cardbody">';
 		echo '<h2>' . esc_html__( 'Google account', 'dazont-ecom' ) . '</h2>';
+		if ( 'service' === self::via() ) {
+			// LA CLE EST CELLE DE TOUT LE PLUGIN : rien a deconnecter ici, elle se
+			// remplace dans le bloc, qui dit aussi ou l ajouter.
+			echo '<p>' . esc_html__( 'Read with the shop\'s service account, read-only: it can see your Search Console figures and can never change anything there.', 'dazont-ecom' ) . '</p>';
+			echo DZE_Google::block(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+			$next = wp_next_scheduled( self::HOOK );
+			if ( $next ) {
+				echo '<p class="description">' . esc_html( sprintf(
+					/* translators: 1: a number of days, 2: how long until the next reading */
+					__( 'Reads the last %1$s days once a day; next reading in %2$s.', 'dazont-ecom' ),
+					number_format_i18n( self::window() ),
+					human_time_diff( time(), (int) $next )
+				) ) . '</p>';
+			}
+			echo '</div></div>';
+			self::render_props( $d );
+			return;
+		}
 		echo '<p>';
 		if ( ! empty( $c['connected'] ) ) {
 			printf(
@@ -2153,7 +2214,11 @@ final class DZE_Netlinking {
 			_n( 'Linked to %s Search Console property', 'Linked to %s Search Console properties', count( $props ), 'dazont-ecom' ),
 			number_format_i18n( count( $props ) )
 		) ) . '</h2>';
-		echo '<p class="description">' . esc_html__( 'WPML keeps this shop on one domain per language, so Search Console holds one property for each, and every one the connected account can see is read.', 'dazont-ecom' ) . '</p>';
+		echo '<p class="description">' . esc_html( sprintf(
+			/* translators: %s: who reads (the service account's address, or the connected account) */
+			__( 'WPML keeps this shop on one domain per language, so Search Console holds one property for each, and every one %s can see is read.', 'dazont-ecom' ),
+			self::reader()
+		) ) . '</p>';
 		if ( ! $props ) {
 			echo '<p class="description">' . esc_html__( 'None yet — read once and they are chosen from what your account can see.', 'dazont-ecom' ) . '</p>';
 			echo '</div></div>';
@@ -2172,7 +2237,14 @@ final class DZE_Netlinking {
 			echo '<tr><td style="width:70px;">' . ( '' !== $code ? wp_kses_post( self::flag( $code ) ) : '' ) . '</td>';
 			echo '<td><code>' . esc_html( $one ) . '</code></td>';
 			echo '<td style="width:170px;"><a href="' . esc_url( add_query_arg( 'resource_id', $one, 'https://search.google.com/search-console' ) ) . '" target="_blank" rel="noopener">'
-				. esc_html__( 'Open in Search Console', 'dazont-ecom' ) . ' ↗</a></td></tr>';
+				. esc_html__( 'Open in Search Console', 'dazont-ecom' ) . ' ↗</a></td>';
+			// OU AJOUTER LE COMPTE DE SERVICE, pour CETTE propriete : la page des
+			// utilisateurs, ouverte sur elle.
+			if ( 'service' === self::via() ) {
+				echo '<td style="width:190px;"><a href="' . esc_url( add_query_arg( 'resource_id', $one, 'https://search.google.com/search-console/users' ) ) . '" target="_blank" rel="noopener">'
+					. esc_html__( 'Its users and permissions', 'dazont-ecom' ) . ' ↗</a></td>';
+			}
+			echo '</tr>';
 		}
 		echo '</tbody></table>';
 		// UN DOMAINE QUE WPML CONNAIT ET QUE GOOGLE N A PAS est un trou qu il
@@ -2195,7 +2267,11 @@ final class DZE_Netlinking {
 		if ( $missing ) {
 			echo '<p class="description"><strong>' . esc_html__( 'Not read:', 'dazont-ecom' ) . '</strong> '
 				. esc_html( implode( ', ', $missing ) ) . ' — '
-				. esc_html__( 'your Google account cannot see a Search Console property for these, so those catalogues never appear in the list.', 'dazont-ecom' ) . '</p>';
+				. esc_html( sprintf(
+					/* translators: %s: who reads (the service account's address, or the connected account) */
+					__( '%s sees no Search Console property for these, so those catalogues never appear in the list.', 'dazont-ecom' ),
+					ucfirst( self::reader() )
+				) ) . '</p>';
 		}
 		echo '</div></div>';
 	}
