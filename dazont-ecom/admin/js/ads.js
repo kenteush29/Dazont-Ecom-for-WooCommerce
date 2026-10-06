@@ -117,14 +117,6 @@
 			} );
 	} );
 
-	$( "#dze-ads-copy-email" ).on( "click", function () {
-		var text = $( "#dze-ads-email" ).text();
-		var $b = $( this );
-		if ( navigator.clipboard && navigator.clipboard.writeText ) {
-			navigator.clipboard.writeText( text ).then( function () { $b.text( t.copied ); } );
-		}
-	} );
-
 	// The script, to paste into Google Ads.
 	$( '#dze-ads-copy' ).on( 'click', function () {
 		var box = document.getElementById( 'dze-ads-script' );

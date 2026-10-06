@@ -762,7 +762,7 @@ final class DZE_Ads {
 	 * @return array The decoded answer (searchStream answers a list of batches).
 	 */
 	public static function ads_call( string $method, string $path, ?array $body = null, string $login = '' ): array {
-		$token    = DZE_Gmc::instance()->service_token( self::ADS_SCOPE );
+		$token    = DZE_Google::token( self::ADS_SCOPE );
 		$headers  = [ 'Authorization' => 'Bearer ' . $token, 'Content-Type' => 'application/json' ];
 		if ( '' !== $login ) {
 			$headers['login-customer-id'] = $login;
@@ -792,8 +792,14 @@ final class DZE_Ads {
 	 */
 	public static function explain( int $code, string $status, string $message, string $details = '' ): string {
 		$all = $status . ' ' . $message . ' ' . $details;
+		// THE ACCESS LEVEL BELONGS TO THE CLOUD PROJECT, whatever signs in: a
+		// service account changes nothing to it. « Pour sortir de la zone test,
+		// il faut bien plus que du code : un site, un nom, un logo » — that is
+		// Basic access, which needs a verified brand. Explorer access needs
+		// none, and its 2,880 operations a day are far more than the handful
+		// of queries one reading a morning makes.
 		if ( preg_match( '/DEVELOPER_TOKEN_NOT_APPROVED|only approved for use with test accounts|test account|ACCESS_LEVEL|access level/i', $all ) ) {
-			return __( 'Google Ads lets this Google Cloud project read test accounts only. Verify the project\'s branding (Google Cloud → Google Auth Platform → Branding), then apply for Basic access (Google Cloud → Google Ads API → Access): the review takes minutes once the branding is verified. Until then, the script below sends the same figures.', 'dazont-ecom' );
+			return __( 'Google keeps this Google Cloud project at Test access, which reads test accounts only. Ask for Explorer access instead of Basic: Google Cloud → APIs & Services → Google Ads API → Overview. Explorer needs no brand verification (no site, no logo), and its 2,880 operations a day are far more than the few queries one reading a morning makes. Until it is granted, the script below sends the same figures.', 'dazont-ecom' );
 		}
 		if ( preg_match( '/SERVICE_DISABLED|has not been used in project|is disabled/i', $all ) ) {
 			return __( 'The Google Ads API is not enabled in the Google Cloud project of the service account. Enable it under Google Cloud → APIs & Services → Library → Google Ads API, then read again.', 'dazont-ecom' );
@@ -802,7 +808,7 @@ final class DZE_Ads {
 			return __( 'The service account is not a user of this Google Ads account. Add its address under Google Ads → Admin → Access and security (read only is enough), then read again.', 'dazont-ecom' );
 		}
 		if ( 401 === $code || preg_match( '/UNAUTHENTICATED|invalid_grant/i', $all ) ) {
-			return __( 'Google refused the service account\'s key. Paste a new JSON key under Google Merchant Center → Advanced: service account.', 'dazont-ecom' );
+			return __( 'Google refused the service account\'s key. Make a new JSON key for it and paste it under Google access, on the Connection tab.', 'dazont-ecom' );
 		}
 		return trim( $message ) !== '' ? $message : __( 'Google Ads did not answer.', 'dazont-ecom' );
 	}

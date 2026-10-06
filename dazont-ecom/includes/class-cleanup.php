@@ -57,8 +57,10 @@ final class DZE_Cleanup {
 				'transients' => [ 'dze_discount_notice', 'dze_hero_src' ],
 			],
 			'gmc' => [
-				'options'    => [ 'dze_gmc_credentials', 'dze_gmc_accounts', 'dze_gmc_oauth', 'dze_gmc_advanced', 'dze_gmc_connection', 'dze_gmc_datasources', 'dze_gmc_ads_only', 'dze_gmc_auto' ],
-				'transients' => [ 'dze_gmc_oauth_token', 'dze_gmc_token_', 'dze_gmc_ads_', 'dze_gmc_pc_', 'dze_gmc_run_', 'dze_gmc_q_' ],
+				// The service account key is not here: Google Ads and Netlinking
+				// read through it too (core_map()).
+				'options'    => [ 'dze_gmc_accounts', 'dze_gmc_oauth', 'dze_gmc_advanced', 'dze_gmc_connection', 'dze_gmc_datasources', 'dze_gmc_ads_only', 'dze_gmc_auto' ],
+				'transients' => [ 'dze_gmc_oauth_token', 'dze_gmc_ads_', 'dze_gmc_pc_', 'dze_gmc_run_', 'dze_gmc_q_' ],
 			],
 			// Le maillage externe ne pose ni meta ni table : quatre options et un
 			// jeton, et le jeton d acces expire de lui-meme.
@@ -195,7 +197,10 @@ final class DZE_Cleanup {
 	/** What belongs to no module in particular: the plugin's own plumbing. */
 	public static function core_map(): array {
 		return [
-			'options' => [ 'dze_modules', 'dze_autoload_trimmed', 'dze_dev_channel', 'dze_price_rounding', 'dze_prompt_defaults', 'dze_home', 'dze_copy', self::OPT_ON_UNINSTALL ],
+			// The Google service account key belongs to every Google module at
+			// once (DZE_Google): erasing one module must not cut the others off.
+			'options'    => [ 'dze_modules', 'dze_autoload_trimmed', 'dze_dev_channel', 'dze_price_rounding', 'dze_prompt_defaults', 'dze_home', 'dze_copy', self::OPT_ON_UNINSTALL, 'dze_gmc_credentials' ],
+			'transients' => [ 'dze_gmc_token_' ],
 		];
 	}
 

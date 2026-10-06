@@ -280,22 +280,9 @@ final class DZE_Gmc {
 		return false;
 	}
 
+	/** The shop's service account key — one for every Google module (DZE_Google). */
 	private function get_credentials(): ?array {
-		$raw = '';
-		if ( defined( 'DZE_GMC_SERVICE_ACCOUNT' ) ) {
-			$raw = DZE_GMC_SERVICE_ACCOUNT;
-			if ( is_string( $raw ) && strlen( $raw ) < 512 && @is_readable( $raw ) ) {
-				$raw = (string) file_get_contents( $raw );
-			}
-		}
-		if ( ! $raw ) {
-			$raw = (string) get_option( self::OPT_CREDENTIALS, '' );
-		}
-		$sa = json_decode( (string) $raw, true );
-		if ( is_array( $sa ) && ! empty( $sa['client_email'] ) && ! empty( $sa['private_key'] ) && ! empty( $sa['token_uri'] ) ) {
-			return $sa;
-		}
-		return null;
+		return DZE_Google::credentials();
 	}
 
 	// No own submenu: rendered as the "Google Merchant Center" tab inside the
@@ -562,7 +549,7 @@ final class DZE_Gmc {
 		}
 		return sprintf(
 			/* translators: 1: days this authorisation lasted, 2: days the one before it lasted */
-			__( 'This authorisation lasted %1$s days, and the one before it %2$s. That is Google\'s seven-day limit, not a fault here: it expires a connection after a week while the OAuth consent screen\'s publishing status is "Testing". In the Google Cloud console, under APIs & Services → OAuth consent screen, press Publish app. Once it is in production the connection stops expiring.', 'dazont-ecom' ),
+			__( 'This authorisation lasted %1$s days, and the one before it %2$s. That is Google\'s seven-day limit, not a fault here: it expires a connection after a week while the OAuth consent screen\'s publishing status is "Testing". In the Google Cloud console, under APIs & Services → OAuth consent screen, press Publish app. Once it is in production the connection stops expiring. A service account key never expires at all, and needs no published app.', 'dazont-ecom' ),
 			number_format_i18n( $now ),
 			number_format_i18n( $last )
 		);
@@ -577,7 +564,7 @@ final class DZE_Gmc {
 	 * the first disconnection rather than after the second.
 	 */
 	public static function keeps_said(): string {
-		return __( 'Google expires this connection after seven days while your OAuth app is in "Testing". To keep it: Google Cloud console → APIs & Services → OAuth consent screen → Publish app.', 'dazont-ecom' );
+		return __( 'Google expires this connection after seven days while your OAuth app is in "Testing". To keep it: Google Cloud console → APIs & Services → OAuth consent screen → Publish app — which Google grants only with a verified brand: a name, a logo, a site. A service account key never expires and needs none of that.', 'dazont-ecom' );
 	}
 
 	/**
@@ -754,7 +741,7 @@ final class DZE_Gmc {
 		$keys          = self::account_keys();
 		$languages     = DZE_Wpml::get_active_languages();
 		$has_creds     = ( null !== $this->get_credentials() );
-		$creds_locked  = defined( 'DZE_GMC_SERVICE_ACCOUNT' );
+		$creds_locked  = DZE_Google::locked();
 		$oauth         = self::get_oauth();
 		$connection    = self::get_connection();
 		$redirect_uri  = $this->oauth_redirect_uri();
@@ -781,105 +768,47 @@ final class DZE_Gmc {
 	// =========================================================================
 
 	private function get_access_token(): string {
-		// Prefer the connected Google account (OAuth) — the natural in-plugin flow.
+		// THE SERVICE ACCOUNT FIRST, whenever the shop has one. « Possible de
+		// faire passer toutes les fonctions google par le compte de service ? »
+		// (06/10/2026): it never expires, while the connected Google account of
+		// an app left in « Testing » is dropped by Google every seven days —
+		// Kula's was revoked in September and nothing synced for weeks.
+		if ( null !== $this->get_credentials() ) {
+			return $this->service_token( self::SCOPE );
+		}
 		$oauth = self::get_oauth();
 		$conn  = self::get_connection();
-		$sa = $this->get_credentials();
 		if ( ! empty( $conn['refresh_token'] ) ) {
 			// Known revoked: say so without asking Google again. Syncing five
 			// feeds asked five times and printed the same refusal five times,
 			// which is neither faster nor clearer than saying it once.
-			// UNLESS A SERVICE ACCOUNT IS THERE: it never expires, and a shop
-			// that added one after its connection broke must not stay stuck on
-			// the broken one (Kula, 05/10/2026: revoked since September).
-			if ( ! empty( $conn['broken'] ) && null === $sa ) {
+			if ( ! empty( $conn['broken'] ) ) {
 				throw new RuntimeException( self::broken_message() );
 			}
-			if ( empty( $conn['broken'] ) ) {
-				return $this->oauth_access_token();
-			}
+			return $this->oauth_access_token();
 		}
-
-		// Fallback: service-account credentials (JWT).
-		if ( null === $sa ) {
-			throw new RuntimeException( sprintf(
-				/* translators: internal diagnostic state, not translated */
-				__( 'No Google authentication configured. Connect your Google account above. (debug: oauth_refresh_token=%s, oauth_client=%s, service_account=%s)', 'dazont-ecom' ),
-				empty( $conn['refresh_token'] ) ? 'missing' : 'present',
-				( ! empty( $oauth['client_id'] ) && ! empty( $oauth['client_secret'] ) ) ? 'present' : 'missing',
-				defined( 'DZE_GMC_SERVICE_ACCOUNT' ) ? 'constant' : ( get_option( self::OPT_CREDENTIALS, '' ) !== '' ? 'option-set-but-invalid' : 'none' )
-			) );
-		}
-
-		return $this->service_token( self::SCOPE );
+		throw new RuntimeException( sprintf(
+			/* translators: internal diagnostic state, not translated */
+			__( 'No Google access is set up. Paste the service account key above. (debug: oauth_refresh_token=%s, oauth_client=%s, service_account=%s)', 'dazont-ecom' ),
+			empty( $conn['refresh_token'] ) ? 'missing' : 'present',
+			( ! empty( $oauth['client_id'] ) && ! empty( $oauth['client_secret'] ) ) ? 'present' : 'missing',
+			DZE_Google::locked() ? 'constant' : ( get_option( self::OPT_CREDENTIALS, '' ) !== '' ? 'option-set-but-invalid' : 'none' )
+		) );
 	}
 
 	/**
-	 * A token signed with the shop's service account, for one Google API.
-	 *
-	 * ONE KEY FOR EVERY GOOGLE API THE SHOP USES. A service account is added
-	 * as a user to the Merchant Center accounts and to Google Ads (since
-	 * November 2024, without Workspace delegation), and it never expires: the
-	 * OAuth connection of an app left in « Testing » is revoked by Google
-	 * after seven days, which is how Kula lost Merchant Center in September.
+	 * A token signed with the shop's service account, for one Google API —
+	 * see DZE_Google, which every Google module now reads its key from.
 	 *
 	 * @param string $scope The API's scope (Merchant API: content; Google Ads: adwords).
 	 */
 	public function service_token( string $scope ): string {
-		$sa = $this->get_credentials();
-		if ( null === $sa ) {
-			throw new RuntimeException( __( 'No service account is set: paste its JSON key under Google Merchant Center → Advanced: service account.', 'dazont-ecom' ) );
-		}
-		$cache_key = 'dze_gmc_token_' . md5( $sa['client_email'] . '|' . $scope );
-		$cached    = get_transient( $cache_key );
-		if ( is_string( $cached ) && $cached !== '' ) {
-			return $cached;
-		}
-
-		if ( ! function_exists( 'openssl_sign' ) ) {
-			throw new RuntimeException( __( 'PHP OpenSSL is required to sign the Google token request.', 'dazont-ecom' ) );
-		}
-
-		$now    = time();
-		$header = $this->b64url( (string) wp_json_encode( [ 'alg' => 'RS256', 'typ' => 'JWT' ] ) );
-		$claim  = $this->b64url( (string) wp_json_encode( [
-			'iss'   => $sa['client_email'],
-			'scope' => $scope,
-			'aud'   => $sa['token_uri'],
-			'iat'   => $now,
-			'exp'   => $now + 3600,
-		] ) );
-
-		$signature = '';
-		if ( ! openssl_sign( $header . '.' . $claim, $signature, $sa['private_key'], OPENSSL_ALGO_SHA256 ) ) {
-			throw new RuntimeException( __( 'Could not sign the Google authentication request (bad private key?).', 'dazont-ecom' ) );
-		}
-		$jwt = $header . '.' . $claim . '.' . $this->b64url( $signature );
-
-		$response = wp_remote_post( $sa['token_uri'], [
-			'timeout' => 20,
-			'body'    => [
-				'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-				'assertion'  => $jwt,
-			],
-		] );
-		if ( is_wp_error( $response ) ) {
-			throw new RuntimeException( $response->get_error_message() );
-		}
-		$data = json_decode( wp_remote_retrieve_body( $response ), true );
-		if ( empty( $data['access_token'] ) ) {
-			$msg = $data['error_description'] ?? ( $data['error'] ?? 'Unknown token error' );
-			throw new RuntimeException( sprintf( __( 'Google token error: %s', 'dazont-ecom' ), $msg ) );
-		}
-
-		set_transient( $cache_key, $data['access_token'], self::TOKEN_TTL );
-		return $data['access_token'];
+		return DZE_Google::token( $scope );
 	}
 
-	/** The service account's address — what the shop adds as a user in Merchant Center and Google Ads. '' when none. */
+	/** The service account's address — what the shop adds as a user at Google. '' when none. */
 	public function service_email(): string {
-		$sa = $this->get_credentials();
-		return null === $sa ? '' : (string) $sa['client_email'];
+		return DZE_Google::email();
 	}
 
 	/**
@@ -890,10 +819,6 @@ final class DZE_Gmc {
 	 */
 	public function api( string $method, string $url, ?array $body = null ): array {
 		return $this->request( $method, $url, $this->get_access_token(), $body );
-	}
-
-	private function b64url( string $data ): string {
-		return rtrim( strtr( base64_encode( $data ), '+/', '-_' ), '=' );
 	}
 
 	// =========================================================================

@@ -288,7 +288,7 @@ fait" (4.499.0):
     (`DZE_Ads::fetch_report()` → `report_from_api()` → the same `store()`).
     Since 10/09/2026 Google grants the API to the Cloud PROJECT, not to a
     developer token: a project at « Test » reads test accounts only, and
-    `explain()` says what to do (branding verified, then Basic access).
+    `explain()` says what to do: ask for EXPLORER access (4.516.0), not Basic.
   - **The script stays as the way in until then.** The API used to need a
     developer token approved by Google and an OAuth scope that the « Testing »
     consent screen drops after seven days. The script (`DZE_Ads::script()`) is
@@ -367,6 +367,32 @@ fait" (4.499.0):
     leaves its own `$file` behind. The compare script read a WP All Export
     template file as the feed.
 
+- **ONE GOOGLE KEY FOR EVERY GOOGLE FUNCTION** (4.516.0). « Possible de faire
+  passer toutes les fonctions google par le "Comptes de service" ? », because
+  « pour sortir de la zone test, il faut bien plus que du code : un site, un
+  nom, un logo ».
+  - `DZE_Google` holds the service account key (same option as before,
+    `dze_gmc_credentials`, or the `DZE_GMC_SERVICE_ACCOUNT` constant) and
+    signs a token for any scope. Merchant Center (promotions and listing),
+    Google Ads and Search Console (Netlinking) all read through it.
+  - **The service account goes FIRST** wherever it is set: `DZE_Gmc::
+    get_access_token()` and `DZE_Netlinking::via()` ('service' | 'oauth' |
+    ''). The OAuth connection stays, folded, for a shop without a key.
+  - The key is pasted from whichever Google screen is open: `DZE_Google::
+    block()` sits on Merchant Center, Google Ads → Connection and Netlinking.
+    Saving (`wp_ajax_dze_google_key`) reads the JSON (an OAuth client's JSON
+    is named as such), asks Google for a token, and only then replaces the
+    old key. The block lists where to add the address, with the least role
+    (Merchant Center: Standard; Search Console: Restricted; Google Ads: Read
+    only) and the API to switch on in the key's own project (`console()`).
+  - The key is in the core cleanup footprint now, not in Merchant Center's:
+    erasing one module must not cut the others off.
+  - **What a service account does NOT change: the Google Ads API access
+    level, which belongs to the Cloud project.** Basic access needs a
+    verified brand (External, In production, name, logo, site). EXPLORER
+    access needs none: production accounts, 2,880 operations a day, far more
+    than one reading a morning (5 queries). It is asked for on the project's
+    Google Ads API Overview page. Until it is granted, the script.
 - **THREE FIXES ON THE BULK SCREEN** (4.513.2).
   - **Photographs from elsewhere are kept** while the product is on the
     list. « demande de sauvegarder les images tant que le produit est dans

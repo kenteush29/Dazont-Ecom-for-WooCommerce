@@ -101,7 +101,10 @@ $same( "the same report as the script sends", $api["spans"][30][0] ?? null, [ "9
 $same( "a span with nothing in it is still a span", $api["spans"][7] ?? null, [] );
 $same( "its campaigns and its countries", [ $api["campaigns"][30][0][2] ?? "", $api["countries"]["geoTargetConstants/2840"] ?? "" ], [ "PERFORMANCE_MAX", "US" ] );
 $same( "and the account it came from", [ $api["account"], $api["name"], $api["currency"], $api["until"] ], [ "1234567890", "Kula", "USD", "2026-10-04" ] );
-$same( "a project still at Test access: what to do", false !== strpos( DZE_Ads::explain( 403, "PERMISSION_DENIED", "The developer token is only approved for use with test accounts.", "" ), "Basic access" ), true );
+$test = DZE_Ads::explain( 403, "PERMISSION_DENIED", "The developer token is only approved for use with test accounts.", "" );
+$same( "a project still at Test access: ask for Explorer, not Basic", false !== strpos( $test, "Explorer access instead of Basic" ), true );
+$same( "which needs no brand to verify", false !== strpos( $test, "no brand verification" ), true );
+$same( "and where it is asked for", false !== strpos( $test, "Google Ads API → Overview" ), true );
 $same( "the API not enabled in the project", false !== strpos( DZE_Ads::explain( 403, "PERMISSION_DENIED", "Google Ads API has not been used in project 5494 before or it is disabled.", "SERVICE_DISABLED" ), "Library" ), true );
 $same( "the service account not a user of the account", false !== strpos( DZE_Ads::explain( 403, "PERMISSION_DENIED", "User doesnt have permission to access customer.", "USER_PERMISSION_DENIED" ), "Access and security" ), true );
 $same( "a key Google refuses", false !== strpos( DZE_Ads::explain( 401, "UNAUTHENTICATED", "Request had invalid authentication credentials.", "" ), "new JSON key" ), true );
