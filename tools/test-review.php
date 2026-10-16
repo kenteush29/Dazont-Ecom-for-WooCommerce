@@ -214,6 +214,8 @@ class DZE_Mesh {
 	}
 	/** Read again next time: a link was written, or the shop was re-read. */
 	public static function forget_thin(): void { $GLOBALS['mesh_forgot'] = true; }
+	/** The targets a queued pass is asked to link (real signature: note_asked( array $urls ): void). */
+	public static function note_asked( array $urls ): void { $GLOBALS['mesh_asked'] = array_merge( (array) ( $GLOBALS['mesh_asked'] ?? [] ), $urls ); }
 }
 class DZE_Category_Content {
 	public const GEN_META = '_dze_desc_generated';

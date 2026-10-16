@@ -2136,6 +2136,16 @@ trait DZE_Translate_Screen {
 					$out[ $code ] = 'done';
 					continue;
 				}
+				// WPML'S OTHER ANSWERS, shown as WPML shows them — never as
+				// « complete » and never as work for this module.
+				if ( in_array( $mine[ $code ], [ 'progress', 'duplicate' ], true ) ) {
+					$out[ $code ] = (string) $mine[ $code ];
+					continue;
+				}
+				if ( 'wreview' === $mine[ $code ] ) {
+					$out[ $code ] = 'wpml_review';
+					continue;
+				}
 				// Marked. Now the register: what actually moved.
 				$out[ $code ] = self::obj_stale( $o, $code ) ? 'stale' : 'noise';
 				continue;
@@ -2188,6 +2198,9 @@ trait DZE_Translate_Screen {
 			'noise'   => 'dashicons-update',
 			'done'    => 'dashicons-yes-alt',
 			'review'  => 'dashicons-visibility',
+			'wpml_review' => 'dashicons-visibility',
+			'progress'    => 'dashicons-hourglass',
+			'duplicate'   => 'dashicons-admin-page',
 			'error'   => 'dashicons-warning',
 			'queued'  => 'dashicons-clock',
 			'running' => 'dashicons-clock',
@@ -2210,6 +2223,9 @@ trait DZE_Translate_Screen {
 			'queued'  => __( 'waiting in the translation queue', 'dazont-ecom' ),
 			'running' => __( 'being translated now', 'dazont-ecom' ),
 			'review'  => __( 'translated — waiting for your review', 'dazont-ecom' ),
+			'wpml_review' => __( 'needs review in WPML', 'dazont-ecom' ),
+			'progress'    => __( 'in progress in WPML', 'dazont-ecom' ),
+			'duplicate'   => __( 'duplicate of the original (WPML)', 'dazont-ecom' ),
 			'error'   => __( 'the last translation failed', 'dazont-ecom' ),
 		];
 		return (string) ( $words[ $state ] ?? $state );

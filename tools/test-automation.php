@@ -732,6 +732,9 @@ function fresh( array $tasks = [] ): void {
 	$GLOBALS['terms'] = $GLOBALS['shop0']['terms'];
 	$GLOBALS['posts'] = $GLOBALS['shop0']['posts'];
 	$GLOBALS['opts']['dze_mesh_skip'] = [];
+	// The targets asked for and never linked are part of the shop's state: a
+	// fresh shop has asked for nothing yet (DZE_Mesh::tired_of()).
+	unset( $GLOBALS['opts']['dze_mesh_asked'] );
 	delete_transient( 'dze_mesh_pages' );
 	delete_transient( 'dze_auto_survey' );
 	DZE_Queue::$idle       = 0;

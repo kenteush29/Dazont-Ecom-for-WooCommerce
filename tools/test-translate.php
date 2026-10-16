@@ -1031,12 +1031,26 @@ echo "\nADOPTING THE TEN THOUSAND MARKS ALREADY THERE\n";
 // Adopting one records the source as it stands and closes the mark — and pays
 // nobody: the gate's model throws if it is ever called.
 shop();
+$GLOBALS['meta'][77] = [ 'rank_math_title' => 'Pochette admin | Kula', 'rank_math_description' => 'Une pochette pour le terrain.' ];
 ok( 'a translation with no register is all stale',
 	count( DZE_Translate::stale( 7, 'fr' ) ), 5 );
 ok( 'adopting it answers yes',           DZE_Translate::adopt( 7, 'fr' ), true );
 ok( 'and then nothing is stale',         DZE_Translate::stale( 7, 'fr' ), [] );
 ok( 'the mark was closed',               count( $GLOBALS['wpdb']->written ), 1 );
 ok( 'and not one word was sent anywhere', $GLOBALS['calls'] ?? [], [] );
+// « Keep them as they are » declared 160 Jute translations current while their
+// title or description was still English, or empty (16/10/2026). A field the
+// translation leaves empty, or holds in the original's own words, stays owed.
+shop();
+$GLOBALS['posts'][7]['post_content']  = '<p>A pouch for the field, with room for maps, pens and a compass.</p>';
+$GLOBALS['posts'][77]['post_content'] = '<p>A pouch for the field, with room for maps, pens and a compass.</p>';
+ok( 'adopting a half-translated one keeps what is translated', DZE_Translate::adopt( 7, 'fr' ), true );
+ok( 'and leaves owed what is empty or still in English',
+	array_keys( DZE_Translate::stale( 7, 'fr' ) ), [ 'content', 'seo_title', 'seo_desc' ] );
+ok( 'so its mark stays, for the pass to translate those fields alone', count( $GLOBALS['wpdb']->written ), 0 );
+shop();
+$GLOBALS['posts'][77] = [ 'type' => 'product', 'post_title' => '', 'post_content' => '', 'post_excerpt' => '' ];
+ok( 'a translation with nothing in it is not adopted at all', DZE_Translate::adopt( 7, 'fr' ), false );
 // Adopting what does not exist is not an answer.
 shop();
 $GLOBALS['translated'] = [];
@@ -4007,7 +4021,7 @@ ok( 'both « nothing to send » places close that way', [
 	substr_count( $tr_src, 'self::settle_unchanged( $o, $code );' ),
 	substr_count( $tr_src, 'self::settle_unchanged( $o, $lang );' ),
 	false !== strpos( $tr_src, "self::layout_from( (int) \$o['id'], \$target, false );" ),
-], [ 1, 1, true ] );
+], [ 1, 2, true ] ); // the third: close_if_unchanged(), the automation's free close.
 // 4.510.0 — LA MISE EN PAGE, JAMAIS LE CONTENU. Mesuré sur Kula avant de
 // marquer quoi que ce soit : 905 légendes d'images, les titres « produits
 // associés », les messages des formulaires, les ids de catégories par langue
@@ -4111,11 +4125,60 @@ ok( 'the automatic pass never picks a marked translation made elsewhere, and the
 	false !== strpos( $dze_au, "} elseif ( 'marked' === \$one && ! DZE_Translate::made_elsewhere( \$o, \$code ) ) {" ),
 	false !== strpos( $tr_src, "if ( ! \$tout && 0 === (int) ( \$e['by'] ?? 0 ) && self::made_elsewhere( \$o, \$code ) ) {" ),
 ], [ true, true ] );
-ok( 'keeping them records their words and closes the mark — it never translates', [
-	false !== strpos( $tr_src, "self::remember( \$target, \$read[ \$ref ], \$o );" ),
-	false !== strpos( $tr_src, "if ( self::obj_settle( \$o, \$row['lang'] ) ) {" ),
+ok( 'keeping them records the words they really hold and closes what owes nothing — it never translates', [
+	false !== strpos( $tr_src, "\$keep = self::adoptable( \$o, \$target, \$read[ \$ref ] );" ) && false !== strpos( $tr_src, "self::remember( \$target, \$keep, \$o );" ),
+	false !== strpos( $tr_src, "if ( ! self::stale_from( \$o, (string) \$row['lang'], \$read[ \$ref ] ) && self::obj_settle( \$o, \$row['lang'] ) ) {" ),
 	1 === substr_count( $tr_src, "add_action( 'wp_ajax_dze_tr_keep', [ \$this, 'ajax_keep' ] );" ),
 ], [ true, true, true ] );
+// « Tous les posts marqués comme ayant besoin d'une mise à jour » (16/10/2026):
+// 75 of the 78 articles WPML marked on three shops were marked because the
+// linking pass had added a link to the English text. A translation current
+// before such a write is kept current after it, and is never resent whole.
+echo "\nA LINK ADDED TO THE ORIGINAL IS NOT A NEW TEXT TO TRANSLATE\n";
+shop();
+DZE_Translate::remember( 77, DZE_Translate::read( 7 ) );
+$dze_po     = [ 'kind' => 'post', 'id' => 7, 'type' => 'product' ];
+$dze_before = DZE_Translate::obj_read( $dze_po );
+$GLOBALS['posts'][7]['post_content'] = '<p>A pouch for the <a href="https://kula.test/field/">field</a>.</p>';
+$dze_after  = DZE_Translate::obj_read( $dze_po );
+ok( 'the link moves the original', DZE_Translate::stale( 7, 'fr' ) ? 'owed' : 'current', 'owed' );
+ok( 'kept current, the translation that was current', DZE_Translate::absorb( $dze_po, $dze_before, $dze_after ), [ 'fr' ] );
+ok( 'and then it owes nothing', DZE_Translate::stale( 7, 'fr' ), [] );
+ok( 'and the mark the write raised is closed', count( $GLOBALS['wpdb']->written ), 1 );
+ok( 'without one word sent', $GLOBALS['calls'] ?? [], [] );
+// Already owed before the write: it stays owed, and the register is not touched.
+shop();
+DZE_Translate::remember( 77, DZE_Translate::read( 7 ) );
+$GLOBALS['posts'][7]['post_title'] = 'Admin pouch, MOLLE';
+$dze_before = DZE_Translate::obj_read( $dze_po );
+$GLOBALS['posts'][7]['post_title'] = 'Admin pouch, MOLLE II';
+$dze_after  = DZE_Translate::obj_read( $dze_po );
+ok( 'one already owed before the write is not vouched for', DZE_Translate::absorb( $dze_po, $dze_before, $dze_after ), [] );
+ok( 'and still owes its title', array_keys( DZE_Translate::stale( 7, 'fr' ) ), [ 'title' ] );
+// Made elsewhere: no register, nothing to vouch for.
+shop();
+$dze_before = DZE_Translate::obj_read( $dze_po );
+$GLOBALS['posts'][7]['post_content'] = '<p>A pouch for the <a href="https://kula.test/field/">field</a>.</p>';
+ok( 'one made elsewhere is left to the shop', DZE_Translate::absorb( $dze_po, $dze_before, DZE_Translate::obj_read( $dze_po ) ), [] );
+// The automation's free close: a mark with no word moved closes; one that owes words does not.
+shop();
+DZE_Translate::remember( 77, DZE_Translate::read( 7 ) );
+ok( 'a mark with no word moved is closed for nothing', DZE_Translate::close_if_unchanged( $dze_po, 'fr' ), true );
+$GLOBALS['posts'][7]['post_title'] = 'Admin pouch, MOLLE';
+ok( 'one that owes words is not', DZE_Translate::close_if_unchanged( $dze_po, 'fr' ), false );
+shop();
+ok( 'nor one made elsewhere', DZE_Translate::close_if_unchanged( $dze_po, 'fr' ), false );
+
+echo "\nWPML'S WHOLE ANSWER, NOT ONLY ITS NEEDS UPDATE\n";
+// Kula's checkout « in progress », a product « duplicate », a Kilim article
+// « needs review » were all read as complete (16/10/2026).
+ok( 'each state as WPML shows it', [
+	DZE_Wpml::status_word( 1, 10, '' ), DZE_Wpml::status_word( 0, 2, '' ), DZE_Wpml::status_word( 0, 1, '' ),
+	DZE_Wpml::status_word( 0, 10, 'NEEDS_REVIEW' ), DZE_Wpml::status_word( 0, 9, '' ), DZE_Wpml::status_word( 0, 10, 'ACCEPTED' ), DZE_Wpml::status_word( 0, 0, '' ),
+], [ 'marked', 'progress', 'progress', 'wreview', 'duplicate', 'done', 'done' ] );
+ok( 'a mark comes first', DZE_Wpml::status_word( 1, 2, 'NEEDS_REVIEW' ), 'marked' );
+ok( 'and the screen says them in words', [ DZE_Translate::state_said( 'progress' ), DZE_Translate::state_said( 'wpml_review' ), DZE_Translate::state_said( 'duplicate' ) ], [ 'in progress in WPML', 'needs review in WPML', 'duplicate of the original (WPML)' ] );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
 

@@ -285,16 +285,20 @@ final class DZE_Post_Links {
 		// Two limits, the smaller one wins: what the text can carry (one link
 		// per fifty words) and how many close pages there are to point at. An
 		// explicit choice is a choice: place them all if there is a spot.
-		$room = $keys
-			? count( $links )
-			: min( self::target_links( $words ) - count( $done ), count( $links ) );
+		// WHAT THE TEXT CAN CARRY, chosen targets or not. « Il y a encore de la
+		// place pour des nouveaux liens sortants » is the condition: a chosen
+		// list used to mean « place them all », whatever the text held.
+		$room = min( self::target_links( $words ) - count( $done ), count( $links ) );
 		if ( $room < 1 || ! $links ) {
 			// Nothing to add — but a self-link just taken out IS a result, and
 			// it is worth saving.
 			if ( $mend ) {
 				return $html;
 			}
-			throw new RuntimeException( __( 'This article already carries its share of internal links.', 'dazont-ecom' ) );
+			// A CONCLUSION, NOT A FAILURE: a full text is a finished one.
+			throw new DZE_Nothing_To_Do( $links
+				? __( 'This article already carries its share of internal links.', 'dazont-ecom' )
+				: __( 'Every page this article could link to is already linked.', 'dazont-ecom' ) );
 		}
 		$res = DZE_Category_Content::weave(
 			(string) $post->post_title,

@@ -81,7 +81,7 @@ final class DZE_Mesh {
 	 * mending pages that were never broken. A reading stamped with an older
 	 * reader is now redone at once, and the screen says so meanwhile.
 	 */
-	public const READER = 2;
+	public const READER = 3;
 
 	/** How many pages one reading walks. A shop is not a web crawler. */
 	private const SCAN = 4000;
@@ -719,7 +719,10 @@ final class DZE_Mesh {
 		$in    = [];
 		$out   = [];
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-		foreach ( (array) $wpdb->get_results( "SELECT to_kind, to_id, COUNT(*) AS n FROM {$table} GROUP BY to_kind, to_id", ARRAY_A ) as $r ) {
+		// PAGES, NOT LINKS. Three links from one article are one page pointing
+		// here, and a page « pointed at by three » through one source is still
+		// a leaf hanging off one page (4.517.0: 15 pages on Kula read as mended).
+		foreach ( (array) $wpdb->get_results( "SELECT to_kind, to_id, COUNT(DISTINCT from_kind, from_id) AS n FROM {$table} GROUP BY to_kind, to_id", ARRAY_A ) as $r ) {
 			$in[ $r['to_kind'] . ':' . (int) $r['to_id'] ] = (int) $r['n'];
 		}
 		foreach ( (array) $wpdb->get_results( "SELECT from_kind, from_id, COUNT(*) AS n FROM {$table} GROUP BY from_kind, from_id", ARRAY_A ) as $r ) {
@@ -982,10 +985,17 @@ final class DZE_Mesh {
 	public static function quota( array $row ): int {
 		$words = (int) ( $row['words'] ?? 0 );
 		if ( 'product_cat' === (string) ( $row['kind'] ?? '' ) ) {
+			// ONE LINK PER FIFTY WORDS OF THE TEXT THAT IS THERE. `size_for()`
+			// sizes a category by the description it SHOULD have (600 to 2,500
+			// words, from its product count) — right for writing one, wrong for
+			// linking the one that exists: 585 real words were given room for 37
+			// links (« Military Headgear », Kula). The shop's own figure still
+			// caps it, and its 0 still means « no links here ».
+			$rule = $words < self::MIN_WORDS ? 0 : max( 3, (int) floor( $words / 50 ) );
 			if ( class_exists( 'DZE_Category_Content' ) ) {
-				return (int) ( DZE_Category_Content::size_for( (int) ( $row['id'] ?? 0 ) )['links'] ?? 0 );
+				return min( $rule, (int) ( DZE_Category_Content::size_for( (int) ( $row['id'] ?? 0 ) )['links'] ?? 0 ) );
 			}
-			return $words < self::MIN_WORDS ? 0 : max( 3, (int) floor( $words / 50 ) );
+			return $rule;
 		}
 		if ( class_exists( 'DZE_Post_Links' ) ) {
 			return (int) DZE_Post_Links::target_links( $words );
@@ -1472,14 +1482,37 @@ final class DZE_Mesh {
 			if ( '' === $url ) {
 				continue;
 			}
+			// A TARGET THAT NEVER LANDS IS GIVEN A REST. Asked of three pages
+			// in a month and linked by none, it is a target this shop's text
+			// cannot carry — a title no sentence names — and asking a fourth
+			// time is paying for the same « no » (4.517.0: five Kula articles
+			// asked nine times each in eight days, never linked once).
+			if ( self::tired_of( $url ) ) {
+				continue;
+			}
 			// Only what it is SHORT of: a page pointed at twice needs one more
 			// link, not another three.
-			$want = max( 1, self::WANT_IN - (int) $row['in'] );
-			foreach ( array_slice( self::pairs_for( $to_key, $want, $judge )['rows'], 0, $want ) as $from ) {
+			$want  = max( 1, self::WANT_IN - (int) $row['in'] );
+			$taken = 0;
+			foreach ( self::pairs_for( $to_key, self::OFFER, $judge )['rows'] as $from ) {
+				if ( $taken >= $want ) {
+					break;
+				}
 				$key  = (string) $from['key'];
 				$page = $pages[ $key ] ?? [];
 				if ( ! $page || ! empty( $page['built'] ) ) {
 					continue; // a page nothing can be written into is not work.
+				}
+				// ONLY A PAGE WITH ROOM FOR ANOTHER LINK IS ASKED TO CARRY ONE,
+				// and never more than it has room for, nor more than a few at a
+				// time. « Sur lesquelles il y a encore de la place pour des
+				// nouveaux liens sortants » — the orphans' pass used to ignore
+				// that: one category was handed 27 targets in one job, the
+				// answer was cut off three times running, and two others went
+				// from 2 to 19 links against a cap of 13 (Kula, 4.516.1).
+				$cap = min( self::PER_SOURCE, self::room( (string) $page['kind'], (int) $page['id'] ) );
+				if ( $cap < 1 || count( (array) ( $by[ $key ]['urls'] ?? [] ) ) >= $cap ) {
+					continue;
 				}
 				// THE PAIRING IS CHECKED BEFORE THE PAGE IS WRITTEN DOWN.
 				//
@@ -1517,6 +1550,7 @@ final class DZE_Mesh {
 				}
 				if ( ! in_array( $url, $by[ $key ]['urls'], true ) ) {
 					$by[ $key ]['urls'][] = $url;
+					$taken++;
 				}
 			}
 			if ( count( $order ) >= $limit ) {
@@ -1548,6 +1582,74 @@ final class DZE_Mesh {
 			$out[] = $row;
 		}
 		return $out;
+	}
+
+	/** How many targets one pass may be asked to place in one page, at most. */
+	public const PER_SOURCE = 4;
+
+	/** Where the targets asked for and never linked are counted. */
+	public const ASKED_OPT = 'dze_mesh_asked';
+
+	/** Asked this many times in a month without landing: rested for the month. */
+	public const ASK_MAX = 3;
+
+	/** One address, in the one spelling the memory keys it under. */
+	public static function url_key( string $url ): string {
+		$url = strtolower( (string) strtok( trim( $url ), '#?' ) );
+		return untrailingslashit( (string) preg_replace( '~^https?://(www\.)?~', '', $url ) );
+	}
+
+	/** @return array<string,array{n:int,t:int}> */
+	private static function asked_map(): array {
+		$m = get_option( self::ASKED_OPT, [] );
+		return is_array( $m ) ? $m : [];
+	}
+
+	/**
+	 * A pass is about to be asked to link to these pages. Counted when the
+	 * work is QUEUED, never when a screen draws the plan: a look is not an ask.
+	 *
+	 * @param string[] $urls
+	 */
+	public static function note_asked( array $urls ): void {
+		if ( ! $urls ) {
+			return;
+		}
+		$m   = self::asked_map();
+		$now = time();
+		foreach ( $m as $k => $v ) {
+			if ( (int) ( $v['t'] ?? 0 ) < $now - 30 * DAY_IN_SECONDS ) {
+				unset( $m[ $k ] ); // a month old: forgotten, and asked afresh.
+			}
+		}
+		foreach ( $urls as $u ) {
+			$k       = self::url_key( (string) $u );
+			$m[ $k ] = [ 'n' => (int) ( $m[ $k ]['n'] ?? 0 ) + 1, 't' => $now ];
+		}
+		update_option( self::ASKED_OPT, $m, false );
+	}
+
+	/**
+	 * These pages were linked: whatever they were owed is paid, and the count
+	 * of « asked and never linked » starts again from nothing.
+	 *
+	 * @param string[] $urls
+	 */
+	public static function note_placed( array $urls ): void {
+		$m = self::asked_map();
+		$n = count( $m );
+		foreach ( $urls as $u ) {
+			unset( $m[ self::url_key( (string) $u ) ] );
+		}
+		if ( count( $m ) !== $n ) {
+			update_option( self::ASKED_OPT, $m, false );
+		}
+	}
+
+	/** Asked ASK_MAX times in the last month and linked by none of them. */
+	public static function tired_of( string $url ): bool {
+		$v = self::asked_map()[ self::url_key( $url ) ] ?? null;
+		return is_array( $v ) && (int) ( $v['n'] ?? 0 ) >= self::ASK_MAX && (int) ( $v['t'] ?? 0 ) > time() - 30 * DAY_IN_SECONDS;
 	}
 
 	/** One page of the mesh, found by its address. */

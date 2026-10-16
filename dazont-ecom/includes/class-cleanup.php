@@ -130,7 +130,9 @@ final class DZE_Cleanup {
 				'options'    => [ 'dze_auto_settings', 'dze_auto_state', 'dze_auto_review_default' ],
 				'term_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
 				'post_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
-				'transients' => [ 'dze_auto_survey', 'dze_pl_census' ],
+				// dze_auto_nf_: an object whose marks owe words, looked at once per
+				// six hours rather than every minute of its month of rest.
+				'transients' => [ 'dze_auto_survey', 'dze_pl_census', 'dze_auto_nf_' ],
 			],
 			'content' => [
 				'options'    => [ 'dze_content_settings', 'dze_content_log' ],
@@ -162,7 +164,9 @@ final class DZE_Cleanup {
 				// what was picked on a WordPress list for the dashboard to open
 				// on. An option name ending in `_` is a prefix here.
 				// The fallback lock, on a database that refuses named locks.
-				'transients' => [ 'dze_tr_keys_', 'dze_translate_draining', 'dze_tr_pick_', 'dze_tr_lock_' ],
+				// dze_tr_err_pruned: the ten-minute pause between two clean-ups of
+				// the failures banner.
+				'transients' => [ 'dze_tr_keys_', 'dze_translate_draining', 'dze_tr_pick_', 'dze_tr_lock_', 'dze_tr_err_pruned' ],
 			],
 			// A module that no longer ships. Its descriptors stay so an install
 			// that once used it can still be erased of what it left behind.
@@ -184,7 +188,9 @@ final class DZE_Cleanup {
 				// judgments kept per page. Nothing of WordPress's own: the links
 				// live in the shop's own texts, which are the owner's.
 				'tables'     => [ 'dze_mesh' ],
-				'options'    => [ 'dze_mesh_schema', 'dze_mesh_census', 'dze_mesh_pages', 'dze_mesh_skip' ],
+				// dze_mesh_asked: the targets asked for and never linked, so one no
+				// sentence can name is rested instead of paid for again.
+				'options'    => [ 'dze_mesh_schema', 'dze_mesh_census', 'dze_mesh_pages', 'dze_mesh_skip', 'dze_mesh_asked' ],
 				'transients' => [ 'dze_mesh_pages', 'dze_mesh_lock', 'dze_mesh_thin', 'dze_mesh_pick_', 'dze_mesh_booked' ],
 			],
 			// The lab keeps nothing of its own: what it produces is a media
@@ -200,7 +206,7 @@ final class DZE_Cleanup {
 			// The Google service account key belongs to every Google module at
 			// once (DZE_Google): erasing one module must not cut the others off.
 			'options'    => [ 'dze_modules', 'dze_autoload_trimmed', 'dze_dev_channel', 'dze_price_rounding', 'dze_prompt_defaults', 'dze_home', 'dze_copy', self::OPT_ON_UNINSTALL, 'dze_gmc_credentials' ],
-			'transients' => [ 'dze_gmc_token_' ],
+			'transients' => [ 'dze_gmc_token_', 'dze_wpml_tbl_', 'dze_wpml_col_' ],
 		];
 	}
 

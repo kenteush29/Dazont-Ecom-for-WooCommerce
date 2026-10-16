@@ -989,7 +989,8 @@ final class DZE_Translate {
 	public static function cancel_all(): array {
 		$out   = [ 'removed' => 0, 'sent' => 0 ];
 		$revue = [];
-		self::with_queue( static function ( array $file ) use ( &$out, &$revue ): array {
+		$gone  = [];
+		self::with_queue( static function ( array $file ) use ( &$out, &$revue, &$gone ): array {
 			foreach ( $file as $e ) {
 				foreach ( $e['langs'] as $code ) {
 					if ( isset( $e['land'][ $code ] ) ) {
@@ -999,11 +1000,24 @@ final class DZE_Translate {
 						$out['sent']++;
 					} else {
 						$out['removed']++;
+						$gone[ self::ref( $e ) ] = true;
 					}
 				}
 			}
 			return [];
 		} );
+		// WHAT WAS NEVER SENT WAS NEVER DONE, and does not rest a month as if
+		// it had been: « Jute vs Hemp Rug » stayed untranslated in seven
+		// languages from 05/10, resting until 31/10, after the queue was
+		// emptied (16/10/2026).
+		if ( method_exists( 'DZE_Automation', 'wake_translation_of' ) ) {
+			foreach ( array_keys( $gone ) as $ref ) {
+				$o = self::from_ref( (string) $ref );
+				if ( $o ) {
+					DZE_Automation::wake_translation_of( $o );
+				}
+			}
+		}
 		foreach ( $revue as $ref => $codes ) {
 			$o = self::from_ref( (string) $ref );
 			if ( $o ) {
@@ -2128,6 +2142,10 @@ final class DZE_Translate {
 		} );
 		foreach ( $notes as [ $e, $code ] ) {
 			self::note_drain_error( $e, $code, $why );
+			$o = self::from_ref( self::ref( $e ) );
+			if ( $o && method_exists( 'DZE_Automation', 'retry_translation_of' ) ) {
+				DZE_Automation::retry_translation_of( $o );
+			}
 		}
 		self::sent_forget( $b );
 		self::batch_save( $bid, [ 'id' => $bid, 'at' => (int) ( $b['at'] ?? 0 ), 'status' => 'lost', 'landed' => time(), 'n' => (int) ( $b['n'] ?? 0 ), 'err' => mb_substr( $why, 0, 200 ) ] );
@@ -2877,6 +2895,40 @@ final class DZE_Translate {
 		}
 	}
 
+	/**
+	 * A FAILURE WPML NOW CALLS COMPLETE IS NOT A FAILURE ANY MORE.
+	 *
+	 * Jute's screen said « 30 translations could not be finished » for two
+	 * weeks about five products WPML showed complete in all seven languages
+	 * (16/10/2026). Looked at once every ten minutes, on the screen's way in.
+	 */
+	private static function prune_drain_errors(): void {
+		if ( get_transient( 'dze_tr_err_pruned' ) ) {
+			return;
+		}
+		set_transient( 'dze_tr_err_pruned', 1, 10 * MINUTE_IN_SECONDS );
+		$log = self::drain_log();
+		if ( ! $log ) {
+			return;
+		}
+		$keep = [];
+		foreach ( $log as $row ) {
+			$row  = (array) $row;
+			$o    = self::from_ref( (string) ( $row['ref'] ?? '' ) );
+			$lang = (string) ( $row['lang'] ?? '' );
+			if ( $o && '' !== $lang && self::obj_translation( $o, $lang ) ) {
+				$marks = (array) ( self::page_marks( [ $o ] )[ self::element_id_of( $o ) ] ?? [] );
+				if ( 'done' === (string) ( $marks[ $lang ] ?? '' ) ) {
+					continue;
+				}
+			}
+			$keep[] = $row;
+		}
+		if ( count( $keep ) !== count( $log ) ) {
+			update_option( self::OPT_DRAIN_ERRORS, $keep, false );
+		}
+	}
+
 	/** Ce qui a résisté, tel qu'écrit — une ligne qui n'en est pas une est ignorée. */
 	public static function drain_log(): array {
 		return array_values( array_filter( (array) self::fresh_option( self::OPT_DRAIN_ERRORS, [] ), 'is_array' ) );
@@ -2888,6 +2940,7 @@ final class DZE_Translate {
 	 * @return array<string,array<string,string>> ref => langue ('' pour l'objet entier) => pourquoi
 	 */
 	public static function drain_errors(): array {
+		self::prune_drain_errors();
 		$out = [];
 		foreach ( self::drain_log() as $row ) {
 			$row  = (array) $row;
@@ -6039,6 +6092,131 @@ final class DZE_Translate {
 	}
 
 	/**
+	 * A LINK IS NOT A NEW TEXT TO TRANSLATE.
+	 *
+	 * The linking pass adds a link to an original and rewrites at most the
+	 * sentence that carries it. A translation that was current before that
+	 * write is still the translation of everything the original says: it is
+	 * kept current — its register moves to the new text — and the mark WPML
+	 * raised for that write is closed.
+	 *
+	 * Before this, the fingerprint of the whole field changed, WPML marked
+	 * every language, and a month later the translation pass resent the WHOLE
+	 * article in every language: 79 articles, about $27, over 102 translations
+	 * made by hand, for one sentence each (forecast for 26/10–06/11/2026).
+	 *
+	 * A translation already owed before the write stays owed, and one this
+	 * module never wrote (no register) is not vouched for.
+	 *
+	 * @param array<string,string> $before The original's texts before the write (obj_read()).
+	 * @param array<string,string> $after  The same, after it.
+	 * @return string[] The languages kept current.
+	 */
+	public static function absorb( array $o, array $before, array $after ): array {
+		if ( ! $o || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return [];
+		}
+		$moved = [];
+		foreach ( array_keys( $before + $after ) as $fid ) {
+			if ( ( $before[ $fid ] ?? null ) !== ( $after[ $fid ] ?? null ) ) {
+				$moved[] = (string) $fid;
+			}
+		}
+		if ( ! $moved ) {
+			return [];
+		}
+		$kept = [];
+		$src  = (string) DZE_Wpml::default_language();
+		foreach ( DZE_Wpml::language_codes() as $lang ) {
+			$lang = (string) $lang;
+			if ( $lang === $src ) {
+				continue;
+			}
+			$target = self::obj_translation( $o, $lang );
+			if ( ! $target || $target === (int) ( $o['id'] ?? 0 ) ) {
+				continue;
+			}
+			$map = self::src_map( $target, $o );
+			if ( ! $map ) {
+				continue; // made elsewhere: nothing here can vouch for it.
+			}
+			$current = true;
+			foreach ( $moved as $fid ) {
+				if ( ! isset( $before[ $fid ], $map[ $fid ] ) || $map[ $fid ] !== md5( (string) $before[ $fid ] ) ) {
+					$current = false; // owed before this write: it stays owed.
+					break;
+				}
+			}
+			if ( ! $current ) {
+				continue;
+			}
+			foreach ( $moved as $fid ) {
+				if ( isset( $after[ $fid ] ) ) {
+					$map[ $fid ] = md5( (string) $after[ $fid ] );
+				} else {
+					unset( $map[ $fid ] );
+				}
+			}
+			self::meta_write( $o, $target, self::META_SRC, (string) wp_json_encode( $map ) );
+			if ( ! self::stale_from( $o, $lang, $after ) ) {
+				self::obj_settle( $o, $lang );
+			}
+			$kept[] = $lang;
+		}
+		return $kept;
+	}
+
+	/**
+	 * Closes one marked translation when not one of its words moved — the free
+	 * close, asked from outside the queue (the automation's month of rest).
+	 *
+	 * @return bool False when the translation is missing, made elsewhere, or owes words.
+	 */
+	public static function close_if_unchanged( array $o, string $lang ): bool {
+		$target = self::obj_translation( $o, $lang );
+		if ( ! $target || $target === (int) ( $o['id'] ?? 0 ) || ! self::src_map( $target, $o ) ) {
+			return false;
+		}
+		if ( self::obj_stale( $o, $lang ) ) {
+			return false;
+		}
+		self::settle_unchanged( $o, $lang );
+		return true;
+	}
+
+	/**
+	 * WHAT A TRANSLATION MADE ELSEWHERE REALLY HOLDS — the fields worth
+	 * recording as translated when the shop keeps it.
+	 *
+	 * « Keep them as they are » recorded EVERY field of the original as
+	 * translated, without opening the translation: on Jute it declared 160
+	 * translations current while their title or description was still in
+	 * English, or empty (16/10/2026). A field the translation leaves empty, or
+	 * holds in the original's own words, is not recorded: it stays owed.
+	 *
+	 * @param array<string,string> $source The original's texts (obj_read()).
+	 * @return array<string,string> The fields to record.
+	 */
+	private static function adoptable( array $o, int $target, array $source ): array {
+		$held = self::obj_read( [ 'kind' => (string) $o['kind'], 'id' => $target, 'type' => (string) ( $o['type'] ?? '' ) ] );
+		$norm = static fn( string $s ): string => trim( (string) preg_replace( '/\s+/u', ' ', mb_strtolower( wp_strip_all_tags( html_entity_decode( $s, ENT_QUOTES, 'UTF-8' ) ) ) ) );
+		$out  = [];
+		foreach ( $source as $fid => $text ) {
+			$mine = (string) ( $held[ $fid ] ?? '' );
+			if ( '' === trim( $mine ) ) {
+				continue;
+			}
+			// A short field (a size, a code, a brand) may rightly read the same
+			// in every language; a sentence that does is the original's.
+			if ( mb_strlen( $norm( (string) $text ) ) > 40 && $norm( $mine ) === $norm( (string) $text ) ) {
+				continue;
+			}
+			$out[ $fid ] = (string) $text;
+		}
+		return $out;
+	}
+
+	/**
 	 * Takes over a translation this module did not write, without paying.
 	 *
 	 * Three catalogues carry ten thousand marked translations, all of them made
@@ -6060,8 +6238,16 @@ final class DZE_Translate {
 		if ( ! $target || $target === (int) ( $o['id'] ?? 0 ) ) {
 			return false;
 		}
-		self::remember( $target, self::obj_read( $o ), $o );
-		self::obj_settle( $o, $lang );
+		$keep = self::adoptable( $o, $target, self::obj_read( $o ) );
+		if ( ! $keep ) {
+			return false; // nothing in it is a translation yet.
+		}
+		self::remember( $target, $keep, $o );
+		// Closed only when nothing is left owed: a field still in English or
+		// empty keeps the mark, and the pass translates that field alone.
+		if ( ! self::obj_stale( $o, $lang ) ) {
+			self::obj_settle( $o, $lang );
+		}
 		return true;
 	}
 
@@ -6169,7 +6355,12 @@ final class DZE_Translate {
 		$kept   = 0;
 		$closed = 0;
 		$read   = [];
-		foreach ( self::elsewhere( max( 1, $limit ) )['rows'] as $row ) {
+		// A wider look than the press keeps: a run of translations with nothing
+		// in them to keep must not stop the press on the same rows every time.
+		foreach ( self::elsewhere( max( 1, $limit ) * 4 )['rows'] as $row ) {
+			if ( $kept >= $limit ) {
+				break;
+			}
 			$o      = $row['o'];
 			$target = self::obj_translation( $o, $row['lang'] );
 			if ( ! $target || $target === (int) $o['id'] ) {
@@ -6179,9 +6370,13 @@ final class DZE_Translate {
 			if ( ! isset( $read[ $ref ] ) ) {
 				$read[ $ref ] = self::obj_read( $o );
 			}
-			self::remember( $target, $read[ $ref ], $o );
+			$keep = self::adoptable( $o, $target, $read[ $ref ] );
+			if ( ! $keep ) {
+				continue; // nothing in it is a translation: it stays the shop's decision.
+			}
+			self::remember( $target, $keep, $o );
 			$kept++;
-			if ( self::obj_settle( $o, $row['lang'] ) ) {
+			if ( ! self::stale_from( $o, (string) $row['lang'], $read[ $ref ] ) && self::obj_settle( $o, $row['lang'] ) ) {
 				$closed++;
 			}
 		}
