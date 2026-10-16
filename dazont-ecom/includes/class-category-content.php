@@ -2032,7 +2032,14 @@ PROMPT;
 			. '  [{"find":"…","replace":"…","anchor":"…","url":"…"}]         — it is not, so one sentence is reworded' . "\n"
 			. '- "anchor": the destination\'s title. In the first shape it must be words that appear in the text exactly as written there — same spelling, same case, same spaces. In the second it must appear inside "replace".' . "\n"
 			. '- "url": one address from the list above, copied verbatim.' . "\n"
-			. '- The words must appear only ONCE in the whole text. If they appear twice, take a longer run of words until they are unique.' . "\n"
+			// UN TITRE PRESENT DEUX FOIS SE LIE DANS SA PHRASE. La consigne
+			// disait « prends une suite de mots plus longue jusqu a ce qu elle
+			// soit unique » — une ancre qui traine alors une queue, que la regle
+			// du nom refuse. Le modele ajoutait plutot une incise qui repetait le
+			// titre (« military patches — including … our military patches
+			// collection », Kula, 16/10/2026). La phrase designee suffit : rendue
+			// telle quelle, le lien se pose sur le titre qu elle contient.
+			. '- In the first shape the words must appear only ONCE in the whole text. If the title is there more than once, use the second shape on the sentence where the link belongs, with "replace" identical to "find": the link goes on the title inside that sentence, and not a word is changed.' . "\n"
 			. '- Copy plain prose only: no tags, no <, no &nbsp;, nothing from a heading, a caption, a table, a shortcode or an HTML comment. An anchor is never words that are already a link.' . "\n"
 			. '- Never write HTML: the link itself is built for you from "anchor" and "url".' . "\n"
 			. '- No markdown, no code fence, no text before or after the JSON.';
