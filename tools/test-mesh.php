@@ -1494,5 +1494,119 @@ ok( 'a full text is a conclusion, not a failure', [
 ], [ true, true ] );
 ok( 'a page whose last pass placed nothing keeps its month', false !== strpos( $dze_au_src, "\$progress = 'applied' === (string) \$outcome['status'] && 0 !== (int) \$outcome['placed'];" ), true );
 
+echo "\nA SENTENCE THAT ALREADY HOLDS A LINK IS REWORDED WITH IT\n";
+// 520 of the 540 rewrites refused in a week across the four shops were
+// sentences already holding a link or a bold word (16/10/2026): the span had
+// to be plain. The markup now travels with the words it wraps.
+$dze_rw_u   = 'https://jute.test/product-category/jute-poufs/';
+$dze_rw     = '<p>Its earthy texture blends with our <a href="https://jute.test/beige-jute-rugs/">beige jute rugs</a> and <strong>natural decor</strong> in any room of the house.</p>';
+$dze_rw_go  = static function ( string $find, string $replace, string $anchor = 'jute poufs' ) use ( $dze_rw, $dze_rw_u ): array {
+	return DZE_Category_Content::apply_edits( $dze_rw, [ [ 'find' => $find, 'replace' => $replace, 'anchor' => $anchor, 'url' => $dze_rw_u ] ], [ untrailingslashit( $dze_rw_u ) ], [ untrailingslashit( $dze_rw_u ) => 'Jute poufs' ], [ untrailingslashit( $dze_rw_u ) => $dze_rw_u ] );
+};
+$dze_rw_r = $dze_rw_go(
+	'Its earthy texture blends with our beige jute rugs and natural decor in any room of the house.',
+	'Its earthy texture blends with our beige jute rugs, our jute poufs and natural decor in any room of the house.'
+);
+ok( 'a sentence holding a link is reworded', (int) $dze_rw_r['applied'], 1 );
+ok( 'its link is still there, as it was', false !== strpos( (string) $dze_rw_r['html'], '<a href="https://jute.test/beige-jute-rugs/">beige jute rugs</a>' ), true );
+ok( 'its bold too', false !== strpos( (string) $dze_rw_r['html'], '<strong>natural decor</strong>' ), true );
+ok( 'and the new link sits beside them', false !== strpos( (string) $dze_rw_r['html'], 'our <a href="https://jute.test/product-category/jute-poufs/">jute poufs</a> and' ), true );
+ok( 'one paragraph still', substr_count( (string) $dze_rw_r['html'], '<p>' ), 1 );
+ok( 'a rewrite that drops the linked words is refused', (int) $dze_rw_go(
+	'Its earthy texture blends with our beige jute rugs and natural decor in any room of the house.',
+	'Its earthy texture blends with our jute poufs and natural decor in any room of the house and garden.'
+)['applied'], 0 );
+ok( 'and the text stays as it was', (string) $dze_rw_go(
+	'Its earthy texture blends with our beige jute rugs and natural decor in any room of the house.',
+	'Its earthy texture blends with our jute poufs and natural decor in any room of the house and garden.'
+)['html'], $dze_rw );
+ok( 'a new link is never put inside an old one', (int) DZE_Category_Content::apply_edits(
+	'<p>Pair it with <a href="https://jute.test/x/">jute poufs from our range</a> in a calm living room today.</p>',
+	[ [ 'find' => 'Pair it with jute poufs from our range in a calm living room today.', 'replace' => 'Pair it with jute poufs from our range in a calm living room today.', 'anchor' => 'jute poufs', 'url' => $dze_rw_u ] ],
+	[ untrailingslashit( $dze_rw_u ) ], [ untrailingslashit( $dze_rw_u ) => 'Jute poufs' ]
+)['applied'], 0 );
+ok( 'a sentence crossing into a list is still refused', (int) DZE_Category_Content::apply_edits(
+	'<p>Our range covers many shapes for the home:</p><ul><li>round ones</li></ul>',
+	[ [ 'find' => 'Our range covers many shapes for the home: round ones', 'replace' => 'Our range of jute poufs covers many shapes for the home: round ones', 'anchor' => 'jute poufs', 'url' => $dze_rw_u ] ],
+	[ untrailingslashit( $dze_rw_u ) ], [ untrailingslashit( $dze_rw_u ) => 'Jute poufs' ]
+)['applied'], 0 );
+// THE LINK TAKES THE WHOLE WORD: « jute pouf » in « jute poufs » links both.
+$dze_grow = DZE_Category_Content::apply_edits(
+	'<p>A calm living room needs soft textures and a place to rest your feet.</p>',
+	[ [ 'find' => 'A calm living room needs soft textures and a place to rest your feet.', 'replace' => 'A calm living room needs soft textures, and jute poufs give you a place to rest your feet.', 'anchor' => 'jute pouf', 'url' => $dze_rw_u ] ],
+	[ untrailingslashit( $dze_rw_u ) ], [ untrailingslashit( $dze_rw_u ) => 'Jute poufs' ]
+);
+ok( 'an anchor written singular links the plural word whole', false !== strpos( (string) $dze_grow['html'], '>jute poufs</a>' ), true );
+
+// A LINK THAT ENDS RIGHT BEFORE A COMMA: « shirts</a>, these » reads « shirts,
+// these », and the sentence was not found at all (85 rewrites in a week).
+$dze_pc = DZE_Category_Content::apply_edits(
+	'<li>For soldiers who pair their kit with <a href="https://kula.test/shirts">military and tactical shirts</a>, these sandals offer a reliable option when boots aren’t practical due to heat.</li>',
+	[ [ 'find' => 'For soldiers who pair their kit with military and tactical shirts, these sandals offer a reliable option when boots aren\'t practical due to heat.',
+		'replace' => 'For soldiers who pair their kit with military and tactical shirts, these tactical sandals offer a reliable option when boots aren\'t practical due to heat.',
+		'anchor' => 'tactical sandals', 'url' => 'https://kula.test/tactical-sandals' ] ],
+	[ 'https://kula.test/tactical-sandals' ], [ 'https://kula.test/tactical-sandals' => 'Tactical sandals' ]
+);
+ok( 'a sentence whose link ends before a comma is found and reworded', (int) $dze_pc['applied'], 1 );
+ok( 'with its link and its comma where they were', false !== strpos( (string) $dze_pc['html'], 'shirts</a>, these <a href="https://kula.test/tactical-sandals">tactical sandals</a> offer' ), true );
+ok( 'and the text keeps its own apostrophe', false !== strpos( (string) $dze_pc['html'], 'aren’t' ), true );
+
+echo "\nA LONG TITLE IS ANCHORED ON ITS SHORT NAME\n";
+// The contract said « use the title as written » and the code refused any
+// anchor over nine words: 160 refusals in a week for titles pasted whole.
+ok( 'a question title is given its subject', DZE_Category_Content::anchor_hint( 'Chest Rig vs Plate Carrier: What Do You Actually Need?', 'https://kula.test/chest-rig-vs-plate-carrier/' ), 'Chest Rig vs Plate Carrier' );
+ok( 'a category with a bracket, its name without it', DZE_Category_Content::anchor_hint( 'Small tactical backpacks (1-2 day)', 'https://kula.test/small-tactical-backpacks/' ), 'Small tactical backpacks' );
+ok( 'a plain category name needs nothing said', DZE_Category_Content::anchor_hint( 'Jute area rugs', 'https://jute.test/jute-area-rugs/' ), '' );
+ok( 'the hint is never longer than an anchor may be', DZE_Category_Content::word_count( DZE_Category_Content::anchor_hint( 'Pourquoi les poufs en jute sont-ils le dernier incontournable des tendances déco de cette année et de la suivante', 'https://pv.test/%c3%a9t%c3%a9/' ) ) <= 9, true );
+$GLOBALS['dze_sent_hint'] = DZE_Category_Content::anchor_hint( 'What Size Kilim Rug Do I Need? A Room-by-Room Size Guide', 'https://kilim.test/what-size-kilim-rug/' );
+ok( 'and what it says, the check accepts', DZE_Category_Content::names_target( $GLOBALS['dze_sent_hint'], 'What Size Kilim Rug Do I Need? A Room-by-Room Size Guide', 'https://kilim.test/what-size-kilim-rug/' ), true );
+ok( 'the prompt shows it beside the target', false !== strpos( $dze_cc_src, "' — anchor on: \"' . \$hint . '\"'" ), true );
+ok( 'and states the length an anchor may have', false !== strpos( $dze_cc_src, 'AN ANCHOR IS SHORT: at most 9 words' ), true );
+
+echo "\nWORDS ARE COUNTED THE WAY A READER COUNTS THEM\n";
+// str_word_count() read « végétal » as three words: a French anchor of nine
+// words was refused as a sentence of thirteen (Perles Vertes, 16/10/2026).
+ok( 'a French anchor of nine words is nine words', DZE_Category_Content::word_count( '10 idées pour créer un intérieur végétal sans entretien' ), 9 );
+ok( 'an apostrophe and a hyphen do not cut a word', DZE_Category_Content::word_count( "l'herbe de la pampa, room-by-room" ), 5 );
+ok( 'and it is placed', (int) DZE_Category_Content::apply_edits(
+	'<p>Découvrez 10 idées pour créer un intérieur végétal sans entretien chez vous.</p>',
+	[ [ 'anchor' => '10 idées pour créer un intérieur végétal sans entretien', 'url' => 'https://pv.test/interieur-vegetal' ] ],
+	[ 'https://pv.test/interieur-vegetal' ],
+	[ 'https://pv.test/interieur-vegetal' => '10 idées pour créer un intérieur végétal sans entretien' ]
+)['applied'], 1 );
+
+echo "\nTHE ANCHORS A READER WOULD WRITE ARE TAKEN\n";
+// Each one refused on the shops in the week to 16/10/2026.
+$nt2 = static fn( string $a, string $t, string $u = '' ): bool => DZE_Category_Content::names_target( $a, $t, $u );
+ok( 'a qualifier in brackets is not part of the name', $nt2( 'small tactical backpacks', 'Small tactical backpacks (1-2 day)' ), true );
+ok( 'nor in the other one', $nt2( 'large tactical backpacks', 'Large tactical backpacks (3+ days)' ), true );
+ok( 'a slash offers a choice', [ $nt2( 'round jute rugs', 'Circle/round jute rugs' ), $nt2( 'circle jute rugs', 'Circle/round jute rugs' ), $nt2( 'tactical flashlights', 'Tactical flashlights / torches' ) ], [ true, true, true ] );
+ok( 'but a choice is still a whole name', $nt2( 'jute rugs', 'Circle/round jute rugs' ), false );
+ok( 'a French plural is a plural', $nt2( 'grande plante artificielle', 'Grandes plantes artificielles' ), true );
+ok( 'the words of a question are not a tail', $nt2( 'What Size Kilim Rug Do I Need', 'What Size Kilim Rug Do I Need? A Room-by-Room Size Guide' ), true );
+ok( 'any part of a title names it', $nt2( 'what guns do Spetsnaz use', 'Russian Special Forces: what guns do Spetsnaz Use?' ), true );
+ok( 'the title less its question names it', $nt2( 'gorka suit: everything you need to know', 'What is a gorka suit: everything you need to know' ), true );
+ok( 'a part of one word names nothing', $nt2( 'the right one', 'Which One? A long debate between two old friends of the field' ), false );
+ok( 'and a sentence is still a sentence', $nt2( 'read about the gorka suit worn by soldiers in the field', 'What is a gorka suit: everything you need to know' ), false );
+
+echo "\nAN ANSWER SPOILED IN ONE PLACE KEEPS ITS EDITS\n";
+$dze_cut = DZE_Category_Content::read_picks( '[{"find":"A b c d e.","replace":"A b jute poufs c d e.","anchor":"jute poufs","url":"https://jute.test/p"},{"find":"Second sentence that was cut' );
+ok( 'an answer cut short keeps the edits before the cut', is_array( $dze_cut ) ? count( $dze_cut ) : -1, 1 );
+$dze_esc = DZE_Category_Content::read_picks( '[{"anchor":"jute poufs","url":"https://jute.test/p","find":"It\'s a rug.","replace":"It\'s a rug with jute poufs."}]' );
+ok( 'a stray \\\' does not spoil the list', is_array( $dze_esc ) ? count( $dze_esc ) : -1, 1 );
+ok( 'an empty list is still an answer', DZE_Category_Content::read_picks( '[]' ), [] );
+ok( 'and a note is still not one', DZE_Category_Content::read_picks( 'I could not find a natural place for this link.' ), null );
+
+echo "\nA REFUSAL BY OLDER RULES IS NO VERDICT ON THE PAGE\n";
+unset( $GLOBALS['opts'][ DZE_Mesh::RULES_OPT ] );
+$GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] = [ 'kula.test/x' => [ 'n' => 5, 't' => time() ] ];
+$dze_since = DZE_Mesh::rules_since();
+ok( 'the rules in force are stamped', (int) ( $GLOBALS['opts'][ DZE_Mesh::RULES_OPT ]['v'] ?? 0 ), DZE_Mesh::RULES );
+ok( 'the targets tired out under the old ones start afresh', isset( $GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] ), false );
+$GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] = [ 'kula.test/x' => [ 'n' => 5, 't' => time() ] ];
+ok( 'once: the same rules stamp nothing again', [ DZE_Mesh::rules_since(), isset( $GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] ) ], [ $dze_since, true ] );
+unset( $GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] );
+ok( 'the shortlist gives such a page its pass back', false !== strpos( $dze_au_src, "&& (string) \$outcome['at'] < DZE_Mesh::rules_since() ) {" ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

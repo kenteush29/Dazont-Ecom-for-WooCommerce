@@ -798,6 +798,13 @@ final class DZE_Automation {
 	}
 
 	/** Passes this task made today — the cap is a day's worth, not a run's. */
+	/** Words in a text, counted the way the linking pass counts them. */
+	private static function words_in( string $html ): int {
+		return method_exists( 'DZE_Category_Content', 'word_count' )
+			? DZE_Category_Content::word_count( $html )
+			: str_word_count( wp_strip_all_tags( $html ) );
+	}
+
 	public static function done_today( string $id ): int {
 		$s = self::state();
 		if ( (string) ( $s['day'] ?? '' ) !== current_time( 'Y-m-d' ) ) {
@@ -891,7 +898,7 @@ final class DZE_Automation {
 				}
 				$rows[ (int) $t->term_id ] = [
 					'name'  => (string) $t->name,
-					'words' => str_word_count( wp_strip_all_tags( (string) $t->description ) ),
+					'words' => self::words_in( (string) $t->description ),
 					'out'   => (int) preg_match_all( '/<a\s[^>]*href=/i', (string) $t->description ),
 					'in'    => 0,
 					'desc'  => (string) $t->description,
@@ -1056,6 +1063,13 @@ final class DZE_Automation {
 				$job      = 'product_cat' === (string) $row['kind'] ? 'cat_links' : 'post_links';
 				$outcome  = method_exists( 'DZE_Queue', 'last_outcome' ) ? DZE_Queue::last_outcome( $job, (int) $row['tid'] ) : [ 'status' => 'applied', 'placed' => -1 ];
 				$progress = 'applied' === (string) $outcome['status'] && 0 !== (int) $outcome['placed'];
+				// UNLESS THE RULES THAT REFUSED IT HAVE CHANGED SINCE. Two of
+				// the refusals were the code's own fault (see DZE_Mesh::RULES):
+				// a page refused by them is given its pass back, once.
+				if ( ! $progress && method_exists( 'DZE_Mesh', 'rules_since' ) && '' !== (string) ( $outcome['at'] ?? '' )
+					&& (string) $outcome['at'] < DZE_Mesh::rules_since() ) {
+					$progress = true;
+				}
 				if ( ! $room || ! $progress || $last > time() - self::RETRY * DAY_IN_SECONDS ) {
 					self::$held['recent']++;
 					self::note_back( (int) $row['tid'], $id, $type, $room );
@@ -2583,7 +2597,7 @@ final class DZE_Automation {
 		if ( ! $sub ) {
 			return $no( 'gone' );
 		}
-		$words = str_word_count( wp_strip_all_tags( $sub['html'] ) );
+		$words = self::words_in( $sub['html'] );
 		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $sub['html'] );
 		if ( ! DZE_Queue::add( (string) $task['kind'], [ $oid ], (bool) $conf['apply'] ) ) {
 			return $no( 'busy' );
@@ -2651,7 +2665,7 @@ final class DZE_Automation {
 		if ( ! $sub ) {
 			return $no( 'gone' );
 		}
-		$words = str_word_count( wp_strip_all_tags( $sub['html'] ) );
+		$words = self::words_in( $sub['html'] );
 		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $sub['html'] );
 		// The job is the pass that already writes this kind of page. There is
 		// no third linking engine, and there must never be one.
@@ -4288,7 +4302,7 @@ final class DZE_Automation {
 			return __( 'gone', 'dazont-ecom' );
 		}
 		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $now['html'] );
-		$words = str_word_count( wp_strip_all_tags( $now['html'] ) );
+		$words = self::words_in( $now['html'] );
 		if ( in_array( $id, [ 'mesh_links', 'cat_links', 'post_links' ], true ) && $links > (int) ( $row['links'] ?? 0 ) ) {
 			/* translators: 1: links before, 2: links now */
 			return sprintf( __( '%1$d → %2$d links', 'dazont-ecom' ), (int) $row['links'], $links );

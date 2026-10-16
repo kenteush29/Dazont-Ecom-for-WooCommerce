@@ -190,7 +190,8 @@ final class DZE_Cleanup {
 				'tables'     => [ 'dze_mesh' ],
 				// dze_mesh_asked: the targets asked for and never linked, so one no
 				// sentence can name is rested instead of paid for again.
-				'options'    => [ 'dze_mesh_schema', 'dze_mesh_census', 'dze_mesh_pages', 'dze_mesh_skip', 'dze_mesh_asked' ],
+				// dze_mesh_rules: which linking rules are in force, and since when.
+				'options'    => [ 'dze_mesh_schema', 'dze_mesh_census', 'dze_mesh_pages', 'dze_mesh_skip', 'dze_mesh_asked', 'dze_mesh_rules' ],
 				'transients' => [ 'dze_mesh_pages', 'dze_mesh_lock', 'dze_mesh_thin', 'dze_mesh_pick_', 'dze_mesh_booked' ],
 			],
 			// The lab keeps nothing of its own: what it produces is a media

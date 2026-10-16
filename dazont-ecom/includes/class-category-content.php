@@ -279,7 +279,7 @@ final class DZE_Category_Content {
 		return [
 			'name'         => $name,
 			'has_desc'     => '' !== trim( wp_strip_all_tags( $desc ) ),
-			'words'        => str_word_count( wp_strip_all_tags( $desc ) ),
+			'words'        => self::word_count( $desc ),
 			'words_target' => (int) $size['words'],
 			'links'        => (int) preg_match_all( '/<a\s[^>]*href=/i', $desc ),
 			'links_target' => (int) $size['links'],
@@ -924,7 +924,7 @@ PROMPT;
 			// no text is measured on its REAL body, since a page builder keeps
 			// its words in post meta and one read from the post alone looks
 			// empty while being a full page on screen.
-			if ( 0 === str_word_count( wp_strip_all_tags( (string) $r['post_content'] ) )
+			if ( 0 === self::word_count( (string) $r['post_content'] )
 				&& ( ! class_exists( 'DZE_Mesh' ) || ! DZE_Mesh::built_with_builder( $id ) ) ) {
 				continue;
 			}
@@ -1647,7 +1647,7 @@ PROMPT;
 		// a chosen list used to mean « place them all », and `max( 1, … )`
 		// let one more in when the text was already full: « Brown jute rugs »
 		// went from 9 links to 13 against a cap of 12 (Jute, 13/10/2026).
-		$words = str_word_count( wp_strip_all_tags( $html ) );
+		$words = self::word_count( $html );
 		$cap   = min( $max, $words < self::LINK_MIN_WORDS ? 0 : max( 3, (int) floor( $words / 50 ) ) );
 		$room  = min( $cap - count( $done ), count( $links ) );
 		if ( $room < 1 ) {
@@ -1798,6 +1798,20 @@ PROMPT;
 		return array_values( $out );
 	}
 
+	/**
+	 * HOW MANY WORDS A TEXT HOLDS, as a reader counts them.
+	 *
+	 * str_word_count() reads bytes in the C locale: « végétal » is three words
+	 * to it, « intérieur » two. A French anchor of nine words read as thirteen
+	 * and was refused as « a sentence, not an anchor », and every French page
+	 * was given more room for links than its length allows (Perles Vertes,
+	 * 16/10/2026). A word here is a run of letters or digits, with the
+	 * apostrophes and hyphens inside it.
+	 */
+	public static function word_count( string $text ): int {
+		return (int) preg_match_all( '~[\p{L}\p{N}]+(?:[\'’-][\p{L}\p{N}]+)*~u', wp_strip_all_tags( $text ) );
+	}
+
 	/** Lowercase, unaccented, punctuation turned to space. */
 	public static function fold( string $s ): string {
 		if ( function_exists( 'remove_accents' ) ) {
@@ -1916,7 +1930,16 @@ PROMPT;
 		$list = [];
 		foreach ( $links as $l ) {
 			$n = (int) ( $l['products'] ?? 0 );
-			$list[] = $l['label'] . ' [' . $l['kind'] . ( $n ? ', ' . $n . ' products' : '' ) . '] → ' . $l['url'];
+			// THE WORDS TO ANCHOR ON, WRITTEN OUT when they are not the title
+			// as it stands. The contract said « use the title as written », and
+			// the code refused any anchor over nine words: every article with a
+			// long title — « What Size Kilim Rug Do I Need? A Room-by-Room Size
+			// Guide » — came back pasted whole and was refused, 160 times in a
+			// week across the four shops (16/10/2026). The model now reads the
+			// short name the code will accept.
+			$hint   = self::anchor_hint( (string) ( $l['label'] ?? '' ), (string) $l['url'] );
+			$list[] = $l['label'] . ' [' . $l['kind'] . ( $n ? ', ' . $n . ' products' : '' ) . '] → ' . $l['url']
+				. ( '' !== $hint ? ' — anchor on: "' . $hint . '"' : '' );
 		}
 
 		$user = "--- {$kind} ---\nName: " . $subject . "\n"
@@ -1950,7 +1973,8 @@ PROMPT;
 			// de mots plausible — « utility pouch as your backpack pocket » pour
 			// une page nommee « Utility pouches ». C est l inverse : le titre
 			// d abord, et le texte s ajuste pour l accueillir.
-			. "- THE ANCHOR IS THE NAME OF THE DESTINATION. Use the destination's title as it is written in the list above, or the words of its URL. A form of it that a reader would recognise as the same thing is fine — singular for plural, an article dropped — but never an unrelated run of words that happens to sit in the text.\n"
+			. "- THE ANCHOR IS THE NAME OF THE DESTINATION. Use the destination's title as it is written in the list above — or, where the list says « anchor on », those words: they are the subject of a long title — or the words of its URL. A form of it that a reader would recognise as the same thing is fine — singular for plural, an article dropped — but never an unrelated run of words that happens to sit in the text.\n"
+			. "- AN ANCHOR IS SHORT: at most 9 words, and never a long title pasted whole.\n"
 			. ( self::may_add()
 				// ET MODIFIER LE TEXTE EST AUTORISE, ET BON SIGNE. « Je t ai dit
 				// qu on change le texte, c est autorise. C est meme bon signe quand
@@ -1964,7 +1988,13 @@ PROMPT;
 					. "  - Pick the sentence where the destination genuinely belongs — the one about that subject — not the first or the last.\n"
 					. "  - \"replace\" must still be that sentence: same point, same tone, same language, most of its words. You are threading the title into it, not writing a new one.\n"
 					. "  - Never append a sentence to the end of the text, and never write a stub like 'See X for more' or 'Our X collection covers everything'. A paragraph of link stubs at the foot of the page is the one thing this must not produce.\n"
-					. "  - \"find\" and \"replace\" are PLAIN TEXT: no tags, no entities, no markdown. Copy \"find\" from ordinary prose — never from a heading, a list item carrying markup, a caption or a link.\n"
+					. "  - \"find\" and \"replace\" are PLAIN TEXT: no tags, no entities, no markdown. Copy \"find\" from ordinary prose — never from a heading or a caption.\n"
+					// LA PHRASE PEUT DEJA PORTER UN LIEN. Elle etait interdite,
+					// et sur une page deja maillee presque toutes le sont : le
+					// modele la prenait quand meme, et le code la refusait. Ses
+					// liens et son gras repartent desormais avec elle, a
+					// condition que leurs mots soient encore la.
+					. "  - The sentence may already hold a link or words in bold: copy them as they read. In \"replace\", keep those words EXACTLY as they are — they keep their link and their bold — and never put the new anchor inside them.\n"
 				: "- If the title is not in the text, leave that target out: this shop does not allow the pass to change a word.\n" )
 			. "\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: the text is in ' . $language . " — keep it in that language.\n"
@@ -2003,7 +2033,7 @@ PROMPT;
 			. '- "anchor": the destination\'s title. In the first shape it must be words that appear in the text exactly as written there — same spelling, same case, same spaces. In the second it must appear inside "replace".' . "\n"
 			. '- "url": one address from the list above, copied verbatim.' . "\n"
 			. '- The words must appear only ONCE in the whole text. If they appear twice, take a longer run of words until they are unique.' . "\n"
-			. '- Copy plain prose only: no tags, no <, no &nbsp;, nothing from a heading, a caption, a table, a shortcode or an HTML comment, and never words that are already a link.' . "\n"
+			. '- Copy plain prose only: no tags, no <, no &nbsp;, nothing from a heading, a caption, a table, a shortcode or an HTML comment. An anchor is never words that are already a link.' . "\n"
 			. '- Never write HTML: the link itself is built for you from "anchor" and "url".' . "\n"
 			. '- No markdown, no code fence, no text before or after the JSON.';
 
@@ -2012,7 +2042,7 @@ PROMPT;
 			. ( self::may_add()
 				? 'When the title is not in the text, you REWORD one existing sentence — the one the destination genuinely belongs to — so that it carries the title, and the link sits inside the paragraph where a reader meets it. Rewording is expected, not a last resort. You never append anything to the end of the text: a run of link sentences at the foot of a page is the mark of an amateur, and it is the one thing this job must not produce.'
 				: 'You never add or change a word: if the title is not in the text, you leave that target out.' );
-		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
+		$words  = max( 120, self::word_count( $html ) );
 		DZE_Ai_Usage::unit( 'cat_links' );
 		$out    = DZE_Marketing_Ai::complete( $system, $user, '', self::room_for( $html, $words ), 240 );
 		DZE_Ai_Usage::unit();
@@ -2081,10 +2111,10 @@ PROMPT;
 			$third = DZE_Marketing_Ai::complete(
 				$system,
 				$user . "\n\n--- YOUR LAST ANSWER WAS REFUSED ---\n" . $why
-					. "\nThe anchor must be the DESTINATION'S TITLE, exactly as the list writes it, or the words of its URL."
+					. "\nThe anchor must name the DESTINATION: its title as the list writes it, the words given after « anchor on », or the words of its URL — at most 9 words."
 					. "\nThose titles are not in this text. So REWORD a sentence of it for each target you judge genuinely close, each"
 					. ' {"find": "the existing sentence, copied word for word", "replace": "that sentence rewritten to contain the title", "anchor": "the title, inside replace", "url": "…"}.'
-					. "\nPick the sentence the destination belongs to, and keep it that sentence: same point, same tone, same language, most of its words. Both fields are plain text — no tags, nothing copied from a heading or a link."
+					. "\nPick the sentence the destination belongs to, and keep it that sentence: same point, same tone, same language, most of its words. Both fields are plain text — no tags, nothing copied from a heading. Words of that sentence that are already a link or in bold stay word for word in \"replace\"."
 					. "\nDo NOT add a sentence at the end of the text. Answer with the JSON array only. If not one target belongs here, answer [].",
 				'',
 				self::room_for( $html, $words ),
@@ -2464,7 +2494,31 @@ PROMPT;
 		$a = strpos( $out, '{' );
 		$b = strrpos( $out, '}' );
 		if ( false !== $a && false !== $b && $b > $a ) {
-			return $try( substr( $out, $a, $b - $a + 1 ) );
+			$picks = $try( substr( $out, $a, $b - $a + 1 ) );
+			if ( null !== $picks ) {
+				return $picks;
+			}
+		}
+		// A LIST SPOILED IN ONE PLACE STILL HOLDS THE EDITS AROUND IT. An
+		// answer cut short, or one stray « \' » inside a sentence, made the
+		// whole list unreadable, and the edits in it were thrown away with a
+		// row saying « Nothing was linked here. The model looked and said:
+		// "[{"find": … » — the model had answered, and the answer was there
+		// (Kula, 16/10/2026). Every complete object is read on its own.
+		if ( preg_match_all( '~\{(?:[^{}"]|"(?:[^"\\\\]|\\\\.)*")*\}~su', $out, $m ) ) {
+			$rows = [];
+			foreach ( $m[0] as $one ) {
+				$v = json_decode( $one, true );
+				if ( ! is_array( $v ) ) {
+					$v = json_decode( str_replace( "\\'", "'", $one ), true );
+				}
+				if ( is_array( $v ) && ( isset( $v['anchor'] ) || isset( $v['url'] ) ) ) {
+					$rows[] = $v;
+				}
+			}
+			if ( $rows ) {
+				return $rows;
+			}
 		}
 		return null;
 	}
@@ -2614,8 +2668,7 @@ PROMPT;
 			$anchor  = str_replace( "'", '’', $anchor );
 		}
 		// THE NEW WORDS MUST CARRY THE ANCHOR, or there is nothing to link.
-		$where = mb_stripos( $replace, $anchor );
-		if ( false === $where ) {
+		if ( null === self::locate( $replace, $anchor, [], true ) ) {
 			return null;
 		}
 		// AND IT MUST STILL BE THE SAME SENTENCE. A short fragment is not a
@@ -2640,21 +2693,154 @@ PROMPT;
 			return null;
 		}
 		[ $at, $span ] = $found;
-		if ( ! self::in_prose( $html, $at, $span ) ) {
+		// WHERE THE SENTENCE STARTS must be prose: not a tag, a comment, a
+		// heading or a link. What it holds is read just below.
+		if ( ! self::in_prose( $html, $at, 0 ) ) {
 			return null;
 		}
-		// THE SPAN HAS TO BE PLAIN. `find_anchor()` reads through inline
-		// markup on purpose — that is what lets it find words split by a
-		// <strong> — but replacing such a span with plain prose would throw
-		// that markup away. Finding is tolerant; overwriting is not.
-		if ( false !== strpos( substr( $html, $at, $span ), '<' ) ) {
-			return null;
+		// A SENTENCE THAT ALREADY HOLDS A LINK IS REWRITTEN WITH ITS LINK.
+		//
+		// The span had to be plain, so that no markup was lost — and on a page
+		// the mesh had already linked, nearly every sentence held a link or a
+		// bold word. 520 of the 540 rewrites refused across the four shops in a
+		// week were exactly that (16/10/2026), each one a paid answer thrown
+		// away, on the pages the mesh works on most. The markup is not lost any
+		// more: every link and every bold run of the sentence goes back around
+		// the same words in the new sentence, character for character. If the
+		// new sentence dropped those words, it is refused as before.
+		$islands = self::inline_islands( substr( $html, $at, $span ) );
+		if ( null === $islands ) {
+			return null; // it crosses a block, or holds markup that cannot travel.
 		}
-		$as_is  = mb_substr( $replace, $where, mb_strlen( $anchor ) );
-		$linked = self::esc_text( mb_substr( $replace, 0, $where ) )
-			. '<a href="' . esc_url( $url ) . '">' . self::esc_text( $as_is ) . '</a>'
-			. self::esc_text( mb_substr( $replace, $where + mb_strlen( $anchor ) ) );
+		$taken = [];
+		foreach ( $islands as $one ) {
+			$hit = self::locate( $replace, $one['text'], $taken );
+			if ( null === $hit ) {
+				return null;
+			}
+			$taken[] = [ $hit[0], $hit[1], $one['html'] ];
+		}
+		$hit = self::locate( $replace, $anchor, $taken, true );
+		if ( null === $hit ) {
+			return null; // the title is only inside words that are already a link.
+		}
+		$taken[] = [ $hit[0], $hit[1], '<a href="' . esc_url( $url ) . '">' . self::esc_text( substr( $replace, $hit[0], $hit[1] ) ) . '</a>' ];
+		usort( $taken, static fn( array $x, array $y ): int => $x[0] <=> $y[0] );
+		$linked = '';
+		$pos    = 0;
+		foreach ( $taken as [ $off, $len, $markup ] ) {
+			$linked .= self::esc_text( substr( $replace, $pos, $off - $pos ) ) . $markup;
+			$pos     = $off + $len;
+		}
+		$linked .= self::esc_text( substr( $replace, $pos ) );
 		return [ 'html' => substr_replace( $html, $linked, $at, $span ), 'at' => $at ];
+	}
+
+	/** Inline elements a rewritten sentence may carry across, as they are. */
+	private const INLINE = [ 'a', 'strong', 'b', 'em', 'i', 'u', 'span', 'mark', 'small', 'sub', 'sup', 'abbr', 'code', 's', 'del', 'ins', 'q', 'cite', 'time' ];
+
+	/**
+	 * THE MARKED-UP RUNS OF A SENTENCE: each outermost inline element, with
+	 * its HTML exactly as written and the words a reader sees in it.
+	 *
+	 * Null when the sentence holds anything else — a block, a line break, an
+	 * image, a comment — or an element with no words in it: there would be
+	 * nowhere in the new sentence to put it back.
+	 *
+	 * @return array<int,array{html:string,text:string}>|null
+	 */
+	private static function inline_islands( string $span ): ?array {
+		if ( false !== strpos( $span, '<!--' ) ) {
+			return null;
+		}
+		$parts = preg_split( '~(<[^>]*>)~', $span, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY );
+		$out   = [];
+		$open  = [];
+		$buf   = '';
+		foreach ( (array) $parts as $p ) {
+			if ( '<' !== $p[0] ) {
+				if ( $open ) {
+					$buf .= $p;
+				}
+				continue;
+			}
+			if ( ! preg_match( '~^<(/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(/?)>$~', $p, $t ) ) {
+				return null;
+			}
+			$name = strtolower( $t[2] );
+			if ( ! in_array( $name, self::INLINE, true ) || '/' === $t[3] ) {
+				return null;
+			}
+			$buf .= $p;
+			if ( '/' === $t[1] ) {
+				if ( ! $open || array_pop( $open ) !== $name ) {
+					return null;
+				}
+				if ( ! $open ) {
+					$text = trim( html_entity_decode( wp_strip_all_tags( $buf ), ENT_QUOTES, 'UTF-8' ) );
+					if ( '' === $text ) {
+						return null;
+					}
+					$out[] = [ 'html' => $buf, 'text' => $text ];
+					$buf   = '';
+				}
+				continue;
+			}
+			$open[] = $name;
+		}
+		return $open ? null : $out;
+	}
+
+	/**
+	 * WHERE THESE WORDS ARE IN A PLAIN SENTENCE, read the way find_anchor()
+	 * reads: any run of spaces for a space, any apostrophe for an apostrophe,
+	 * any case. The first place that does not overlap one already taken.
+	 *
+	 * An anchor GROWS to the end of its last word: « jute rug » in « our jute
+	 * rugs » links « jute rugs », never « jute rug » with an « s » left outside
+	 * the link. The words of an existing link are matched as they stand.
+	 *
+	 * @param array<int,array{0:int,1:int}> $taken Byte ranges already used.
+	 * @return array{0:int,1:int}|null Byte offset and length.
+	 */
+	private static function locate( string $hay, string $words, array $taken = [], bool $grow = false ): ?array {
+		$bits = preg_split( '~[\s\x{00A0}]+~u', trim( $words ), -1, PREG_SPLIT_NO_EMPTY );
+		if ( ! $bits ) {
+			return null;
+		}
+		$one = static function ( string $w ): string {
+			$out = '';
+			foreach ( preg_split( '//u', $w, -1, PREG_SPLIT_NO_EMPTY ) as $ch ) {
+				if ( in_array( $ch, [ "'", '’', '‘', '`', '´' ], true ) ) {
+					$out .= '[\'’‘`´]';
+				} elseif ( in_array( $ch, [ '"', '“', '”', '«', '»' ], true ) ) {
+					$out .= '["“”«»]';
+				} elseif ( in_array( $ch, [ '-', '–', '—' ], true ) ) {
+					$out .= '[-–—]';
+				} else {
+					$out .= preg_quote( $ch, '~' );
+				}
+			}
+			return $out;
+		};
+		$re = '~(?<![\p{L}\p{N}])' . implode( '[\s\x{00A0}]+', array_map( $one, $bits ) ) . ( $grow ? '[\p{L}\p{N}]*' : '' ) . '(?![\p{L}\p{N}])~iu';
+		if ( ! preg_match_all( $re, $hay, $m, PREG_OFFSET_CAPTURE ) ) {
+			return null;
+		}
+		foreach ( $m[0] as [ $str, $off ] ) {
+			$end  = $off + strlen( $str );
+			$free = true;
+			foreach ( $taken as $t ) {
+				if ( $off < $t[0] + $t[1] && $t[0] < $end ) {
+					$free = false;
+					break;
+				}
+			}
+			if ( $free ) {
+				return [ (int) $off, strlen( $str ) ];
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -2757,7 +2943,7 @@ PROMPT;
 				);
 				continue;
 			}
-			$len = str_word_count( wp_strip_all_tags( $anchor ) );
+			$len = self::word_count( $anchor );
 			if ( $len > 9 || mb_strlen( trim( $anchor ) ) > 72 ) {
 				$refused[] = sprintf(
 					/* translators: 1: how many words, 2: the words */
@@ -2827,7 +3013,7 @@ PROMPT;
 			$close = strpos( $html, '<', $at + $span_len );
 			if ( $open > 0 && false !== $close ) {
 				$whole = trim( wp_strip_all_tags( substr( $html, $open + 1, $close - $open - 1 ) ) );
-				if ( '' !== $whole && trim( wp_strip_all_tags( $anchor ) ) === $whole && str_word_count( $whole ) > 6 ) {
+				if ( '' !== $whole && trim( wp_strip_all_tags( $anchor ) ) === $whole && self::word_count( $whole ) > 6 ) {
 					$refused[] = sprintf(
 						/* translators: %s: the words the model picked */
 						__( 'the words chosen are the whole of their paragraph (%s)', 'dazont-ecom' ),
@@ -2984,37 +3170,12 @@ PROMPT;
 	 * @param string $url    Its address.
 	 */
 	public static function names_target( string $anchor, string $label, string $url ): bool {
-		$fold = static function ( string $s ): array {
-			$s = strtolower( wp_strip_all_tags( html_entity_decode( $s ) ) );
-			$s = (string) preg_replace( '~[^a-z0-9àâäçéèêëîïôöùûüÿñæœ]+~u', ' ', $s );
-			// The words that carry no meaning of their own, in the languages
-			// this shop sells in. A title is still named without them.
-			$stop = [ 'the','a','an','of','for','and','or','to','in','on','with','your','our','is','are','les','le','la','des','de','du','un','une','et','ou','pour','dans','sur','avec','votre','nos','der','die','das','und','für','mit','el','los','las','y','para','con' ];
-			$out  = [];
-			foreach ( preg_split( '~\s+~u', trim( $s ) ) as $w ) {
-				$w = trim( (string) $w );
-				if ( '' === $w || in_array( $w, $stop, true ) ) {
-					continue;
-				}
-				// Plural and singular are the same word for this purpose:
-				// "Utility pouches" is named by "utility pouch". Dropping one 's'
-				// is not enough — "pouches" becomes "pouche", which matches
-				// nothing, and the rule then refused the very anchor it wants.
-				if ( mb_strlen( $w ) > 4 && in_array( mb_substr( $w, -2 ), [ 'es' ], true ) ) {
-					$w = mb_substr( $w, 0, -2 );
-				} elseif ( mb_strlen( $w ) > 3 && 's' === mb_substr( $w, -1 ) ) {
-					$w = mb_substr( $w, 0, -1 );
-				}
-				$out[] = $w;
-			}
-			return $out;
-		};
-		$got = $fold( $anchor );
+		$got  = self::name_words( $anchor );
 		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
 		$slug = (string) basename( untrailingslashit( $path ) );
 		if ( '' === trim( $label ) ) {
 			// No title to check against — the URL is the only thing left.
-			$want = $fold( str_replace( '-', ' ', $slug ) );
+			$want = self::name_words( str_replace( '-', ' ', $slug ) );
 			if ( ! $want ) {
 				return true; // nothing to judge it by; the other guards still apply.
 			}
@@ -3024,10 +3185,16 @@ PROMPT;
 			return false;
 		}
 		// A CATEGORY KEEPS ITS NAME AS IT STANDS: every significant word of it
-		// is in the anchor, and the anchor drags no tail behind it.
+		// is in the anchor, and the anchor drags no tail behind it — under any
+		// of the names it answers to (see name_forms()).
 		if ( ! self::looks_like_title( $label ) ) {
-			$want = $fold( $label );
-			return ! $want || self::covers( $got, $want, false );
+			foreach ( self::name_forms( $label ) as $form ) {
+				$want = self::name_words( $form );
+				if ( ! $want || self::covers( $got, $want, false ) ) {
+					return true;
+				}
+			}
+			return false;
 		}
 		// AN ARTICLE IS ANCHORED ON THE SUBJECT OF ITS TITLE, never on the
 		// title pasted whole — the shop's own rule, which this check did not
@@ -3036,14 +3203,139 @@ PROMPT;
 		// be linked, and « gorka suit » was refused for « What is a gorka suit:
 		// everything you need to know ». Ten Kula articles stayed orphans for
 		// it, asked nine times each in eight days (16/10/2026). The subject is
-		// read from the title, or from the page's address.
-		foreach ( [ self::subject_of( $label ), str_replace( '-', ' ', $slug ) ] as $phrase ) {
-			$want = array_values( array_diff( $fold( $phrase ), self::FILLER ) );
-			if ( $want && self::covers( $got, $want, true ) ) {
+		// read from the title — any of its parts, « Russian Special Forces: what
+		// guns do Spetsnaz use? » is about both — or from the page's address.
+		$first = true;
+		foreach ( array_merge( self::title_subjects( $label ), [ str_replace( '-', ' ', $slug ) ] ) as $phrase ) {
+			$want = array_values( array_filter( self::name_words( $phrase ), static fn( string $w ): bool => ! self::is_filler( $w ) ) );
+			// A part of one word names too little to stand for the page:
+			// « Which One? » is not what an article is about.
+			$enough = $first ? (bool) $want : count( $want ) >= 2;
+			$first  = false;
+			if ( $enough && self::covers( $got, $want, true ) ) {
 				return true;
 			}
 		}
 		return false;
+	}
+
+	/** Words that carry no meaning of their own, in the languages these shops sell in. */
+	private const STOP = [ 'the', 'a', 'an', 'of', 'for', 'and', 'or', 'to', 'in', 'on', 'at', 'by', 'from', 'as', 'with', 'your', 'our', 'its', 'their', 'is', 'are', 'les', 'le', 'la', 'des', 'de', 'du', 'un', 'une', 'et', 'ou', 'pour', 'dans', 'sur', 'avec', 'au', 'aux', 'en', 'votre', 'vos', 'nos', 'notre', 'der', 'die', 'das', 'und', 'für', 'mit', 'el', 'los', 'las', 'y', 'para', 'con' ];
+
+	/**
+	 * The words of a name or an anchor that carry its meaning, lowercased.
+	 *
+	 * Letters of every alphabet count: the old fold kept a-z and a handful of
+	 * French accents, and cut « categorías » or « Größe » in two.
+	 *
+	 * @return string[]
+	 */
+	private static function name_words( string $s ): array {
+		$s   = mb_strtolower( wp_strip_all_tags( html_entity_decode( $s, ENT_QUOTES, 'UTF-8' ) ) );
+		$out = [];
+		foreach ( preg_split( '~[^\p{L}\p{N}]+~u', $s, -1, PREG_SPLIT_NO_EMPTY ) ?: [] as $w ) {
+			if ( in_array( $w, self::STOP, true ) || ( 1 === mb_strlen( $w ) && ! ctype_digit( $w ) ) ) {
+				continue;
+			}
+			$out[] = $w;
+		}
+		return $out;
+	}
+
+	/**
+	 * THE FORMS OF ONE WORD that name the same thing: itself, and itself
+	 * without the mark of a plural.
+	 *
+	 * Two words are the same when their forms meet. Stripping one ending from
+	 * every word, as before, could not do it: « pouches » lost its « es » and
+	 * met « pouch », but « artificielles » lost the same two letters and missed
+	 * « artificielle » — « grande plante artificielle » was refused for
+	 * « Grandes plantes artificielles » (Perles Vertes, 16/10/2026).
+	 *
+	 * @return string[]
+	 */
+	private static function word_forms( string $w ): array {
+		$f = [ $w ];
+		$n = mb_strlen( $w );
+		if ( $n > 3 && 's' === mb_substr( $w, -1 ) ) {
+			$f[] = mb_substr( $w, 0, -1 );
+		}
+		if ( $n > 4 && 'es' === mb_substr( $w, -2 ) ) {
+			$f[] = mb_substr( $w, 0, -2 );
+		}
+		if ( $n > 4 && 'x' === mb_substr( $w, -1 ) ) {
+			$f[] = mb_substr( $w, 0, -1 );
+		}
+		return $f;
+	}
+
+	private static function same_word( string $a, string $b ): bool {
+		return $a === $b || (bool) array_intersect( self::word_forms( $a ), self::word_forms( $b ) );
+	}
+
+	private static function is_filler( string $w ): bool {
+		return (bool) array_intersect( self::word_forms( $w ), self::FILLER );
+	}
+
+	/**
+	 * THE NAMES A CATEGORY ANSWERS TO: its name without a qualifier in
+	 * brackets — « Small tactical backpacks (1-2 day) » is named by « small
+	 * tactical backpacks » — and each of the choices a slash offers: « Circle/
+	 * round jute rugs » by « round jute rugs », « Tactical flashlights /
+	 * torches » by « tactical flashlights ». Refused before, on Kula and Jute,
+	 * every time the model wrote the name a reader would (16/10/2026).
+	 *
+	 * @return string[]
+	 */
+	private static function name_forms( string $label ): array {
+		$t    = trim( html_entity_decode( wp_strip_all_tags( $label ), ENT_QUOTES, 'UTF-8' ) );
+		$bare = trim( (string) preg_replace( '~\s+~u', ' ', (string) preg_replace( '~\s*\([^)]*\)~u', ' ', $t ) ) );
+		$bare = '' !== $bare ? $bare : $t;
+		$out  = [ $bare ];
+		$alts = array_values( array_filter( array_map( 'trim', explode( '/', $bare ) ), static fn( string $p ): bool => '' !== $p ) );
+		if ( count( $alts ) > 1 ) {
+			$first = preg_split( '~\s+~u', $alts[0] ) ?: [];
+			$k     = count( $alts ) - 1;
+			$last  = preg_split( '~\s+~u', $alts[ $k ] ) ?: [];
+			$head  = implode( ' ', array_slice( $first, 0, -1 ) );
+			$tail  = implode( ' ', array_slice( $last, 1 ) );
+			foreach ( $alts as $i => $alt ) {
+				$core  = 0 === $i ? (string) end( $first ) : ( $k === $i ? (string) ( $last[0] ?? '' ) : $alt );
+				$out[] = trim( $head . ' ' . $core . ' ' . $tail );
+			}
+		}
+		return array_values( array_unique( $out ) );
+	}
+
+	/**
+	 * What the anchor is to be, written out for the model when it is not the
+	 * title as it stands — '' when it is.
+	 *
+	 * A long title is anchored on its subject, then on the words of its
+	 * address; a category name with a qualifier in brackets, on its name
+	 * without it. Never more words than an anchor may have.
+	 */
+	public static function anchor_hint( string $label, string $url ): string {
+		$t = trim( (string) preg_replace( '~\s+~u', ' ', html_entity_decode( wp_strip_all_tags( $label ), ENT_QUOTES, 'UTF-8' ) ) );
+		if ( '' === $t ) {
+			return '';
+		}
+		if ( ! self::looks_like_title( $t ) ) {
+			$bare = self::name_forms( $t )[0] ?? $t;
+			return $bare !== $t ? $bare : '';
+		}
+		$subject = self::subject_of( $t );
+		$n       = self::word_count( $subject );
+		if ( $n >= 1 && $n <= 9 ) {
+			return $subject !== $t ? $subject : '';
+		}
+		$slug = trim( str_replace( '-', ' ', (string) basename( untrailingslashit( (string) wp_parse_url( $url, PHP_URL_PATH ) ) ) ) );
+		$m    = self::word_count( $slug );
+		if ( $m >= 2 && $m <= 9 && false === strpos( $slug, '%' ) ) {
+			return $slug;
+		}
+		$w = preg_split( '~\s+~u', $subject, -1, PREG_SPLIT_NO_EMPTY ) ?: [];
+		return implode( ' ', array_slice( $w, 0, 9 ) );
 	}
 
 	/**
@@ -3053,23 +3345,35 @@ PROMPT;
 	 * most of it — two of three words, three of four, half of a long one —
 	 * and still no tail.
 	 *
-	 * @param string[] $got  The anchor's words, folded.
-	 * @param string[] $want The subject's words, folded.
+	 * @param string[] $got  The anchor's words.
+	 * @param string[] $want The subject's words.
 	 */
 	private static function covers( array $got, array $want, bool $loose ): bool {
 		$want = array_values( array_unique( $want ) );
 		$n    = count( $want );
-		$hit  = count( array_intersect( $want, $got ) );
+		$hit  = 0;
+		foreach ( $want as $w ) {
+			foreach ( $got as $g ) {
+				if ( self::same_word( $w, $g ) ) {
+					$hit++;
+					break;
+				}
+			}
+		}
 		$need = $loose
 			? ( $n <= 2 ? $n : ( 3 === $n ? 2 : ( 4 === $n ? 3 : max( 3, (int) ceil( $n / 2 ) ) ) ) )
 			: $n;
 		// The anchor does not drag a tail behind it: three words of title
-		// wrapped inside nine of sentence is the sentence being linked.
-		return $hit >= $need && count( $got ) <= $n + 2;
+		// wrapped inside nine of sentence is the sentence being linked. The
+		// words a question is built with are not a tail — « What Size Kilim Rug
+		// Do I Need » names its article, and was refused for « what », « do »,
+		// « I » and « need » (Kilim, 16/10/2026).
+		$tail = $loose ? count( array_filter( $got, static fn( string $g ): bool => ! self::is_filler( $g ) ) ) : count( $got );
+		return $hit >= $need && $tail <= $n + 2;
 	}
 
 	/** Words that open or pad a title and name nothing (subjects only). */
-	private const FILLER = [ 'what', 'why', 'how', 'when', 'where', 'which', 'who', 'do', 'doe', 'does', 'did', 'is', 'are', 'can', 'should', 'would', 'will', 'you', 'your', 'i', 'we', 'my', 'it', 'they', 'need', 'know', 'actually', 'really', 'everything', 'about', 'guide', 'complete', 'ultimate', 'tip', 'tips', 'best', 'top', 'right', 'good', 'way', 'ways', 'thing', 'things', 'choose', 'choosing', 'wear', 'wearing', 'wash', 'washing', 'use', 'using', 'make', 'vs', 'versus', 'difference', 'differences', 'comment', 'pourquoi', 'combien', 'quel', 'quelle', 'quels', 'quelles', 'quand', 'vous', 'votre', 'faut', 'savoir', 'tout', 'complet', 'conseil', 'conseils', 'meilleur', 'meilleurs', 'meilleure', 'choisir', 'porter', 'laver', 'entretenir', 'faire', 'trouver', 'acheter', 'offrir' ];
+	private const FILLER = [ 'what', 'why', 'how', 'when', 'where', 'which', 'who', 'do', 'doe', 'does', 'did', 'is', 'are', 'can', 'should', 'would', 'will', 'you', 'your', 'i', 'we', 'my', 'it', 'they', 'one', 'ones', 'need', 'know', 'actually', 'really', 'everything', 'about', 'guide', 'complete', 'ultimate', 'tip', 'tips', 'best', 'top', 'right', 'good', 'way', 'ways', 'thing', 'things', 'choose', 'choosing', 'wear', 'wearing', 'wash', 'washing', 'use', 'using', 'make', 'vs', 'versus', 'difference', 'differences', 'comment', 'pourquoi', 'combien', 'quel', 'quelle', 'quels', 'quelles', 'quand', 'vous', 'votre', 'faut', 'savoir', 'tout', 'complet', 'conseil', 'conseils', 'meilleur', 'meilleurs', 'meilleure', 'choisir', 'porter', 'laver', 'entretenir', 'faire', 'trouver', 'acheter', 'offrir' ];
 
 	/** The fewest words a description holds before a link reads well in it. */
 	private const LINK_MIN_WORDS = 120;
@@ -3089,8 +3393,11 @@ PROMPT;
 		if ( preg_match( '~^(what|why|how|when|where|which|who|do|does|is|are|can|should|comment|pourquoi|combien|quel|quelle|quels|quelles|quand)\b~iu', $t ) ) {
 			return true;
 		}
-		return str_word_count( $t ) >= 6;
+		return self::word_count( $t ) >= 6;
 	}
+
+	/** The words a question or a title opens with, which name nothing. */
+	private const LEAD = '~^(?:(?:what|why|how|when|where|which|who|do|does|did|is|are|was|were|can|could|should|would|will|to|the|a|an|comment|pourquoi|combien|quel|quelle|quels|quelles|quand|que|qu|de|d|des|les|le|la|un|une)\b[\s\'’]*)+~iu';
 
 	/**
 	 * THE SUBJECT OF A TITLE: what it is about, without the question around it.
@@ -3104,11 +3411,29 @@ PROMPT;
 		$t     = trim( html_entity_decode( wp_strip_all_tags( $title ), ENT_QUOTES, 'UTF-8' ) );
 		$parts = preg_split( '~\s*(?:[?:!]|\s[–—|]\s|\s-\s)\s*~u', $t );
 		$head  = trim( (string) ( $parts[0] ?? $t ) );
-		if ( str_word_count( $head ) < 2 ) {
+		if ( self::word_count( $head ) < 2 ) {
 			$head = $t;
 		}
-		$head = (string) preg_replace( '~^(?:(?:what|why|how|when|where|which|who|do|does|did|is|are|was|were|can|could|should|would|will|to|the|a|an|comment|pourquoi|combien|quel|quelle|quels|quelles|quand|que|qu|de|d|des|les|le|la|un|une)\b[\s\'’]*)+~iu', '', $head );
+		$head = (string) preg_replace( self::LEAD, '', $head );
 		return trim( $head );
+	}
+
+	/**
+	 * Every part of a title that can stand for it: the subject first, then
+	 * each other part of it, without the words its question opens with.
+	 *
+	 * @return string[]
+	 */
+	private static function title_subjects( string $title ): array {
+		$t   = trim( html_entity_decode( wp_strip_all_tags( $title ), ENT_QUOTES, 'UTF-8' ) );
+		$out = [ self::subject_of( $t ) ];
+		foreach ( preg_split( '~\s*(?:[?:!]|\s[–—|]\s|\s-\s)\s*~u', $t, -1, PREG_SPLIT_NO_EMPTY ) ?: [] as $part ) {
+			$s = trim( (string) preg_replace( self::LEAD, '', trim( $part ) ) );
+			if ( '' !== $s && ! in_array( $s, $out, true ) ) {
+				$out[] = $s;
+			}
+		}
+		return $out;
 	}
 
 	public static function find_anchor( string $html, string $anchor ): ?array {
@@ -3144,7 +3469,20 @@ PROMPT;
 		// BETWEEN two words: whitespace, a non-breaking space, or any inline
 		// tag — and at least one of them, so two words never run together.
 		$gap = '(?:\s|&nbsp;|&#160;|</?[a-zA-Z][^>]*>)+';
-		$re  = '~' . implode( $gap, array_map( $one, $words ) ) . '~iu';
+		// AND BETWEEN A WORD AND ITS PUNCTUATION, a tag may close or open:
+		// « pair their kit with <a …>military and tactical shirts</a>, these
+		// sandals » reads « shirts, these », and the comma sits after the end
+		// of the link. Searched as one token, « shirts, » was never found, and
+		// the sentence was refused as « not found once in plain prose » — 85
+		// rewrites in a week on three shops (16/10/2026).
+		$tag  = '(?:</?[a-zA-Z][^>]*>)*';
+		$word = static function ( string $w ) use ( $one, $tag ): string {
+			if ( ! preg_match( '~^(\p{P}*)(.*?)(\p{P}*)$~su', $w, $p ) || '' === $p[2] ) {
+				return $one( $w );
+			}
+			return ( '' !== $p[1] ? $one( $p[1] ) . $tag : '' ) . $one( $p[2] ) . ( '' !== $p[3] ? $tag . $one( $p[3] ) : '' );
+		};
+		$re  = '~' . implode( $gap, array_map( $word, $words ) ) . '~iu';
 		$n   = preg_match_all( $re, $html, $m, PREG_OFFSET_CAPTURE );
 		// A PATTERN THAT FAILED IS NOT A TEXT WITHOUT THE WORDS. preg_match_all
 		// answers false on a broken pattern and 0 on a text that simply does
@@ -3265,8 +3603,8 @@ PROMPT;
 		//    le fait forcement grandir — et une phrase par lien pose, c est une
 		//    trentaine de mots. Perdre reste interdit au mot pres : c est la
 		//    moitie du controle qui protege vraiment quelque chose.
-		$wb  = str_word_count( wp_strip_all_tags( $before ) );
-		$wa  = str_word_count( wp_strip_all_tags( $after ) );
+		$wb  = self::word_count( $before );
+		$wa  = self::word_count( $after );
 		// LE BUDGET A CHANGE AVEC LE GESTE. Quand la passe collait une phrase
 		// entiere par lien, il fallait lui laisser 35 mots chacun ; maintenant
 		// qu elle reecrit une phrase sur place, un lien coute quelques mots et
@@ -3432,7 +3770,7 @@ PROMPT;
 			return $content;
 		}
 		$term  = get_term( $term_id, 'product_cat' );
-		$words = ( $term && ! is_wp_error( $term ) ) ? str_word_count( wp_strip_all_tags( (string) $term->description ) ) : 0;
+		$words = ( $term && ! is_wp_error( $term ) ) ? self::word_count( (string) $term->description ) : 0;
 		$kw    = self::keyword_pools( $term_id, '', false );
 		$label = $words
 			? '<span style="color:#0a7040;font-weight:600;">' . (int) $words . ' ' . esc_html__( 'words', 'dazont-ecom' ) . '</span>'
@@ -4204,7 +4542,7 @@ PROMPT;
 		wp_send_json_success( [
 			'before' => '' !== trim( $old ) ? wp_kses_post( wpautop( $old ) ) : '',
 			'after'  => wp_kses_post( wpautop( $html ) ),
-			'words'  => [ str_word_count( wp_strip_all_tags( $old ) ), str_word_count( wp_strip_all_tags( $html ) ) ],
+			'words'  => [ self::word_count( $old ), self::word_count( $html ) ],
 			'links'  => [ count( self::linked_urls( $old ) ), count( self::linked_urls( $html ) ) ],
 		] );
 	}
@@ -4258,7 +4596,7 @@ PROMPT;
 		}
 		$term = get_term( $tid, 'product_cat' );
 		wp_send_json_success( [
-			'words' => ( $term && ! is_wp_error( $term ) ) ? str_word_count( wp_strip_all_tags( (string) $term->description ) ) : 0,
+			'words' => ( $term && ! is_wp_error( $term ) ) ? self::word_count( (string) $term->description ) : 0,
 			'links' => self::links_in_description( $tid ),
 		] );
 	}
