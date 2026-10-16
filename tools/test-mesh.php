@@ -1551,6 +1551,19 @@ ok( 'a sentence whose link ends before a comma is found and reworded', (int) $dz
 ok( 'with its link and its comma where they were', false !== strpos( (string) $dze_pc['html'], 'shirts</a>, these <a href="https://kula.test/tactical-sandals">tactical sandals</a> offer' ), true );
 ok( 'and the text keeps its own apostrophe', false !== strpos( (string) $dze_pc['html'], 'aren’t' ), true );
 
+// A TITLE THAT IS IN THE TEXT TWICE IS LINKED IN THE SENTENCE NAMED, with
+// nothing reworded: « replace » identical to « find ».
+$dze_twice_html = '<p>Our military patches come in every shape.</p><p>Explore our full range of <a href="https://kula.test/military-gear">tactical gear</a> and military patches to complete your loadout.</p>';
+$dze_twice = DZE_Category_Content::apply_edits(
+	$dze_twice_html,
+	[ [ 'find' => 'Explore our full range of tactical gear and military patches to complete your loadout.', 'replace' => 'Explore our full range of tactical gear and military patches to complete your loadout.', 'anchor' => 'military patches', 'url' => 'https://kula.test/military-patch' ] ],
+	[ 'https://kula.test/military-patch' ], [ 'https://kula.test/military-patch' => 'Military patches' ]
+);
+ok( 'a title found twice is linked in the sentence named', (int) $dze_twice['applied'], 1 );
+ok( 'there, and not in the first paragraph', [ false !== strpos( (string) $dze_twice['html'], 'and <a href="https://kula.test/military-patch">military patches</a> to complete' ), false !== strpos( (string) $dze_twice['html'], '<p>Our military patches come' ) ], [ true, true ] );
+ok( 'with not a word changed', wp_strip_all_tags( (string) $dze_twice['html'] ), wp_strip_all_tags( $dze_twice_html ) );
+ok( 'and the prompt says how', false !== strpos( $dze_cc_src, 'with "replace" identical to "find": the link goes on the title inside that sentence' ), true );
+
 echo "\nA LONG TITLE IS ANCHORED ON ITS SHORT NAME\n";
 // The contract said « use the title as written » and the code refused any
 // anchor over nine words: 160 refusals in a week for titles pasted whole.
