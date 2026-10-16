@@ -1584,8 +1584,12 @@ PROMPT;
 		}
 		$links = [];
 		$found = [];
+		// THE SAME PAGE, WHATEVER ITS SPELLING. « /rugs » and « /rugs/ » are
+		// one page; compared as strings they were two, and Jute's categories
+		// got the same page linked twice (16/10/2026).
+		$done_keys = array_map( static fn( $u ): string => untrailingslashit( strtolower( (string) strtok( (string) $u, '#?' ) ) ), $done );
 		foreach ( self::link_pool( $term_id ) as $l ) {
-			if ( in_array( $l['url'], $done, true ) ) {
+			if ( in_array( untrailingslashit( strtolower( (string) strtok( (string) $l['url'], '#?' ) ) ), $done_keys, true ) ) {
 				continue;
 			}
 			if ( $keys && ! isset( $keys[ untrailingslashit( $l['url'] ) ] ) ) {
@@ -1630,21 +1634,27 @@ PROMPT;
 				? __( 'The pages you picked are already linked in this text.', 'dazont-ecom' )
 				: __( 'Every page this category can link to is already linked.', 'dazont-ecom' ) );
 		}
-		if ( $keys ) {
-			// An explicit choice is a choice: place them all if a spot exists.
-			$room = count( $links );
-		} else {
-			$max = self::size_for( $term_id )['links'];
-			if ( $max < 1 ) {
-				if ( $mend ) {
-					return self::mended( $html );
-				}
-				throw new RuntimeException( __( 'Internal linking is turned off in Settings → Categories.', 'dazont-ecom' ) );
+		$max = (int) self::size_for( $term_id )['links'];
+		if ( $max < 1 ) {
+			if ( $mend ) {
+				return self::mended( $html );
 			}
-			// Two limits, and the smaller one wins: what the text can carry
-			// (one link per fifty words) and what there is to point at. A page
-			// is never padded with links to reach a figure.
-			$room = max( 1, min( $max - count( $done ), count( $links ) ) );
+			throw new RuntimeException( __( 'Internal linking is turned off in Settings → Categories.', 'dazont-ecom' ) );
+		}
+		// WHAT THE TEXT CAN CARRY, chosen targets or not: one link per fifty
+		// words of the text that is THERE, never above the shop's own figure.
+		// « Il y a encore de la place pour des nouveaux liens sortants » —
+		// a chosen list used to mean « place them all », and `max( 1, … )`
+		// let one more in when the text was already full: « Brown jute rugs »
+		// went from 9 links to 13 against a cap of 12 (Jute, 13/10/2026).
+		$words = str_word_count( wp_strip_all_tags( $html ) );
+		$cap   = min( $max, $words < self::LINK_MIN_WORDS ? 0 : max( 3, (int) floor( $words / 50 ) ) );
+		$room  = min( $cap - count( $done ), count( $links ) );
+		if ( $room < 1 ) {
+			if ( $mend ) {
+				return self::mended( $html );
+			}
+			throw new DZE_Nothing_To_Do( __( 'This text already carries its share of links.', 'dazont-ecom' ) );
 		}
 
 		return self::weave( $name, $html, self::language( $term_id ), $links, $room, [
@@ -1751,7 +1761,10 @@ PROMPT;
 	 * call, and a target we cannot judge at all is kept.
 	 */
 	public static function mentions( string $html, string $label ): bool {
-		$words = self::keywords( $label );
+		// THE SUBJECT, NOT THE QUESTION AROUND IT. « Why Do Gel Blaster Players
+		// Prefer Tactical Gear for Outdoor Matches? » is found in a text by
+		// « gel blaster », not by « prefer » or « matches ».
+		$words = self::keywords( self::looks_like_title( $label ) ? self::subject_of( $label ) : $label ) ?: self::keywords( $label );
 		if ( ! $words ) {
 			return true; // nothing telling in the title: not ours to refuse.
 		}
@@ -2042,14 +2055,19 @@ PROMPT;
 		}
 		$allowed = [];
 		$labels  = [];
+		$canon   = [];
 		foreach ( $links as $l ) {
 			$u = untrailingslashit( (string) $l['url'] );
 			$allowed[] = $u;
+			// THE ADDRESS AS THE PAGE GIVES IT, written as it is: compared
+			// without its slash, written with it. Written without, every link
+			// cost a redirect — 196 inside Jute's articles (16/10/2026).
+			$canon[ $u ] = (string) $l['url'];
 			// LE TITRE VOYAGE AVEC L ADRESSE, parce que l ancre est jugee contre
 			// lui : « les ancres, c est le titre du post vise ».
 			$labels[ $u ] = (string) ( $l['label'] ?? '' );
 		}
-		$res = self::apply_edits( $html, $edits, $allowed, $labels );
+		$res = self::apply_edits( $html, $edits, $allowed, $labels, $canon );
 		// RIEN N EST POSE ET LA BOUTIQUE NOUS AUTORISE A ECRIRE : on redemande,
 		// une fois, en NOMMANT ce qui a ete refuse.
 		//
@@ -2075,7 +2093,7 @@ PROMPT;
 			DZE_Ai_Usage::unit();
 			$more = self::read_picks( trim( (string) preg_replace( '/^```(?:json|html)?|```$/m', '', $third ) ) );
 			if ( $more ) {
-				$res = self::apply_edits( $html, $more, $allowed, $labels );
+				$res = self::apply_edits( $html, $more, $allowed, $labels, $canon );
 			}
 		}
 		// A SWEEP IS A RESULT ON ITS OWN. Taking the dead links out is part of
@@ -2691,7 +2709,7 @@ PROMPT;
 		return $same / count( $was );
 	}
 
-	public static function apply_edits( string $html, array $edits, array $allowed, array $allowed_labels = [] ): array {
+	public static function apply_edits( string $html, array $edits, array $allowed, array $allowed_labels = [], array $canon = [] ): array {
 		$refused = [];
 		$seen    = [];
 		$applied = 0;
@@ -2768,7 +2786,7 @@ PROMPT;
 					$refused[] = __( 'a rewrite came back with only half of itself', 'dazont-ecom' );
 					continue;
 				}
-				$grown = self::rewrite_in_place( $html, $find, $new, $anchor, $url );
+				$grown = self::rewrite_in_place( $html, $find, $new, $anchor, (string) ( $canon[ $url ] ?? $url ) );
 				if ( null === $grown ) {
 					$refused[] = sprintf(
 						/* translators: %s: the opening of the sentence the model offered to rewrite */
@@ -2836,7 +2854,7 @@ PROMPT;
 			// ones the span already held — its tags, its entities, its case.
 			$html = substr_replace(
 				$html,
-				'<a href="' . esc_url( $url ) . '">' . substr( $html, $at, $span_len ) . '</a>',
+				'<a href="' . esc_url( (string) ( $canon[ $url ] ?? $url ) ) . '">' . substr( $html, $at, $span_len ) . '</a>',
 				$at,
 				$span_len
 			);
@@ -2991,28 +3009,106 @@ PROMPT;
 			}
 			return $out;
 		};
-		$want = $fold( $label );
-		if ( ! $want ) {
-			// No title to check against — the URL is the only thing left.
-			$want = $fold( (string) wp_parse_url( $url, PHP_URL_PATH ) );
-		}
-		if ( ! $want ) {
-			return true; // nothing to judge it by; the other guards still apply.
-		}
 		$got = $fold( $anchor );
+		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$slug = (string) basename( untrailingslashit( $path ) );
+		if ( '' === trim( $label ) ) {
+			// No title to check against — the URL is the only thing left.
+			$want = $fold( str_replace( '-', ' ', $slug ) );
+			if ( ! $want ) {
+				return true; // nothing to judge it by; the other guards still apply.
+			}
+			return $got && self::covers( $got, $want, false );
+		}
 		if ( ! $got ) {
 			return false;
 		}
-		// EVERY SIGNIFICANT WORD OF THE TITLE IS IN THE ANCHOR.
-		foreach ( $want as $w ) {
-			if ( ! in_array( $w, $got, true ) ) {
-				return false;
+		// A CATEGORY KEEPS ITS NAME AS IT STANDS: every significant word of it
+		// is in the anchor, and the anchor drags no tail behind it.
+		if ( ! self::looks_like_title( $label ) ) {
+			$want = $fold( $label );
+			return ! $want || self::covers( $got, $want, false );
+		}
+		// AN ARTICLE IS ANCHORED ON THE SUBJECT OF ITS TITLE, never on the
+		// title pasted whole — the shop's own rule, which this check did not
+		// follow: it wanted every word of the title, in nine words at most, so
+		// « Chest Rig vs Plate Carrier: What Do You Actually Need? » could never
+		// be linked, and « gorka suit » was refused for « What is a gorka suit:
+		// everything you need to know ». Ten Kula articles stayed orphans for
+		// it, asked nine times each in eight days (16/10/2026). The subject is
+		// read from the title, or from the page's address.
+		foreach ( [ self::subject_of( $label ), str_replace( '-', ' ', $slug ) ] as $phrase ) {
+			$want = array_values( array_diff( $fold( $phrase ), self::FILLER ) );
+			if ( $want && self::covers( $got, $want, true ) ) {
+				return true;
 			}
 		}
-		// AND THE ANCHOR DOES NOT DRAG A TAIL BEHIND IT. Three words of title
-		// wrapped inside nine words of sentence is the sentence being linked,
-		// which is the thing being fixed.
-		return count( $got ) <= count( $want ) + 2;
+		return false;
+	}
+
+	/**
+	 * Do these anchor words name what these subject words name?
+	 *
+	 * Strict: every subject word, and no tail. Loose, for an article's subject:
+	 * most of it — two of three words, three of four, half of a long one —
+	 * and still no tail.
+	 *
+	 * @param string[] $got  The anchor's words, folded.
+	 * @param string[] $want The subject's words, folded.
+	 */
+	private static function covers( array $got, array $want, bool $loose ): bool {
+		$want = array_values( array_unique( $want ) );
+		$n    = count( $want );
+		$hit  = count( array_intersect( $want, $got ) );
+		$need = $loose
+			? ( $n <= 2 ? $n : ( 3 === $n ? 2 : ( 4 === $n ? 3 : max( 3, (int) ceil( $n / 2 ) ) ) ) )
+			: $n;
+		// The anchor does not drag a tail behind it: three words of title
+		// wrapped inside nine of sentence is the sentence being linked.
+		return $hit >= $need && count( $got ) <= $n + 2;
+	}
+
+	/** Words that open or pad a title and name nothing (subjects only). */
+	private const FILLER = [ 'what', 'why', 'how', 'when', 'where', 'which', 'who', 'do', 'doe', 'does', 'did', 'is', 'are', 'can', 'should', 'would', 'will', 'you', 'your', 'i', 'we', 'my', 'it', 'they', 'need', 'know', 'actually', 'really', 'everything', 'about', 'guide', 'complete', 'ultimate', 'tip', 'tips', 'best', 'top', 'right', 'good', 'way', 'ways', 'thing', 'things', 'choose', 'choosing', 'wear', 'wearing', 'wash', 'washing', 'use', 'using', 'make', 'vs', 'versus', 'difference', 'differences', 'comment', 'pourquoi', 'combien', 'quel', 'quelle', 'quels', 'quelles', 'quand', 'vous', 'votre', 'faut', 'savoir', 'tout', 'complet', 'conseil', 'conseils', 'meilleur', 'meilleurs', 'meilleure', 'choisir', 'porter', 'laver', 'entretenir', 'faire', 'trouver', 'acheter', 'offrir' ];
+
+	/** The fewest words a description holds before a link reads well in it. */
+	private const LINK_MIN_WORDS = 120;
+
+	/**
+	 * Is this the title of an article or a page — a question, a « subject:
+	 * comment », a sentence — rather than the name of a category?
+	 */
+	public static function looks_like_title( string $label ): bool {
+		$t = trim( html_entity_decode( wp_strip_all_tags( $label ), ENT_QUOTES, 'UTF-8' ) );
+		if ( '' === $t ) {
+			return false;
+		}
+		if ( preg_match( '~[?:!]|\s[–—|]\s|\s-\s~u', $t ) ) {
+			return true;
+		}
+		if ( preg_match( '~^(what|why|how|when|where|which|who|do|does|is|are|can|should|comment|pourquoi|combien|quel|quelle|quels|quelles|quand)\b~iu', $t ) ) {
+			return true;
+		}
+		return str_word_count( $t ) >= 6;
+	}
+
+	/**
+	 * THE SUBJECT OF A TITLE: what it is about, without the question around it.
+	 *
+	 * The part before a colon, a question mark or a dash, without the words a
+	 * question opens with. « Chest Rig vs Plate Carrier: What Do You Actually
+	 * Need? » is about « Chest Rig vs Plate Carrier »; « What is a gorka suit:
+	 * everything you need to know » is about « gorka suit ».
+	 */
+	public static function subject_of( string $title ): string {
+		$t     = trim( html_entity_decode( wp_strip_all_tags( $title ), ENT_QUOTES, 'UTF-8' ) );
+		$parts = preg_split( '~\s*(?:[?:!]|\s[–—|]\s|\s-\s)\s*~u', $t );
+		$head  = trim( (string) ( $parts[0] ?? $t ) );
+		if ( str_word_count( $head ) < 2 ) {
+			$head = $t;
+		}
+		$head = (string) preg_replace( '~^(?:(?:what|why|how|when|where|which|who|do|does|did|is|are|was|were|can|could|should|would|will|to|the|a|an|comment|pourquoi|combien|quel|quelle|quels|quelles|quand|que|qu|de|d|des|les|le|la|un|une)\b[\s\'’]*)+~iu', '', $head );
+		return trim( $head );
 	}
 
 	public static function find_anchor( string $html, string $anchor ): ?array {

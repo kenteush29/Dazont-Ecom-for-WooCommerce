@@ -842,6 +842,9 @@ final class DZE_Queue {
 			if ( ! self::writable( $kind, $object_id, $html ) ) {
 				return false; // writable() a deja ecrit le motif exact.
 			}
+			// What the translations were made from, read before the write.
+			$o      = class_exists( 'DZE_Translate' ) ? [ 'kind' => 'post', 'id' => $object_id, 'type' => (string) get_post_type( $object_id ) ] : [];
+			$before = $o ? DZE_Translate::obj_read( $o ) : [];
 			// Only the links changed: the title, the status, the dates and
 			// everything else about the post are none of our business.
 			$done = wp_update_post( [ 'ID' => $object_id, 'post_content' => wp_kses_post( $html ) ], true );
@@ -853,6 +856,7 @@ final class DZE_Queue {
 				) );
 			}
 			delete_transient( 'dze_pl_census' );
+			self::after_links( $o, $before, $html );
 			return true;
 		}
 		if ( 'cat_desc' === $kind || 'cat_links' === $kind ) {
@@ -868,11 +872,18 @@ final class DZE_Queue {
 			// langue courante : il rend alors l AUTRE terme du groupe, et le
 			// merge reecrit le nom et le slug de l original par-dessus la
 			// traduction. Quarante-huit termes ont ete abimes ainsi.
+			$o      = ( 'cat_links' === $kind && class_exists( 'DZE_Translate' ) ) ? [ 'kind' => 'term', 'id' => $object_id, 'type' => 'product_cat' ] : [];
+			$before = $o ? DZE_Translate::obj_read( $o ) : [];
 			if ( ! self::write_description( $object_id, wp_kses_post( $html ) ) ) {
 				return self::no( __( 'The category description could not be written.', 'dazont-ecom' ) );
 			}
 			if ( class_exists( 'DZE_Category_Content' ) ) {
 				update_term_meta( $object_id, DZE_Category_Content::GEN_META, 1 );
+			}
+			// A NEW DESCRIPTION IS NEW TEXT, to translate; links added to the
+			// one that is there are not (after_links()).
+			if ( 'cat_links' === $kind ) {
+				self::after_links( $o, $before, $html );
 			}
 			return true;
 		}
@@ -904,6 +915,84 @@ final class DZE_Queue {
 	/** La cle sous laquelle ce releve voyage avec la ligne. */
 	public const WAS_LINKED = 'links_before';
 
+	/**
+	 * WHAT A LINKING WRITE LEAVES BEHIND IT.
+	 *
+	 * The pages it linked have had what they were owed: their « asked and
+	 * never linked » count is wiped (DZE_Mesh::tired_of()).
+	 *
+	 * And the translations are not sent again for it. A link the linking pass
+	 * adds to an English article used to change the article's fingerprint,
+	 * WPML marked every language of it, and the translation pass resent the
+	 * WHOLE article in every language a month later — a one-sentence edit
+	 * paid as a full translation, over translations made by hand. Seventy-five
+	 * of the seventy-eight articles WPML marked on Kula, Jute and Kilim were
+	 * marked that way (16/10/2026). A translation that was current before this
+	 * write is kept current after it (DZE_Translate::absorb()).
+	 *
+	 * @param array<string,string> $before The original's texts before the write.
+	 */
+	private static function after_links( array $o, array $before, string $html ): void {
+		if ( class_exists( 'DZE_Mesh' ) && method_exists( 'DZE_Mesh', 'note_placed' ) ) {
+			$was = array_map( [ 'DZE_Mesh', 'url_key' ], self::$split );
+			$new = [];
+			foreach ( self::hrefs_in( $html ) as $u ) {
+				if ( ! in_array( DZE_Mesh::url_key( $u ), $was, true ) ) {
+					$new[] = $u;
+				}
+			}
+			if ( $new ) {
+				DZE_Mesh::note_placed( $new );
+			}
+		}
+		if ( $o && method_exists( 'DZE_Translate', 'absorb' ) ) {
+			try {
+				DZE_Translate::absorb( $o, $before, DZE_Translate::obj_read( $o ) );
+			} catch ( \Throwable $e ) {
+				// Never a reason to call the write itself a failure: the links
+				// are in, and a translation left owed is the old behaviour.
+				if ( class_exists( 'DZE_Health' ) ) {
+					DZE_Health::log( 'translate', __( 'Keeping translations current after a link', 'dazont-ecom' ), $e->getMessage() );
+				}
+			}
+		}
+	}
+
+	/**
+	 * WHAT THE LAST PASS OF ONE KIND CAME TO ON ONE PAGE.
+	 *
+	 * `placed` is how many links that pass added, read from the record the
+	 * row carries (WAS_LINKED); -1 when the row is older than that record.
+	 *
+	 * @return array{status:string,placed:int}
+	 */
+	public static function last_outcome( string $kind, int $object_id ): array {
+		global $wpdb;
+		$row = $wpdb->get_row( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			'SELECT status, payload, result FROM ' . self::table() . " WHERE kind = %s AND object_id = %d AND status IN ('applied','skipped','failed','review') ORDER BY id DESC LIMIT 1",
+			$kind,
+			$object_id
+		), ARRAY_A );
+		if ( ! $row ) {
+			return [ 'status' => '', 'placed' => -1 ];
+		}
+		$placed = -1;
+		if ( 'applied' === (string) $row['status'] ) {
+			$p = json_decode( (string) $row['payload'], true );
+			if ( is_array( $p ) && isset( $p[ self::WAS_LINKED ] ) && is_array( $p[ self::WAS_LINKED ] ) ) {
+				$key    = static fn( string $u ): string => untrailingslashit( strtolower( (string) strtok( $u, '#?' ) ) );
+				$before = array_map( $key, array_map( 'strval', $p[ self::WAS_LINKED ] ) );
+				$placed = 0;
+				foreach ( self::hrefs_in( (string) $row['result'] ) as $u ) {
+					if ( ! in_array( $key( $u ), $before, true ) ) {
+						$placed++;
+					}
+				}
+			}
+		}
+		return [ 'status' => (string) $row['status'], 'placed' => $placed ];
+	}
 	/**
 	 * Le releve ci-dessus, pose dans la charge utile de la ligne.
 	 *

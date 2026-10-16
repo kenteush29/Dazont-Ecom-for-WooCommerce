@@ -1420,5 +1420,79 @@ ok( 'it says how often it comes back',   false !== strpos( DZE_Mesh::auto_said()
 ok( 'and that it saves without review',  false !== strpos( DZE_Mesh::auto_said()['said'], 'without review' ), true );
 DZE_Automation::$conf = [ 'on' => false, 'per_day' => 3, 'apply' => false ];
 
+echo "\nAN ARTICLE IS ANCHORED ON THE SUBJECT OF ITS TITLE\n";
+// « An article or page is anchored on the SUBJECT of its title, never on the
+// title pasted whole » — the shop's own rule, which the check did not follow:
+// it wanted every word of the title in nine words at most, and ten Kula
+// articles stayed orphans for it, asked nine times each (16/10/2026).
+$nt = static fn( string $a, string $t ): bool => DZE_Category_Content::names_target( $a, $t, 'https://kula.test/blog/x/' );
+ok( 'the subject is read before the colon', DZE_Category_Content::subject_of( 'Chest Rig vs Plate Carrier: What Do You Actually Need?' ), 'Chest Rig vs Plate Carrier' );
+ok( 'without the question that opens it', DZE_Category_Content::subject_of( 'What is a gorka suit: everything you need to know' ), 'gorka suit' );
+ok( 'and the same for a whole question', DZE_Category_Content::subject_of( 'How To Wash Military Poncho?' ), 'Wash Military Poncho' );
+ok( '« chest rig vs plate carrier » names its article', $nt( 'chest rig vs plate carrier', 'Chest Rig vs Plate Carrier: What Do You Actually Need?' ), true );
+ok( '« gorka suit » names its article, refused before', $nt( 'gorka suit', 'What is a gorka suit: everything you need to know' ), true );
+ok( '« army berets » names « Why Do The Military Wear Army Berets? »', $nt( 'army berets', 'Why Do The Military Wear Army Berets?' ), true );
+ok( '« military poncho » names « How To Wash Military Poncho? »', $nt( 'military poncho', 'How To Wash Military Poncho?' ), true );
+ok( 'a long subject is named by most of it', $nt( 'tactical gear for gel blaster players', 'Why Do Gel Blaster Players Prefer Tactical Gear for Outdoor Matches?' ), true );
+ok( 'but not by a scrap of it', $nt( 'outdoor matches', 'Why Do Gel Blaster Players Prefer Tactical Gear for Outdoor Matches?' ), false );
+ok( 'and never by a sentence dragging the subject inside it', $nt( 'read about the gorka suit worn by soldiers in the field', 'What is a gorka suit: everything you need to know' ), false );
+ok( 'the page address names it too', DZE_Category_Content::names_target( 'plate carrier vs chest rig', 'Which One? A long debate between two old friends of the field', 'https://kula.test/plate-carrier-vs-chest-rig/' ), true );
+// A CATEGORY KEEPS ITS NAME AS IT STANDS: nothing is relaxed for it.
+ok( 'a category is still named in full', $nt( 'neck gaiters', 'Camo & Military neck gaiters' ), false );
+ok( 'and is named by its full name', $nt( 'camo and military neck gaiters', 'Camo & Military neck gaiters' ), true );
+ok( 'plural and singular are one word', $nt( 'utility pouch', 'Utility pouches' ), true );
+ok( 'a category name is not a title', [ DZE_Category_Content::looks_like_title( 'Camo & Military neck gaiters' ), DZE_Category_Content::looks_like_title( 'How To Wear A Bomber Jacket?' ) ], [ false, true ] );
+// THE FREE CHECK READS THE SUBJECT TOO: « matches » is not what an article
+// about gel blaster players is found by.
+ok( 'the free check finds the subject', DZE_Category_Content::mentions( '<p>Our gel blaster club meets on Sundays.</p>', 'Why Do Gel Blaster Players Prefer Tactical Gear for Outdoor Matches?' ), true );
+
+echo "\nA LINK IS WRITTEN WITH THE PAGE'S OWN ADDRESS\n";
+// Written without its trailing slash, every new link on Jute and Kilim cost a
+// redirect (196 inside Jute's articles, 16/10/2026).
+$dze_canon = DZE_Category_Content::apply_edits(
+	'<p>Every admin pouch holds a map.</p>',
+	[ [ 'anchor' => 'admin pouch', 'url' => 'https://kula.test/pouches' ] ],
+	[ 'https://kula.test/pouches' ],
+	[ 'https://kula.test/pouches' => 'Admin pouches' ],
+	[ 'https://kula.test/pouches' => 'https://kula.test/pouches/' ]
+);
+ok( 'the link carries the address as the page gives it', false !== strpos( (string) $dze_canon['html'], 'href="https://kula.test/pouches/"' ), true );
+ok( 'and is placed', (int) $dze_canon['applied'], 1 );
+
+echo "\nA TARGET THAT NEVER LANDS IS GIVEN A REST\n";
+unset( $GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] );
+$dze_t = 'https://kula.test/blog/chest-rig-vs-plate-carrier/';
+DZE_Mesh::note_asked( [ $dze_t ] );
+DZE_Mesh::note_asked( [ 'https://kula.test/blog/chest-rig-vs-plate-carrier' ] );
+ok( 'asked twice, it is still asked for', DZE_Mesh::tired_of( $dze_t ), false );
+DZE_Mesh::note_asked( [ 'http://www.kula.test/blog/chest-rig-vs-plate-carrier/' ] );
+ok( 'asked three times in a month, whatever the spelling, it rests', DZE_Mesh::tired_of( $dze_t ), true );
+DZE_Mesh::note_placed( [ 'https://kula.test/blog/chest-rig-vs-plate-carrier' ] );
+ok( 'linked once, it is asked for again', DZE_Mesh::tired_of( $dze_t ), false );
+$GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] = [ DZE_Mesh::url_key( $dze_t ) => [ 'n' => 9, 't' => time() - 31 * DAY_IN_SECONDS ] ];
+ok( 'and a month later it is asked for again anyway', DZE_Mesh::tired_of( $dze_t ), false );
+unset( $GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] );
+
+echo "\nA PAGE IS ONLY ASKED TO CARRY WHAT IT HAS ROOM FOR\n";
+$dze_mesh_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-mesh.php' );
+$dze_cc_src   = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-category-content.php' );
+$dze_pl_src   = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-post-links.php' );
+$dze_au_src   = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-automation.php' );
+ok( 'the orphans\' pass asks a source for its room, a few at a time', [
+	false !== strpos( $dze_mesh_src, "\$cap = min( self::PER_SOURCE, self::room( (string) \$page['kind'], (int) \$page['id'] ) );" ),
+	false !== strpos( $dze_mesh_src, 'if ( self::tired_of( $url ) ) {' ),
+], [ true, true ] );
+ok( 'inbound links are counted by page', false !== strpos( $dze_mesh_src, 'COUNT(DISTINCT from_kind, from_id) AS n' ), true );
+ok( 'a chosen list no longer means « place them all »', [
+	false !== strpos( $dze_cc_src, '$room  = min( $cap - count( $done ), count( $links ) );' ),
+	false === strpos( $dze_cc_src, '$room = max( 1, min( $max - count( $done ), count( $links ) ) );' ),
+	false !== strpos( $dze_pl_src, '$room = min( self::target_links( $words ) - count( $done ), count( $links ) );' ),
+], [ true, true, true ] );
+ok( 'a full text is a conclusion, not a failure', [
+	false !== strpos( $dze_cc_src, "throw new DZE_Nothing_To_Do( __( 'This text already carries its share of links.', 'dazont-ecom' ) );" ),
+	false === strpos( $dze_pl_src, "throw new RuntimeException( __( 'This article already carries its share of internal links.', 'dazont-ecom' ) );" ),
+], [ true, true ] );
+ok( 'a page whose last pass placed nothing keeps its month', false !== strpos( $dze_au_src, "\$progress = 'applied' === (string) \$outcome['status'] && 0 !== (int) \$outcome['placed'];" ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

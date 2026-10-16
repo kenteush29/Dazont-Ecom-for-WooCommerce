@@ -66,6 +66,12 @@ final class DZE_Automation {
 	/** Days before a pass that changed nothing is tried again. */
 	private const RETRY = 3;
 
+	/** Objects looked at for a free close in one pass, at most. */
+	private const FREE_PER_PASS = 20;
+
+	/** How many this pass has looked at so far. */
+	private static int $freed = 0;
+
 	/** How many passes the log keeps, and how many keep an undo. */
 	private const KEEP = 12;
 
@@ -1041,7 +1047,16 @@ final class DZE_Automation {
 				// is full keeps its month.
 				$room = method_exists( 'DZE_Mesh', 'room' ) && DZE_Mesh::room( (string) $row['kind'], (int) $row['tid'] ) > 0;
 				$last = (int) ( self::seen( (int) $row['tid'], $id, $type )['t'] ?? 0 );
-				if ( ! $room || $last > time() - self::RETRY * DAY_IN_SECONDS ) {
+				// AND ONLY IF THE LAST PASS PUT SOMETHING IN IT. A pass that
+				// placed nothing will place nothing three days later either:
+				// 233 Kula pages were redone every three days, 92 of them for
+				// nothing every time, and two thirds of the linking spend paid
+				// for passes that wrote no link (16/10/2026). Nothing landed:
+				// the page keeps its month.
+				$job      = 'product_cat' === (string) $row['kind'] ? 'cat_links' : 'post_links';
+				$outcome  = method_exists( 'DZE_Queue', 'last_outcome' ) ? DZE_Queue::last_outcome( $job, (int) $row['tid'] ) : [ 'status' => 'applied', 'placed' => -1 ];
+				$progress = 'applied' === (string) $outcome['status'] && 0 !== (int) $outcome['placed'];
+				if ( ! $room || ! $progress || $last > time() - self::RETRY * DAY_IN_SECONDS ) {
 					self::$held['recent']++;
 					self::note_back( (int) $row['tid'], $id, $type, $room );
 					$seen[ $key ] = true;
@@ -1231,7 +1246,10 @@ final class DZE_Automation {
 			$paged = 0;
 			$max   = 6; // six pages de cinq fois la demande, et pas le catalogue.
 			while ( ++$paged <= $max && count( $out ) < $n ) {
-				$page = DZE_Translate::todo_page( $scope, $src, $langs, $paged, $per );
+				// A PRIVATE PRODUCT IS ONE THE SHOP HAS TAKEN OFF SALE. Paying to
+				// translate it into every language is paying for pages no customer
+				// may open (Kula: 21 withdrawn products retranslated on 01/10).
+				$page = DZE_Translate::todo_page( $scope, $src, $langs, $paged, $per, true, 'product' === (string) ( $scope['type'] ?? '' ) ? [ 'status' => 'publish' ] : [] );
 				if ( null === $page ) {
 					$muet = true;
 					break; // WPML's tables cannot be read: this kind answers nothing.
@@ -1287,8 +1305,15 @@ final class DZE_Automation {
 						continue;
 					}
 					if ( self::cooling( $oid, $id, $type, 0, 0, time() - self::COOLDOWN * DAY_IN_SECONDS ) ) {
-						self::$held['recent']++;
-						self::note_back( $oid, $id, $type );
+						// THE REST HOLDS BACK WHAT COSTS, NEVER WHAT IS FREE. A mark
+						// WPML raised without one word moving is closed now: the
+						// rest used to keep 1,005 such marks on Kula's products on
+						// screen for a month, « to update » in WPML and in Dazont,
+						// when closing them costs nothing (16/10/2026).
+						if ( ! self::close_free( $o, $langs, $marks ) ) {
+							self::$held['recent']++;
+							self::note_back( $oid, $id, $type );
+						}
 						continue;
 					}
 					$owed = self::translate_owed( $o, $langs, $marks );
@@ -1938,6 +1963,95 @@ final class DZE_Automation {
 		return $woke;
 	}
 
+	/**
+	 * Closes, for nothing, every mark of one object that moved no word.
+	 *
+	 * @return bool True when nothing is left owed: every owed language was free.
+	 */
+	private static function close_free( array $o, array $langs, array $marks ): bool {
+		if ( ! method_exists( 'DZE_Translate', 'close_if_unchanged' ) ) {
+			return false;
+		}
+		$owed = self::translate_owed( $o, $langs, $marks );
+		if ( ! $owed ) {
+			return true;
+		}
+		// LOOKED AT ONCE, NOT EVERY MINUTE. An object whose words really moved
+		// stays owed for the rest of its month; reading its texts in every
+		// language on every pass would be the cost this rest exists to avoid.
+		$key = 'dze_auto_nf_' . md5( DZE_Translate::ref( $o ) . '|' . implode( ',', $owed ) );
+		if ( get_transient( $key ) ) {
+			return false;
+		}
+		// A FEW PER PASS. The first pass after this release meets a month of
+		// them at once — 207 products on Kula — and one pass reading every
+		// language of every one of them is a request the host cuts. The rest
+		// wait for the next minute.
+		if ( self::$freed >= self::FREE_PER_PASS ) {
+			return false;
+		}
+		self::$freed++;
+		$left = 0;
+		foreach ( $owed as $code ) {
+			if ( ! DZE_Translate::close_if_unchanged( $o, (string) $code ) ) {
+				$left++;
+			}
+		}
+		if ( $left ) {
+			set_transient( $key, 1, 6 * HOUR_IN_SECONDS );
+		}
+		return 0 === $left;
+	}
+
+	/**
+	 * Lifts the translation task's rest off one object, post or term.
+	 *
+	 * Work that was never done does not hold an object for a month: a send
+	 * cancelled with the whole queue left « Jute vs Hemp Rug » untranslated in
+	 * seven languages, and resting until the end of the month (16/10/2026).
+	 */
+	public static function wake_translation_of( array $o ): bool {
+		$oid  = (int) ( $o['id'] ?? 0 );
+		$type = 'term' === (string) ( $o['kind'] ?? '' ) ? 'term' : 'post';
+		$woke = false;
+		foreach ( self::tasks() as $id => $task ) {
+			if ( 'translate' === (string) ( $task['scope'] ?? '' ) && $oid > 0 && self::unmark( $oid, (string) $id, $type ) ) {
+				$woke = true;
+			}
+		}
+		return $woke;
+	}
+
+	/**
+	 * A send that failed: tried again in RETRY days, not in a month.
+	 */
+	public static function retry_translation_of( array $o ): void {
+		$oid  = (int) ( $o['id'] ?? 0 );
+		$type = 'term' === (string) ( $o['kind'] ?? '' ) ? 'term' : 'post';
+		if ( $oid < 1 ) {
+			return;
+		}
+		$all = 'post' === $type ? get_post_meta( $oid, self::META_SEEN, true ) : get_term_meta( $oid, self::META_SEEN, true );
+		$all = is_array( $all ) ? $all : [];
+		$hit = false;
+		foreach ( self::tasks() as $id => $task ) {
+			if ( 'translate' === (string) ( $task['scope'] ?? '' ) && isset( $all[ $id ] ) ) {
+				// Stamped as though it had been worked on long enough ago that
+				// only RETRY days of the month remain.
+				$all[ $id ]['t'] = time() - ( self::COOLDOWN - self::RETRY ) * DAY_IN_SECONDS;
+				$hit             = true;
+			}
+		}
+		if ( ! $hit ) {
+			return;
+		}
+		if ( 'post' === $type ) {
+			update_post_meta( $oid, self::META_SEEN, $all );
+		} else {
+			update_term_meta( $oid, self::META_SEEN, $all );
+		}
+	}
+
 	/** Takes one task's stamp off one object. */
 	private static function unmark( int $oid, string $id, string $type ): bool {
 		$all = 'post' === $type ? get_post_meta( $oid, self::META_SEEN, true ) : get_term_meta( $oid, self::META_SEEN, true );
@@ -2552,6 +2666,12 @@ final class DZE_Automation {
 		}
 		if ( ! DZE_Queue::add( $job, [ $oid ], (bool) $conf['apply'], $sac ) ) {
 			return $no( 'busy' );
+		}
+		// THE TARGETS ARE COUNTED AS ASKED, so one no sentence can name is
+		// given a rest instead of being paid for every few days (DZE_Mesh::
+		// tired_of()). Placed, the count is wiped (DZE_Queue::apply()).
+		if ( $urls ) {
+			DZE_Mesh::note_asked( $urls );
 		}
 		// Marked only once the work is really under way: see run().
 		if ( $conf['apply'] ) {

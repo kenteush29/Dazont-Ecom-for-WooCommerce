@@ -358,6 +358,13 @@ final class DZE_Wpml {
 			$fields['md5'] = $md5;
 			$format[]      = '%s';
 		}
+		// The text WPML wanted reviewed is not the one there any more: this
+		// module just wrote it. Left set, WPML would go on showing « needs
+		// review » over a translation it never saw.
+		if ( self::has_column( $table, 'review_status' ) ) {
+			$fields['review_status'] = null;
+			$format[]                = null;
+		}
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WPML's own table.
 		return false !== $wpdb->update(
 			$table,
@@ -1212,14 +1219,21 @@ final class DZE_Wpml {
 		}
 		$in   = implode( ',', array_map( 'intval', $ids ) );
 		$has  = self::has_table( $st );
+		// WPML'S WHOLE ANSWER, NOT ONLY ITS « NEEDS UPDATE ». A translation in
+		// progress, waiting for review or kept as a duplicate was read as
+		// complete, so the two screens disagreed on exactly those rows:
+		// Kula's checkout page « in progress », a product « duplicate », a
+		// Kilim article « needs review » (16/10/2026).
+		$rv   = $has && self::has_column( $st, 'review_status' ) ? 's.review_status' : "''";
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own tables; ids cast to int above.
 		$sql  = $has
-			? "SELECT src.element_id AS src, t.language_code AS lang, COALESCE( s.needs_update, 0 ) AS needs
+			? "SELECT src.element_id AS src, t.language_code AS lang, COALESCE( s.needs_update, 0 ) AS needs,
+			          COALESCE( s.status, 10 ) AS st, COALESCE( {$rv}, '' ) AS rv
 			     FROM {$tr} src
 			     INNER JOIN {$tr} t ON t.trid = src.trid AND t.element_id <> src.element_id
 			     LEFT JOIN {$st} s ON s.translation_id = t.translation_id
 			    WHERE src.element_type = %s AND src.element_id IN ( {$in} )"
-			: "SELECT src.element_id AS src, t.language_code AS lang, 0 AS needs
+			: "SELECT src.element_id AS src, t.language_code AS lang, 0 AS needs, 10 AS st, '' AS rv
 			     FROM {$tr} src
 			     INNER JOIN {$tr} t ON t.trid = src.trid AND t.element_id <> src.element_id
 			    WHERE src.element_type = %s AND src.element_id IN ( {$in} )";
@@ -1227,9 +1241,45 @@ final class DZE_Wpml {
 		// phpcs:enable
 		$out = [];
 		foreach ( $rows as $r ) {
-			$out[ (int) $r['src'] ][ (string) $r['lang'] ] = ( (int) $r['needs'] > 0 ) ? 'marked' : 'done';
+			$out[ (int) $r['src'] ][ (string) $r['lang'] ] = self::status_word( (int) $r['needs'], (int) ( $r['st'] ?? 10 ), (string) ( $r['rv'] ?? '' ) );
 		}
 		return $out;
+	}
+
+	/**
+	 * One translation's state, in WPML's order of precedence: a mark first,
+	 * then a review waiting, then work in progress, then a duplicate.
+	 *
+	 * @return string 'marked'|'wreview'|'progress'|'duplicate'|'done'
+	 */
+	public static function status_word( int $needs, int $status, string $review ): string {
+		if ( $needs > 0 ) {
+			return 'marked';
+		}
+		if ( in_array( strtoupper( $review ), [ 'NEEDS_REVIEW', 'EDITING' ], true ) ) {
+			return 'wreview';
+		}
+		if ( in_array( $status, [ 1, 2 ], true ) ) {
+			return 'progress'; // waiting for a translator, or being translated.
+		}
+		if ( 9 === $status ) {
+			return 'duplicate';
+		}
+		return 'done';
+	}
+
+	/** Whether a table has a column — asked once a day, like has_table(). */
+	public static function has_column( string $table, string $column ): bool {
+		global $wpdb;
+		$slot = 'dze_wpml_col_' . md5( $table . '.' . $column );
+		$has  = get_transient( $slot );
+		if ( false !== $has ) {
+			return '1' === $has;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table, name built by us.
+		$found = (array) $wpdb->get_col( $wpdb->prepare( "SHOW COLUMNS FROM {$table} LIKE %s", $column ) );
+		set_transient( $slot, $found ? '1' : '0', DAY_IN_SECONDS );
+		return (bool) $found;
 	}
 
 	/**
