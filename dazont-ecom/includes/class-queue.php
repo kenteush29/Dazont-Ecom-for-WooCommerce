@@ -964,18 +964,18 @@ final class DZE_Queue {
 	 * `placed` is how many links that pass added, read from the record the
 	 * row carries (WAS_LINKED); -1 when the row is older than that record.
 	 *
-	 * @return array{status:string,placed:int}
+	 * @return array{status:string,placed:int,at:string}
 	 */
 	public static function last_outcome( string $kind, int $object_id ): array {
 		global $wpdb;
 		$row = $wpdb->get_row( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			'SELECT status, payload, result FROM ' . self::table() . " WHERE kind = %s AND object_id = %d AND status IN ('applied','skipped','failed','review') ORDER BY id DESC LIMIT 1",
+			'SELECT status, payload, result, updated FROM ' . self::table() . " WHERE kind = %s AND object_id = %d AND status IN ('applied','skipped','failed','review') ORDER BY id DESC LIMIT 1",
 			$kind,
 			$object_id
 		), ARRAY_A );
 		if ( ! $row ) {
-			return [ 'status' => '', 'placed' => -1 ];
+			return [ 'status' => '', 'placed' => -1, 'at' => '' ];
 		}
 		$placed = -1;
 		if ( 'applied' === (string) $row['status'] ) {
@@ -991,7 +991,7 @@ final class DZE_Queue {
 				}
 			}
 		}
-		return [ 'status' => (string) $row['status'], 'placed' => $placed ];
+		return [ 'status' => (string) $row['status'], 'placed' => $placed, 'at' => (string) ( $row['updated'] ?? '' ) ];
 	}
 	/**
 	 * Le releve ci-dessus, pose dans la charge utile de la ligne.
@@ -2213,7 +2213,9 @@ final class DZE_Queue {
 			'prompt'  => (string) $job['kind'],
 			'html'    => (string) $job['result'],
 			'current' => $old,
-			'words'   => [ str_word_count( wp_strip_all_tags( $old ) ), str_word_count( wp_strip_all_tags( (string) $job['result'] ) ) ],
+			'words'   => method_exists( 'DZE_Category_Content', 'word_count' )
+				? [ DZE_Category_Content::word_count( $old ), DZE_Category_Content::word_count( (string) $job['result'] ) ]
+				: [ str_word_count( wp_strip_all_tags( $old ) ), str_word_count( wp_strip_all_tags( (string) $job['result'] ) ) ],
 			// AND THE LINKS. On a linking pass the word count is identical by
 			// design — "1094 words → 1094 words" is the whole of what the
 			// screen said about a job whose entire purpose is the other

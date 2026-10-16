@@ -80,8 +80,12 @@ final class DZE_Mesh {
 	 * "unlinked" pages where 44 were — and the daily pass spent that day
 	 * mending pages that were never broken. A reading stamped with an older
 	 * reader is now redone at once, and the screen says so meanwhile.
+	 *
+	 * 4: words are counted the way a reader counts them — str_word_count()
+	 * read « végétal » as three words, and a French page's room for links
+	 * with it (4.517.1).
 	 */
-	public const READER = 3;
+	public const READER = 4;
 
 	/** How many pages one reading walks. A shop is not a web crawler. */
 	private const SCAN = 4000;
@@ -235,7 +239,7 @@ final class DZE_Mesh {
 				'id'     => (int) $t->term_id,
 				'title'  => (string) $t->name,
 				'url'    => is_wp_error( $url ) ? '' : (string) $url,
-				'words'  => str_word_count( wp_strip_all_tags( (string) $t->description ) ),
+				'words'  => DZE_Category_Content::word_count( (string) $t->description ),
 				// A term is never built by a page builder: its description is
 				// a field, and writing into it is safe.
 				'built'  => false,
@@ -303,7 +307,7 @@ final class DZE_Mesh {
 			}
 			$kind  = (string) $r['post_type'];
 			$built = self::built_with_builder( $id );
-			$words = str_word_count( wp_strip_all_tags( (string) $r['post_content'] ) );
+			$words = DZE_Category_Content::word_count( (string) $r['post_content'] );
 			// AN EMPTY PAGE IS NOT A PAGE OF THE MESH. "Les pages vides ou les
 			// brouillons sont à exclure sans discussion." A draft never gets
 			// here — the reading asks for `publish` and nothing else — and a
@@ -1592,6 +1596,38 @@ final class DZE_Mesh {
 
 	/** Asked this many times in a month without landing: rested for the month. */
 	public const ASK_MAX = 3;
+
+	/**
+	 * THE RULES A LINKING PASS IS JUDGED BY, numbered.
+	 *
+	 * A page whose last pass placed nothing keeps its month, and a target
+	 * asked three times without landing rests for one. But a refusal made by
+	 * a rule since mended is no verdict on the page: 4.517.1 took back two
+	 * refusals that were the code's fault — a sentence already holding a
+	 * link could not be reworded, and a long title was asked for whole and
+	 * then refused for its length. 220 Kula pages were resting on them
+	 * (16/10/2026). Raising this number gives every one of them its pass
+	 * back, once, under the rules that now apply.
+	 */
+	public const RULES = 2;
+
+	/** Where the rules in force are stamped with the moment they took effect. */
+	public const RULES_OPT = 'dze_mesh_rules';
+
+	/**
+	 * When the rules in force took effect, written the way the queue writes
+	 * its times — an outcome older than this was judged by older rules.
+	 */
+	public static function rules_since(): string {
+		$o = get_option( self::RULES_OPT );
+		if ( ! is_array( $o ) || (int) ( $o['v'] ?? 0 ) < self::RULES || empty( $o['at'] ) ) {
+			$o = [ 'v' => self::RULES, 'at' => current_time( 'mysql' ) ];
+			update_option( self::RULES_OPT, $o, false );
+			// The targets that tired out under the old rules start afresh.
+			delete_option( self::ASKED_OPT );
+		}
+		return (string) $o['at'];
+	}
 
 	/** One address, in the one spelling the memory keys it under. */
 	public static function url_key( string $url ): string {

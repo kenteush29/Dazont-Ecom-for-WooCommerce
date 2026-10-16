@@ -66,7 +66,7 @@ final class DZE_Post_Links {
 			if ( '' !== $lang && self::lang_of( $id, (string) $r['post_type'] ) !== $lang ) {
 				continue;
 			}
-			$words = str_word_count( wp_strip_all_tags( (string) $r['post_content'] ) );
+			$words = DZE_Category_Content::word_count( (string) $r['post_content'] );
 			$out[ $id ] = [
 				'title'  => (string) $r['post_title'],
 				'type'   => (string) $r['post_type'],
@@ -210,7 +210,7 @@ final class DZE_Post_Links {
 			if ( ! $post ) {
 				return 0;
 			}
-			$words = str_word_count( wp_strip_all_tags( (string) $post->post_content ) );
+			$words = DZE_Category_Content::word_count( (string) $post->post_content );
 			$row   = [
 				'words'  => $words,
 				'out'    => (int) preg_match_all( '/<a\s[^>]*href=/i', (string) $post->post_content ),
@@ -238,7 +238,7 @@ final class DZE_Post_Links {
 		// Repair before measuring: a link to itself is not one of its links.
 		$html  = DZE_Category_Content::unlink_self( (string) $post->post_content, $self );
 		$mend  = $html !== (string) $post->post_content;
-		$words = str_word_count( wp_strip_all_tags( $html ) );
+		$words = DZE_Category_Content::word_count( $html );
 		if ( $words < self::MIN_WORDS ) {
 			throw new RuntimeException( __( 'This text is too short to carry an internal link that reads well.', 'dazont-ecom' ) );
 		}
