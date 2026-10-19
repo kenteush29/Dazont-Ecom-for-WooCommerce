@@ -94,12 +94,9 @@ final class DZE_Post_Links {
 
 	/** WPML's language for one post, '' when WPML is not active. */
 	public static function lang_of( int $post_id, string $type ): string {
-		$details = apply_filters( 'wpml_element_language_details', null, [
-			'element_id'   => $post_id,
-			'element_type' => 'post_' . $type,
-		] );
-		$code = is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '';
-		return '' !== $code ? $code : (string) apply_filters( 'wpml_default_language', '' );
+		// The same reading as DZE_Category_Content::post_lang(): WPML's table
+		// first, its filter — which answers with an object — only after.
+		return DZE_Category_Content::post_lang( $post_id, $type );
 	}
 
 	/**

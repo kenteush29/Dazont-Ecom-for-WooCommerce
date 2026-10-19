@@ -652,7 +652,7 @@ final class DZE_Ai_Usage {
 		return [
 			'products'  => [ 'label' => __( 'Product content', 'dazont-ecom' ), 'units' => [ 'product_img', 'product_text', 'product_shot', 'feature_pick' ] ],
 			'translate' => [ 'label' => __( 'Translation', 'dazont-ecom' ), 'units' => [ 'translate' ] ],
-			'linking'   => [ 'label' => __( 'Internal linking', 'dazont-ecom' ), 'units' => [ 'cat_links', 'post_links', 'mesh_pick', 'cat_pick' ] ],
+			'linking'   => [ 'label' => __( 'Internal linking', 'dazont-ecom' ), 'units' => [ 'cat_links', 'post_links', 'tr_links', 'mesh_pick', 'cat_pick' ] ],
 			'categories'=> [ 'label' => __( 'Category content', 'dazont-ecom' ), 'units' => [ 'cat_desc', 'cat_sift' ] ],
 			'marketing' => [ 'label' => __( 'Marketing', 'dazont-ecom' ), 'units' => [ 'calendar', 'promo_plan', 'promo_email', 'promo_email_img', 'promo_i18n', 'hero_image' ] ],
 			'rest'      => [ 'label' => __( 'Everything else', 'dazont-ecom' ), 'units' => [ 'prompt_draft', 'sourcing', 'store_context', 'background', 'other' ] ],
@@ -708,6 +708,7 @@ final class DZE_Ai_Usage {
 		return [
 			'cat_desc'    => __( 'Category description', 'dazont-ecom' ),
 			'cat_links'   => __( 'Internal linking pass', 'dazont-ecom' ),
+			'tr_links'    => __( 'Internal links carried into a translation', 'dazont-ecom' ),
 			'mesh_pick'   => __( 'Internal linking: which pages belong together', 'dazont-ecom' ),
 			'cat_sift'    => __( 'Buyer-question sifting', 'dazont-ecom' ),
 			'cat_pick'    => __( 'Choosing which pages belong together', 'dazont-ecom' ),

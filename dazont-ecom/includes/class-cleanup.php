@@ -193,8 +193,13 @@ final class DZE_Cleanup {
 				// dze_mesh_asked: the targets asked for and never linked, so one no
 				// sentence can name is rested instead of paid for again.
 				// dze_mesh_rules: which linking rules are in force, and since when.
-				'options'    => [ 'dze_mesh_schema', 'dze_mesh_census', 'dze_mesh_pages', 'dze_mesh_skip', 'dze_mesh_asked', 'dze_mesh_rules' ],
-				'transients' => [ 'dze_mesh_pages', 'dze_mesh_lock', 'dze_mesh_thin', 'dze_mesh_pick_', 'dze_mesh_booked' ],
+				// dze_trl*: the links carried into the translations (DZE_Tr_Links) —
+				// the switch, the place in the list, the copy kept for an undo and
+				// the English each translation was last looked at against.
+				'options'    => [ 'dze_mesh_schema', 'dze_mesh_census', 'dze_mesh_pages', 'dze_mesh_skip', 'dze_mesh_asked', 'dze_mesh_rules', 'dze_trl', 'dze_trl_state' ],
+				'transients' => [ 'dze_mesh_pages', 'dze_mesh_lock', 'dze_mesh_thin', 'dze_mesh_pick_', 'dze_mesh_booked', 'dze_trl_lock', 'dze_trl_list' ],
+				'post_meta'  => [ '_dze_trl_prev', '_dze_trl_seen' ],
+				'term_meta'  => [ '_dze_trl_prev', '_dze_trl_seen' ],
 			],
 			// The lab keeps nothing of its own: what it produces is a media
 			// library entry, which is WordPress's data and not ours to erase.

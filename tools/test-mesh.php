@@ -401,6 +401,7 @@ require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
+require __DIR__ . '/../' . $dir . '/includes/class-tr-links.php';
 // The catalogue of screens: every sentence naming one is built from it.
 require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 
@@ -1620,6 +1621,37 @@ $GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] = [ 'kula.test/x' => [ 'n' => 5, 't' => 
 ok( 'once: the same rules stamp nothing again', [ DZE_Mesh::rules_since(), isset( $GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] ) ], [ $dze_since, true ] );
 unset( $GLOBALS['opts'][ DZE_Mesh::ASKED_OPT ] );
 ok( 'the shortlist gives such a page its pass back', false !== strpos( $dze_au_src, "&& (string) \$outcome['at'] < DZE_Mesh::rules_since() ) {" ), true );
+
+echo "\nTHE LINKS OF THE ORIGINAL, CARRIED INTO ITS TRANSLATIONS\n";
+// « Modifier seulement le segment de texte impacté par la mise à jour de
+// l'anglais […] il faut faire très attention à ce que le texte ait toujours
+// du sens » (19/10/2026).
+$dze_b = DZE_Tr_Links::blocks( '<ul><li><p>One</p></li><li>Two</li></ul><p>Three</p>' );
+ok( 'a text is cut into its innermost paragraphs', is_array( $dze_b ) ? array_column( $dze_b, 'tag' ) : null, [ 'p', 'li', 'p' ] );
+ok( 'each with its place, to be put back exactly there', is_array( $dze_b ) ? substr( '<ul><li><p>One</p></li><li>Two</li></ul><p>Three</p>', $dze_b[1]['at'], $dze_b[1]['len'] ) : '', '<li>Two</li>' );
+ok( 'a paragraph left open makes the text one not to cut', DZE_Tr_Links::blocks( '<p>open <p>two</p>' ), null );
+ok( 'addresses compare whatever their spelling', DZE_Tr_Links::key( 'https://www.Kula.test/Path/?a=1#x' ), DZE_Tr_Links::key( 'http://kula.test/path' ) );
+ok( 'and the pass is off until the shop switches it on', DZE_Tr_Links::conf()['on'], false );
+ok( 'off, a minute does nothing', DZE_Tr_Links::step(), [ 'looked' => 0, 'asked' => 0, 'placed' => 0 ] );
+ok( 'the automation\'s minute runs it', false !== strpos( $dze_au_src, 'DZE_Tr_Links::step();' ), true );
+// A TRANSLATED NAME RUNS LONGER, and a carried link stands where the English
+// one does: two of its significant words, in their declined form, will do.
+DZE_Category_Content::$names_lenient = true;
+ok( '« fundas de pecho » names « Fundas de pecho para pistolas » in a translation', DZE_Category_Content::names_target( 'fundas de pecho', 'Fundas de pecho para pistolas', '' ), true );
+ok( 'a Polish case names its page', DZE_Category_Content::names_target( 'kamizelek ładunkowych', 'Kamizelki ładunkowe', '' ), true );
+ok( 'a Russian case too', DZE_Category_Content::names_target( 'военной одежды', 'Военная одежда', '' ), true );
+ok( 'but words of nothing still name nothing', DZE_Category_Content::names_target( 'nuestra tienda', 'Fundas de pecho para pistolas', '' ), false );
+DZE_Category_Content::$names_lenient = false;
+ok( 'in English the cases stay strict', DZE_Category_Content::names_target( 'военной одежды', 'Военная одежда', '' ), false );
+ok( 'and a German ending is an ending everywhere', DZE_Category_Content::names_target( 'taktischen Headsets', 'Taktische Headsets', '' ), true );
+// A SENTENCE ENDING ON A BRACKET KEEPS ITS FULL STOP.
+$dze_etc = DZE_Category_Content::apply_edits(
+	'<li>S’intègre parfaitement à votre équipement (gilets, porte-plaques, etc.)</li>',
+	[ [ 'find' => 'S’intègre parfaitement à votre équipement (gilets, porte-plaques, etc.)', 'replace' => 'S’intègre parfaitement à votre équipement, y compris les sacs à dos militaires, gilets, porte-plaques, etc.', 'anchor' => 'sacs à dos militaires', 'url' => 'https://kula.test/sacs' ] ],
+	[ 'https://kula.test/sacs' ], [ 'https://kula.test/sacs' => 'Sacs à dos militaires' ]
+);
+ok( 'a sentence ending on a bracket is reworded', (int) $dze_etc['applied'], 1 );
+ok( 'and keeps its full stop', false !== strpos( (string) $dze_etc['html'], 'porte-plaques, etc.</li>' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
