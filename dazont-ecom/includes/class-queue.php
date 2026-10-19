@@ -842,9 +842,10 @@ final class DZE_Queue {
 			if ( ! self::writable( $kind, $object_id, $html ) ) {
 				return false; // writable() a deja ecrit le motif exact.
 			}
-			// What the translations were made from, read before the write.
+			// What the translations were made from, read before the write —
+			// and noted down, in case the host cuts this request off.
 			$o      = class_exists( 'DZE_Translate' ) ? [ 'kind' => 'post', 'id' => $object_id, 'type' => (string) get_post_type( $object_id ) ] : [];
-			$before = $o ? DZE_Translate::obj_read( $o ) : [];
+			$before = $o ? self::note_before( $o, DZE_Translate::obj_read( $o ) ) : [];
 			// Only the links changed: the title, the status, the dates and
 			// everything else about the post are none of our business.
 			$done = wp_update_post( [ 'ID' => $object_id, 'post_content' => wp_kses_post( $html ) ], true );
@@ -873,7 +874,7 @@ final class DZE_Queue {
 			// merge reecrit le nom et le slug de l original par-dessus la
 			// traduction. Quarante-huit termes ont ete abimes ainsi.
 			$o      = ( 'cat_links' === $kind && class_exists( 'DZE_Translate' ) ) ? [ 'kind' => 'term', 'id' => $object_id, 'type' => 'product_cat' ] : [];
-			$before = $o ? DZE_Translate::obj_read( $o ) : [];
+			$before = $o ? self::note_before( $o, DZE_Translate::obj_read( $o ) ) : [];
 			if ( ! self::write_description( $object_id, wp_kses_post( $html ) ) ) {
 				return self::no( __( 'The category description could not be written.', 'dazont-ecom' ) );
 			}
@@ -930,7 +931,7 @@ final class DZE_Queue {
 	 * marked that way (16/10/2026). A translation that was current before this
 	 * write is kept current after it (DZE_Translate::absorb()).
 	 *
-	 * @param array<string,string> $before The original's texts before the write.
+	 * @param array<string,string> $before Fingerprints of the original's texts before the write (note_before()).
 	 */
 	private static function after_links( array $o, array $before, string $html ): void {
 		if ( class_exists( 'DZE_Mesh' ) && method_exists( 'DZE_Mesh', 'note_placed' ) ) {
@@ -945,9 +946,9 @@ final class DZE_Queue {
 				DZE_Mesh::note_placed( $new );
 			}
 		}
-		if ( $o && method_exists( 'DZE_Translate', 'absorb' ) ) {
+		if ( $o && method_exists( 'DZE_Translate', 'absorb_sums' ) ) {
 			try {
-				DZE_Translate::absorb( $o, $before, DZE_Translate::obj_read( $o ) );
+				DZE_Translate::absorb_sums( $o, $before, DZE_Translate::obj_read( $o ) );
 			} catch ( \Throwable $e ) {
 				// Never a reason to call the write itself a failure: the links
 				// are in, and a translation left owed is the old behaviour.
@@ -955,6 +956,64 @@ final class DZE_Queue {
 					DZE_Health::log( 'translate', __( 'Keeping translations current after a link', 'dazont-ecom' ), $e->getMessage() );
 				}
 			}
+			self::meta_del( $o, self::BEFORE_META );
+		}
+	}
+
+	/** Where the fingerprints of a text about to be linked are noted down. */
+	public const BEFORE_META = '_dze_link_before';
+
+	/** How long a note outlives the write it was taken for: a cut write is retried within minutes. */
+	private const BEFORE_TTL = 2 * HOUR_IN_SECONDS;
+
+	/**
+	 * THE TEXT AS IT WAS BEFORE THE WRITE, NOTED DOWN BEFORE IT.
+	 *
+	 * The translations are kept current after a link by comparing their
+	 * register with the text as it was before the write. Read in the same
+	 * request, that text is lost when the host cuts the request off between
+	 * the write and the comparison: the queue retries the job a few minutes
+	 * later, the retry reads a text that already holds the first write's
+	 * links, nothing matches any more, and every language is left owed — a
+	 * whole article retranslated for a link. Two Kula articles in five
+	 * languages, 17/10/2026, both after a request the host had cut.
+	 *
+	 * So the fingerprints are written down first. A note left by an attempt
+	 * cut short in the last two hours IS the text before the write, and the
+	 * retry uses it; once the translations are reconciled the note goes.
+	 *
+	 * @param array<string,string> $texts What obj_read() gives now.
+	 * @return array<string,string> Field id => md5 of the text before the write.
+	 */
+	private static function note_before( array $o, array $texts ): array {
+		$sums = array_map( static fn( $t ): string => md5( (string) $t ), $texts );
+		$was  = json_decode( (string) self::meta_get( $o, self::BEFORE_META ), true );
+		if ( is_array( $was ) && is_array( $was['sums'] ?? null ) && (int) ( $was['t'] ?? 0 ) > time() - self::BEFORE_TTL ) {
+			return array_map( 'strval', $was['sums'] );
+		}
+		self::meta_set( $o, self::BEFORE_META, (string) wp_json_encode( [ 't' => time(), 'sums' => $sums ] ) );
+		return $sums;
+	}
+
+	private static function meta_get( array $o, string $key ): string {
+		return 'term' === ( $o['kind'] ?? '' ) ? (string) get_term_meta( (int) $o['id'], $key, true ) : (string) get_post_meta( (int) $o['id'], $key, true );
+	}
+
+	private static function meta_set( array $o, string $key, string $value ): void {
+		// wp_slash(): update_*_meta() unslashes what it is given, and a JSON
+		// value loses its backslashes on the way in.
+		if ( 'term' === ( $o['kind'] ?? '' ) ) {
+			update_term_meta( (int) $o['id'], $key, wp_slash( $value ) );
+		} else {
+			update_post_meta( (int) $o['id'], $key, wp_slash( $value ) );
+		}
+	}
+
+	private static function meta_del( array $o, string $key ): void {
+		if ( 'term' === ( $o['kind'] ?? '' ) ) {
+			delete_term_meta( (int) $o['id'], $key );
+		} else {
+			delete_post_meta( (int) $o['id'], $key );
 		}
 	}
 

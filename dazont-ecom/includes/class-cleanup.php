@@ -128,8 +128,10 @@ final class DZE_Cleanup {
 				// The one-time flag that turned the link passes back to review, so it
 				// is not left behind when this module is erased.
 				'options'    => [ 'dze_auto_settings', 'dze_auto_state', 'dze_auto_review_default' ],
-				'term_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
-				'post_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
+				// _dze_link_before: what a text read before a linking write, kept
+				// only until the translations are reconciled (DZE_Queue::note_before()).
+				'term_meta'  => [ '_dze_auto_seen', '_dze_auto_prev', '_dze_link_before' ],
+				'post_meta'  => [ '_dze_auto_seen', '_dze_auto_prev', '_dze_link_before' ],
 				// dze_auto_nf_: an object whose marks owe words, looked at once per
 				// six hours rather than every minute of its month of rest.
 				'transients' => [ 'dze_auto_survey', 'dze_pl_census', 'dze_auto_nf_' ],

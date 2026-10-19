@@ -6113,12 +6113,27 @@ final class DZE_Translate {
 	 * @return string[] The languages kept current.
 	 */
 	public static function absorb( array $o, array $before, array $after ): array {
+		return self::absorb_sums( $o, array_map( static fn( $t ): string => md5( (string) $t ), $before ), $after );
+	}
+
+	/**
+	 * The same, from the FINGERPRINTS of the texts before the write — what the
+	 * queue notes down before it writes, so that a write the host cut off is
+	 * reconciled from the text that was really there before it (see
+	 * DZE_Queue::note_before()).
+	 *
+	 * @param array<string,string> $was   Field id => md5 of its text before the write.
+	 * @param array<string,string> $after The original's texts after it.
+	 * @return string[] The languages kept current.
+	 */
+	public static function absorb_sums( array $o, array $was, array $after ): array {
 		if ( ! $o || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			return [];
 		}
+		$now   = array_map( static fn( $t ): string => md5( (string) $t ), $after );
 		$moved = [];
-		foreach ( array_keys( $before + $after ) as $fid ) {
-			if ( ( $before[ $fid ] ?? null ) !== ( $after[ $fid ] ?? null ) ) {
+		foreach ( array_keys( $was + $now ) as $fid ) {
+			if ( ( $was[ $fid ] ?? null ) !== ( $now[ $fid ] ?? null ) ) {
 				$moved[] = (string) $fid;
 			}
 		}
@@ -6142,7 +6157,7 @@ final class DZE_Translate {
 			}
 			$current = true;
 			foreach ( $moved as $fid ) {
-				if ( ! isset( $before[ $fid ], $map[ $fid ] ) || $map[ $fid ] !== md5( (string) $before[ $fid ] ) ) {
+				if ( ! isset( $was[ $fid ], $map[ $fid ] ) || $map[ $fid ] !== $was[ $fid ] ) {
 					$current = false; // owed before this write: it stays owed.
 					break;
 				}
@@ -6151,8 +6166,8 @@ final class DZE_Translate {
 				continue;
 			}
 			foreach ( $moved as $fid ) {
-				if ( isset( $after[ $fid ] ) ) {
-					$map[ $fid ] = md5( (string) $after[ $fid ] );
+				if ( isset( $now[ $fid ] ) ) {
+					$map[ $fid ] = $now[ $fid ];
 				} else {
 					unset( $map[ $fid ] );
 				}
