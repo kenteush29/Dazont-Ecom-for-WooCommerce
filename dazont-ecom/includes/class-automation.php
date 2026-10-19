@@ -2218,6 +2218,18 @@ final class DZE_Automation {
 			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'translate' ) ) ) {
 			DZE_Translate::drain_if_work();
 		}
+		// LES LIENS DE L ORIGINAL, REPORTES DANS SES TRADUCTIONS, un peu chaque
+		// minute (DZE_Tr_Links). Eteint tant que la boutique ne l a pas allume.
+		if ( '' === $only && ! $forced && class_exists( 'DZE_Tr_Links' )
+			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'mesh' ) ) ) {
+			try {
+				DZE_Tr_Links::step();
+			} catch ( \Throwable $e ) {
+				if ( class_exists( 'DZE_Health' ) ) {
+					DZE_Health::log( 'mesh', __( 'Carrying links into translations', 'dazont-ecom' ), $e->getMessage() );
+				}
+			}
+		}
 		$ids    = '' !== $only ? [ $only ] : array_keys( self::tasks() );
 		$reason = 'none';
 		$done   = null;

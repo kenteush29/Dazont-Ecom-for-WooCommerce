@@ -251,6 +251,40 @@ final class DZE_Wpml {
 	}
 
 	/** Language code of a post, or '' when unknown / WPML inactive. */
+	/**
+	 * THE LANGUAGE OF ONE ELEMENT, read from WPML's table.
+	 *
+	 * `wpml_element_language_details` answers with an OBJECT, and three places
+	 * of this plugin read it as an array — so every category and every post
+	 * came back « in the shop's own language »: a French category was handed
+	 * to the model as English text (19/10/2026). The table answers the same
+	 * in every request, cron and admin-ajax included, and has no shape to
+	 * misread.
+	 *
+	 * @param string $element_type WPML's own name: 'post_post', 'tax_product_cat'
+	 *                             (for a term, the TERM TAXONOMY id).
+	 * @return string The language code, '' when WPML holds no row for it.
+	 */
+	public static function element_language( int $element_id, string $element_type ): string {
+		global $wpdb;
+		if ( $element_id < 1 || ! self::is_active() || ! self::has_table( $wpdb->prefix . 'icl_translations' ) ) {
+			return '';
+		}
+		return (string) $wpdb->get_var( $wpdb->prepare(
+			"SELECT language_code FROM {$wpdb->prefix}icl_translations WHERE element_id = %d AND element_type = %s LIMIT 1",
+			$element_id,
+			$element_type
+		) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	}
+
+	/** What `wpml_element_language_details` says, whichever shape it says it in. */
+	public static function details_language( $details ): string {
+		if ( is_object( $details ) ) {
+			return (string) ( $details->language_code ?? '' );
+		}
+		return is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '';
+	}
+
 	public static function post_language( int $post_id, string $post_type ): string {
 		if ( ! self::is_active() ) {
 			return '';

@@ -951,11 +951,18 @@ PROMPT;
 
 	/** WPML's language for one post, '' when WPML is not active. */
 	public static function post_lang( int $post_id, string $type ): string {
-		$details = apply_filters( 'wpml_element_language_details', null, [
-			'element_id'   => $post_id,
-			'element_type' => 'post_' . $type,
-		] );
-		$code = is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '';
+		$code = class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'element_language' )
+			? DZE_Wpml::element_language( $post_id, 'post_' . $type )
+			: '';
+		if ( '' === $code ) {
+			$details = apply_filters( 'wpml_element_language_details', null, [
+				'element_id'   => $post_id,
+				'element_type' => 'post_' . $type,
+			] );
+			$code = class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'details_language' )
+				? DZE_Wpml::details_language( $details )
+				: ( is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '' );
+		}
 		return '' !== $code ? $code : (string) apply_filters( 'wpml_default_language', '' );
 	}
 
@@ -1252,11 +1259,18 @@ PROMPT;
 		// term_taxonomy_id — et la langue rendue est alors celle du voisin.
 		$row  = self::term_row( $term_id );
 		$ttid = ( $row && $row['term_taxonomy_id'] ) ? (int) $row['term_taxonomy_id'] : $term_id;
-		$details = apply_filters( 'wpml_element_language_details', null, [
-			'element_id'   => $ttid,
-			'element_type' => 'tax_product_cat',
-		] );
-		$code = is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '';
+		$code = class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'element_language' )
+			? DZE_Wpml::element_language( $ttid, 'tax_product_cat' )
+			: '';
+		if ( '' === $code ) {
+			$details = apply_filters( 'wpml_element_language_details', null, [
+				'element_id'   => $ttid,
+				'element_type' => 'tax_product_cat',
+			] );
+			$code = class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'details_language' )
+				? DZE_Wpml::details_language( $details )
+				: ( is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '' );
+		}
 		if ( '' === $code ) {
 			// No row of its own: a shop with one language, where every term is
 			// in it.
@@ -2658,9 +2672,13 @@ PROMPT;
 		// porte le sien aurait rendu « … place to live.. ». Les deux sont donc
 		// coupées au dernier mot, et le point du texte se retrouve derrière la
 		// nouvelle phrase exactement comme il était derrière l ancienne.
-		$cut     = static fn( string $s ): string => (string) preg_replace( '~[\s.!?…]+$~u', '', $s );
-		$find    = $cut( $find );
-		$replace = $cut( $replace );
+		$cut      = static fn( string $s ): string => (string) preg_replace( '~[\s.!?…]+$~u', '', $s );
+		$find_cut = $cut( $find );
+		// A SENTENCE THAT ENDS ON A BRACKET OR A QUOTE keeps its full stop inside
+		// the span replaced: the new sentence then keeps its own, or « (gilets,
+		// porte-plaques, etc.) » came back « …, porte-plaques, etc ».
+		$replace = $find_cut === $find ? $replace : $cut( $replace );
+		$find    = $find_cut;
 		if ( '' === $find || '' === $replace || '' === $anchor ) {
 			return null;
 		}
@@ -2689,7 +2707,7 @@ PROMPT;
 		// phrase de trente et un caracteres, et un plancher en caracteres
 		// l aurait refusee tout en laissant passer un fragment de six mots
 		// tres longs — c est-a-dire le chemin « mots deja presents » deguise.
-		if ( count( self::words_of( $find ) ) < 5 || $now < (int) floor( $was * 0.7 ) || $now > $was + 180 ) {
+		if ( count( self::words_of( $find ) ) < 5 || $now < (int) floor( $was * 0.7 ) || $now > $was + self::$max_growth ) {
 			return null;
 		}
 		if ( self::words_kept( $find, $replace ) < self::REWRITE_KEEP ) {
@@ -2742,6 +2760,25 @@ PROMPT;
 		$linked .= self::esc_text( substr( $replace, $pos ) );
 		return [ 'html' => substr_replace( $html, $linked, $at, $span ), 'at' => $at ];
 	}
+
+	/**
+	 * HOW FAR A REWORDED SENTENCE MAY GROW, in characters.
+	 *
+	 * The English pass threads a destination's title into a sentence, which
+	 * may lengthen it. Carrying a link into a translation must not: the
+	 * sentence already says what the English says, and anything longer is
+	 * content the English does not have (DZE_Tr_Links lowers it while it works).
+	 */
+	public static int $max_growth = 180;
+
+	/**
+	 * WHEN A DESTINATION'S NAME IS JUDGED LENIENTLY: two of its significant
+	 * words, no tail. Translated names run longer than the English ones —
+	 * « Fundas de pecho para pistolas » for « Chest holsters » — and a carried
+	 * link is placed where the English one already stands, on the words that
+	 * translate the English anchor (DZE_Tr_Links sets it while it works).
+	 */
+	public static bool $names_lenient = false;
 
 	/** Inline elements a rewritten sentence may carry across, as they are. */
 	private const INLINE = [ 'a', 'strong', 'b', 'em', 'i', 'u', 'span', 'mark', 'small', 'sub', 'sup', 'abbr', 'code', 's', 'del', 'ins', 'q', 'cite', 'time' ];
@@ -2811,7 +2848,7 @@ PROMPT;
 	 * @return array{0:int,1:int}|null Byte offset and length.
 	 */
 	private static function locate( string $hay, string $words, array $taken = [], bool $grow = false ): ?array {
-		$bits = preg_split( '~[\s\x{00A0}]+~u', trim( $words ), -1, PREG_SPLIT_NO_EMPTY );
+		$bits = preg_split( '~[\s\x{00A0}\x{202F}]+~u', trim( $words ), -1, PREG_SPLIT_NO_EMPTY );
 		if ( ! $bits ) {
 			return null;
 		}
@@ -2830,7 +2867,7 @@ PROMPT;
 			}
 			return $out;
 		};
-		$re = '~(?<![\p{L}\p{N}])' . implode( '[\s\x{00A0}]+', array_map( $one, $bits ) ) . ( $grow ? '[\p{L}\p{N}]*' : '' ) . '(?![\p{L}\p{N}])~iu';
+		$re = '~(?<![\p{L}\p{N}])' . implode( '[\s\x{00A0}\x{202F}]+', array_map( $one, $bits ) ) . ( $grow ? '[\p{L}\p{N}]*' : '' ) . '(?![\p{L}\p{N}])~iu';
 		if ( ! preg_match_all( $re, $hay, $m, PREG_OFFSET_CAPTURE ) ) {
 			return null;
 		}
@@ -2951,7 +2988,9 @@ PROMPT;
 				continue;
 			}
 			$len = self::word_count( $anchor );
-			if ( $len > 9 || mb_strlen( trim( $anchor ) ) > 72 ) {
+			// Twelve words in a translation: the languages it is written in say
+			// in twelve what English says in nine (DZE_Tr_Links).
+			if ( $len > ( self::$names_lenient ? 12 : 9 ) || mb_strlen( trim( $anchor ) ) > 100 ) {
 				$refused[] = sprintf(
 					/* translators: 1: how many words, 2: the words */
 					__( 'the words chosen are a sentence, not an anchor — %1$d words (%2$s)', 'dazont-ecom' ),
@@ -3191,6 +3230,16 @@ PROMPT;
 		if ( ! $got ) {
 			return false;
 		}
+		if ( self::$names_lenient ) {
+			$forms = self::looks_like_title( $label ) ? array_merge( self::title_subjects( $label ), [ $label ] ) : self::name_forms( $label );
+			foreach ( array_merge( $forms, [ str_replace( '-', ' ', $slug ) ] ) as $phrase ) {
+				$want = array_values( array_filter( self::name_words( $phrase ), static fn( string $w ): bool => ! self::is_filler( $w ) ) );
+				if ( $want && self::covers_leniently( $got, $want ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
 		// A CATEGORY KEEPS ITS NAME AS IT STANDS: every significant word of it
 		// is in the anchor, and the anchor drags no tail behind it — under any
 		// of the names it answers to (see name_forms()).
@@ -3227,7 +3276,16 @@ PROMPT;
 	}
 
 	/** Words that carry no meaning of their own, in the languages these shops sell in. */
-	private const STOP = [ 'the', 'a', 'an', 'of', 'for', 'and', 'or', 'to', 'in', 'on', 'at', 'by', 'from', 'as', 'with', 'your', 'our', 'its', 'their', 'is', 'are', 'les', 'le', 'la', 'des', 'de', 'du', 'un', 'une', 'et', 'ou', 'pour', 'dans', 'sur', 'avec', 'au', 'aux', 'en', 'votre', 'vos', 'nos', 'notre', 'der', 'die', 'das', 'und', 'für', 'mit', 'el', 'los', 'las', 'y', 'para', 'con' ];
+	private const STOP = [ 'the', 'a', 'an', 'of', 'for', 'and', 'or', 'to', 'in', 'on', 'at', 'by', 'from', 'as', 'with', 'your', 'our', 'its', 'their', 'is', 'are', 'les', 'le', 'la', 'des', 'de', 'du', 'un', 'une', 'et', 'ou', 'pour', 'dans', 'sur', 'avec', 'au', 'aux', 'en', 'votre', 'vos', 'nos', 'notre',
+		// German, Spanish — and the languages the translations are written in:
+		// the anchor of a carried link is judged in ITS language (DZE_Tr_Links).
+		'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'und', 'für', 'mit', 'im', 'zum', 'zur', 'von', 'vom', 'auf', 'ihr', 'ihre',
+		'el', 'los', 'las', 'del', 'al', 'una', 'unos', 'unas', 'y', 'para', 'con', 'su', 'sus', 'por',
+		'het', 'een', 'van', 'voor', 'met', 'op', 'uw', 'onze', 'te',
+		'il', 'lo', 'gli', 'di', 'della', 'dei', 'delle', 'per', 'su', 'tuo', 'tua',
+		'w', 'z', 'na', 'do', 'dla', 'oraz', 'od', 'po', 'ze', 'we',
+		'ett', 'och', 'för', 'med', 'på', 'av', 'till', 'din', 'ditt',
+		'и', 'в', 'на', 'для', 'с', 'по', 'из', 'от', 'к', 'о', 'ваш', 'ваша' ];
 
 	/**
 	 * The words of a name or an anchor that carry its meaning, lowercased.
@@ -3277,7 +3335,35 @@ PROMPT;
 	}
 
 	private static function same_word( string $a, string $b ): bool {
-		return $a === $b || (bool) array_intersect( self::word_forms( $a ), self::word_forms( $b ) );
+		if ( $a === $b || array_intersect( self::word_forms( $a ), self::word_forms( $b ) ) ) {
+			return true;
+		}
+		// AN ENDING IS NOT ANOTHER WORD in the languages that decline:
+		// « taktische » and « taktischen », « żołnierze » and « żołnierzom ».
+		// The shorter word, less at most its last letter, opens the longer one,
+		// which adds two letters at most — « plate » never meets « platoon ».
+		[ $s, $l ] = mb_strlen( $a ) <= mb_strlen( $b ) ? [ $a, $b ] : [ $b, $a ];
+		if ( mb_strlen( $s ) < 5 ) {
+			return false;
+		}
+		foreach ( [ $s, mb_substr( $s, 0, -1 ) ] as $stem ) {
+			if ( 0 === mb_strpos( $l, $stem ) && mb_strlen( $l ) - mb_strlen( $stem ) <= 2 ) {
+				return true;
+			}
+		}
+		// IN A TRANSLATION, THE CASES TOO: Polish and Russian change the ending,
+		// not only add to it — « kamizelek » and « kamizelki », « военной » and
+		// « военная ». A common opening of four letters or more, most of the
+		// word, and endings of three letters at most.
+		if ( self::$names_lenient ) {
+			$p = 0;
+			$n = min( mb_strlen( $a ), mb_strlen( $b ) );
+			while ( $p < $n && mb_substr( $a, $p, 1 ) === mb_substr( $b, $p, 1 ) ) {
+				$p++;
+			}
+			return $p >= 4 && mb_strlen( $a ) - $p <= 3 && mb_strlen( $b ) - $p <= 3 && $p >= 0.55 * max( mb_strlen( $a ), mb_strlen( $b ) );
+		}
+		return false;
 	}
 
 	private static function is_filler( string $w ): bool {
@@ -3379,8 +3465,32 @@ PROMPT;
 		return $hit >= $need && $tail <= $n + 2;
 	}
 
+	/** Two of the name's significant words (one for a one-word name), and no tail. */
+	private static function covers_leniently( array $got, array $want ): bool {
+		$want = array_values( array_unique( $want ) );
+		$n    = count( $want );
+		$hit  = 0;
+		foreach ( $want as $w ) {
+			foreach ( $got as $g ) {
+				if ( self::same_word( $w, $g ) ) {
+					$hit++;
+					break;
+				}
+			}
+		}
+		$tail = count( array_filter( $got, static fn( string $g ): bool => ! self::is_filler( $g ) ) );
+		return $hit >= min( 2, $n ) && $tail <= max( $n, 2 ) + 2;
+	}
+
 	/** Words that open or pad a title and name nothing (subjects only). */
-	private const FILLER = [ 'what', 'why', 'how', 'when', 'where', 'which', 'who', 'do', 'doe', 'does', 'did', 'is', 'are', 'can', 'should', 'would', 'will', 'you', 'your', 'i', 'we', 'my', 'it', 'they', 'one', 'ones', 'need', 'know', 'actually', 'really', 'everything', 'about', 'guide', 'complete', 'ultimate', 'tip', 'tips', 'best', 'top', 'right', 'good', 'way', 'ways', 'thing', 'things', 'choose', 'choosing', 'wear', 'wearing', 'wash', 'washing', 'use', 'using', 'make', 'vs', 'versus', 'difference', 'differences', 'comment', 'pourquoi', 'combien', 'quel', 'quelle', 'quels', 'quelles', 'quand', 'vous', 'votre', 'faut', 'savoir', 'tout', 'complet', 'conseil', 'conseils', 'meilleur', 'meilleurs', 'meilleure', 'choisir', 'porter', 'laver', 'entretenir', 'faire', 'trouver', 'acheter', 'offrir' ];
+	private const FILLER = [ 'what', 'why', 'how', 'when', 'where', 'which', 'who', 'do', 'doe', 'does', 'did', 'is', 'are', 'can', 'should', 'would', 'will', 'you', 'your', 'i', 'we', 'my', 'it', 'they', 'one', 'ones', 'need', 'know', 'actually', 'really', 'everything', 'about', 'guide', 'complete', 'ultimate', 'tip', 'tips', 'best', 'top', 'right', 'good', 'way', 'ways', 'thing', 'things', 'choose', 'choosing', 'wear', 'wearing', 'wash', 'washing', 'use', 'using', 'make', 'vs', 'versus', 'difference', 'differences', 'comment', 'pourquoi', 'combien', 'quel', 'quelle', 'quels', 'quelles', 'quand', 'vous', 'votre', 'faut', 'savoir', 'tout', 'complet', 'conseil', 'conseils', 'meilleur', 'meilleurs', 'meilleure', 'choisir', 'porter', 'laver', 'entretenir', 'faire', 'trouver', 'acheter', 'offrir',
+		'wie', 'was', 'warum', 'welche', 'welcher', 'welches', 'wann', 'wo', 'sie', 'alles', 'über', 'ratgeber', 'tipps',
+		'cómo', 'como', 'qué', 'que', 'porqué', 'cuál', 'cuáles', 'cuándo', 'dónde', 'todo', 'guía', 'consejos',
+		'jak', 'co', 'czy', 'dlaczego', 'który', 'która', 'które', 'kiedy', 'gdzie', 'wszystko', 'przewodnik', 'porady',
+		'hoe', 'wat', 'waarom', 'welke', 'wanneer', 'waar', 'alles', 'gids',
+		'come', 'cosa', 'perché', 'quale', 'quali', 'quando', 'dove', 'tutto', 'guida', 'consigli',
+		'hur', 'vad', 'varför', 'vilken', 'vilka', 'när', 'var', 'allt', 'guide',
+		'как', 'что', 'почему', 'какой', 'какая', 'какие', 'когда', 'где', 'всё', 'все', 'руководство', 'советы' ];
 
 	/** The fewest words a description holds before a link reads well in it. */
 	private const LINK_MIN_WORDS = 120;
@@ -3404,7 +3514,7 @@ PROMPT;
 	}
 
 	/** The words a question or a title opens with, which name nothing. */
-	private const LEAD = '~^(?:(?:what|why|how|when|where|which|who|do|does|did|is|are|was|were|can|could|should|would|will|to|the|a|an|comment|pourquoi|combien|quel|quelle|quels|quelles|quand|que|qu|de|d|des|les|le|la|un|une)\b[\s\'’]*)+~iu';
+	private const LEAD = '~^(?:(?:what|why|how|when|where|which|who|do|does|did|is|are|was|were|can|could|should|would|will|to|the|a|an|comment|pourquoi|combien|quel|quelle|quels|quelles|quand|que|qu|de|d|des|les|le|la|un|une|wie|was|warum|welche|welcher|welches|wann|der|die|das|ein|eine|cómo|como|qué|por\s+qué|cuál|cuándo|el|los|las|jak|co|czy|dlaczego|który|która|które|kiedy|hoe|wat|waarom|welke|wanneer|het|een|come|cosa|perché|quale|quando|il|lo|gli|hur|vad|varför|vilken|när|как|что|почему|какой|какая|какие|когда)(?![\p{L}\p{N}])[\s\'’]*)+~iu';
 
 	/**
 	 * THE SUBJECT OF A TITLE: what it is about, without the question around it.
@@ -3475,7 +3585,7 @@ PROMPT;
 		};
 		// BETWEEN two words: whitespace, a non-breaking space, or any inline
 		// tag — and at least one of them, so two words never run together.
-		$gap = '(?:\s|&nbsp;|&#160;|</?[a-zA-Z][^>]*>)+';
+		$gap = '(?:\s|\x{00A0}|\x{202F}|&nbsp;|&#160;|&#8239;|</?[a-zA-Z][^>]*>)+';
 		// AND BETWEEN A WORD AND ITS PUNCTUATION, a tag may close or open:
 		// « pair their kit with <a …>military and tactical shirts</a>, these
 		// sandals » reads « shirts, these », and the comma sits after the end
@@ -3751,6 +3861,7 @@ PROMPT;
 		$names = [
 			'en' => 'English', 'fr' => 'French', 'de' => 'German', 'es' => 'Spanish',
 			'it' => 'Italian', 'nl' => 'Dutch', 'pt' => 'Portuguese', 'pl' => 'Polish',
+			'ru' => 'Russian', 'sv' => 'Swedish',
 		];
 		$short = strtolower( substr( str_replace( '-', '_', $code ), 0, 2 ) );
 		return $names[ $short ] ?? $code;
