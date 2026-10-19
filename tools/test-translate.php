@@ -4169,6 +4169,29 @@ ok( 'one that owes words is not', DZE_Translate::close_if_unchanged( $dze_po, 'f
 shop();
 ok( 'nor one made elsewhere', DZE_Translate::close_if_unchanged( $dze_po, 'fr' ), false );
 
+// A WRITE THE HOST CUT OFF. Two Kula articles, 17/10/2026: the request died
+// between the write and the reconciliation, the queue retried the job on a
+// text that already held the first links, and nothing matched any more — five
+// languages left owed for a link. The fingerprints are noted BEFORE the write
+// and the retry reconciles from them.
+shop();
+DZE_Translate::remember( 77, DZE_Translate::read( 7 ) );
+$dze_noted = array_map( 'md5', DZE_Translate::obj_read( $dze_po ) );
+$GLOBALS['posts'][7]['post_content'] = '<p>A pouch for the <a href="https://kula.test/field/">field</a>.</p>';
+// … the request is cut here. The retry adds one more link:
+$GLOBALS['posts'][7]['post_content'] = '<p>A <a href="https://kula.test/pouch/">pouch</a> for the <a href="https://kula.test/field/">field</a>.</p>';
+$dze_retry_read = DZE_Translate::obj_read( $dze_po );
+ok( 'read again on the retry, the text before is lost: nothing is kept', DZE_Translate::absorb( $dze_po, $dze_retry_read, $dze_retry_read ), [] );
+ok( 'from the fingerprints noted before the first write, it is kept current', DZE_Translate::absorb_sums( $dze_po, $dze_noted, DZE_Translate::obj_read( $dze_po ) ), [ 'fr' ] );
+ok( 'and owes nothing', DZE_Translate::stale( 7, 'fr' ), [] );
+$dze_q_src = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-queue.php' );
+ok( 'the queue notes the text down before both linking writes, and reconciles from the note', [
+	2 === substr_count( $dze_q_src, '$before = $o ? self::note_before( $o, DZE_Translate::obj_read( $o ) ) : [];' ),
+	false !== strpos( $dze_q_src, 'DZE_Translate::absorb_sums( $o, $before, DZE_Translate::obj_read( $o ) );' ),
+	false !== strpos( $dze_q_src, 'self::meta_del( $o, self::BEFORE_META );' ),
+	false !== strpos( $dze_q_src, "(int) ( \$was['t'] ?? 0 ) > time() - self::BEFORE_TTL" ),
+], [ true, true, true, true ] );
+
 echo "\nWPML'S WHOLE ANSWER, NOT ONLY ITS NEEDS UPDATE\n";
 // Kula's checkout « in progress », a product « duplicate », a Kilim article
 // « needs review » were all read as complete (16/10/2026).
