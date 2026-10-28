@@ -4931,7 +4931,53 @@ final class DZE_Translate {
 		// Spent. An undo offered twice would put the words back a second time
 		// and say it had done something, which is a lie the second time.
 		self::meta_write( $o, $target_id, self::META_PREV, '' );
+		// WHAT AN UNDO PUTS BACK IN THE ORIGINAL'S OWN WORDS IS OWED AGAIN.
+		//
+		// A translation created as a copy of its original keeps that copy as
+		// « what was there before ». Undone, the page went back to English
+		// while the register still called it translated: 28 Russian articles of
+		// Kula carried an English body from 30/09/2026 to 28/10 with nothing
+		// anywhere saying so. Those fields are taken off the register and WPML
+		// marks the translation, so the shop sees it as owed.
+		$back = self::in_source_words( $o, $prev );
+		if ( $back ) {
+			self::forget( $target_id, $back, $o );
+			$row = 'term' === ( $o['kind'] ?? '' )
+				? DZE_Wpml::translation_row( DZE_Wpml::term_element_id( $target_id, (string) $o['type'] ), DZE_Wpml::element_name( 'term', (string) $o['type'] ) )
+				: DZE_Wpml::translation_row( $target_id, DZE_Wpml::element_name( 'post', (string) $o['type'] ) );
+			if ( $row ) {
+				DZE_Wpml::mark_needs_update( $row );
+			}
+		}
 		return $prev;
+	}
+
+	/**
+	 * The fields of a would-be translation that are the original's own words.
+	 *
+	 * Compared as a reader reads them — markup, entities, case and spacing set
+	 * aside — and only past forty characters: a size, a code or a brand may
+	 * rightly read the same in every language; a sentence that does is the
+	 * original's.
+	 *
+	 * @param array<string,string> $texts Field id => the text written (or about to be).
+	 * @return string[] The field ids that are not translations.
+	 */
+	public static function in_source_words( array $o, array $texts ): array {
+		if ( ! $texts ) {
+			return [];
+		}
+		$src  = self::obj_read( $o );
+		$norm = static fn( string $s ): string => trim( (string) preg_replace( '/\s+/u', ' ', mb_strtolower( wp_strip_all_tags( html_entity_decode( $s, ENT_QUOTES, 'UTF-8' ) ) ) ) );
+		$out  = [];
+		foreach ( $texts as $fid => $text ) {
+			$a = $norm( (string) $text );
+			$b = $norm( (string) ( $src[ $fid ] ?? '' ) );
+			if ( '' !== $a && mb_strlen( $a ) > 40 && $a === $b ) {
+				$out[] = (string) $fid;
+			}
+		}
+		return $out;
 	}
 
 	/** True when this translation still holds something to go back to. */
@@ -6854,8 +6900,14 @@ final class DZE_Translate {
 				$src_now = $src_now ?? self::obj_read( $o );
 				$reg    += array_intersect_key( $src_now, $untyped );
 			}
+			// A FIELD WRITTEN IN THE ORIGINAL'S OWN WORDS IS NOT TRANSLATED, and
+			// is never recorded as if it were: it stays owed, and the mark stays.
+			$untranslated = self::in_source_words( $o, $texts );
+			$reg          = array_diff_key( $reg, array_flip( $untranslated ) );
 			self::remember( $target, $reg, $o );
-			self::obj_settle( $o, $lang );
+			if ( ! $untranslated ) {
+				self::obj_settle( $o, $lang );
+			}
 			$out['written'][ $lang ] = $target;
 		}
 		// WRITTEN IS RECORDED. Without this the shop could see a translation

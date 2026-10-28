@@ -4192,6 +4192,27 @@ ok( 'the queue notes the text down before both linking writes, and reconciles fr
 	false !== strpos( $dze_q_src, "(int) ( \$was['t'] ?? 0 ) > time() - self::BEFORE_TTL" ),
 ], [ true, true, true, true ] );
 
+echo "\nTHE ORIGINAL'S OWN WORDS ARE NEVER RECORDED AS A TRANSLATION\n";
+// 28 Russian articles of Kula carried an English body for a month while the
+// register called them translated (28/10/2026).
+shop();
+$dze_long = '<p>A pouch for the field, built to carry maps, notes and small tools all day.</p>';
+$GLOBALS['posts'][7]['post_content'] = $dze_long;
+ok( 'a field in the original\'s own words is found', DZE_Translate::in_source_words( $dze_po, [ 'content' => $dze_long ] ), [ 'content' ] );
+ok( 'whatever its markup or spacing', DZE_Translate::in_source_words( $dze_po, [ 'content' => "A pouch for the field,  built to carry maps, notes and SMALL tools all day." ] ), [ 'content' ] );
+ok( 'a translation is not', DZE_Translate::in_source_words( $dze_po, [ 'content' => '<p>Une pochette de terrain, faite pour porter cartes, notes et petits outils.</p>' ] ), [] );
+ok( 'nor a short field that may rightly read the same', DZE_Translate::in_source_words( $dze_po, [ 'title' => 'Admin pouch' ] ), [] );
+// AN UNDO THAT PUTS THE ORIGINAL'S WORDS BACK LEAVES THE FIELD OWED.
+DZE_Translate::remember( 77, DZE_Translate::read( 7 ) );
+$GLOBALS['posts'][77]['post_content'] = '<p>Une pochette de terrain, faite pour porter cartes, notes et petits outils.</p>';
+$GLOBALS['meta'][77]['_dze_tr_prev']  = wp_json_encode( [ 'content' => $dze_long ] );
+$dze_marks_before = count( $GLOBALS['wpdb']->written );
+DZE_Translate::obj_undo( $dze_po, 77 );
+ok( 'undone to English, the content is owed again', array_keys( DZE_Translate::stale( 7, 'fr' ) ), [ 'content' ] );
+ok( 'and WPML is told', count( $GLOBALS['wpdb']->written ) > $dze_marks_before, true );
+$dze_tr_src2 = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+ok( 'and a batch never records a field written in the original\'s words', false !== strpos( $dze_tr_src2, '$reg          = array_diff_key( $reg, array_flip( $untranslated ) );' ), true );
+
 echo "\nWPML'S WHOLE ANSWER, NOT ONLY ITS NEEDS UPDATE\n";
 // Kula's checkout « in progress », a product « duplicate », a Kilim article
 // « needs review » were all read as complete (16/10/2026).
