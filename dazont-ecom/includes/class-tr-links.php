@@ -562,7 +562,9 @@ final class DZE_Tr_Links {
 		foreach ( $chunk as $b ) {
 			$size += mb_strlen( wp_strip_all_tags( (string) $b['tr'] ) );
 		}
-		$room = (int) min( 8000, 600 + 1.5 * $size );
+		// And a floor that holds one long answer: a single Spanish paragraph
+		// came back cut off at 900 (Kula, 28/10/2026). Unused room is not paid.
+		$room = (int) min( 8000, 1500 + 2 * $size );
 		DZE_Ai_Usage::unit( 'tr_links' );
 		try {
 			$raw = (string) DZE_Marketing_Ai::complete( $system, $user, '', $room, 120 );
