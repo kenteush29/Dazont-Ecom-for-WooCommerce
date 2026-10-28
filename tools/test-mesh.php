@@ -1634,6 +1634,11 @@ ok( 'addresses compare whatever their spelling', DZE_Tr_Links::key( 'https://www
 ok( 'and the pass is off until the shop switches it on', DZE_Tr_Links::conf()['on'], false );
 ok( 'off, a minute does nothing', DZE_Tr_Links::step(), [ 'looked' => 0, 'asked' => 0, 'placed' => 0 ] );
 ok( 'the automation\'s minute runs it', false !== strpos( $dze_au_src, 'DZE_Tr_Links::step();' ), true );
+$dze_trl_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-tr-links.php' );
+ok( 'and works in the shop\'s own language, whatever domain woke the cron', [
+	false !== strpos( $dze_trl_src, "do_action( 'wpml_switch_language', \$def );" ),
+	false !== strpos( $dze_trl_src, "do_action( 'wpml_switch_language', '' !== \$was ? \$was : null );" ),
+], [ true, true ] );
 // A TRANSLATED NAME RUNS LONGER, and a carried link stands where the English
 // one does: two of its significant words, in their declined form, will do.
 DZE_Category_Content::$names_lenient = true;

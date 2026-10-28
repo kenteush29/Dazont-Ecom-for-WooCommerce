@@ -173,8 +173,22 @@ final class DZE_Tr_Links {
 			return $out;
 		}
 		set_transient( self::LOCK, 1, 5 * MINUTE_IN_SECONDS );
+		// THE SHOP'S OWN LANGUAGE, FOR THE WHOLE MINUTE. The automation runs
+		// in the language of whichever domain the visit that woke the cron
+		// came in on: on kilim-provenance.nl, home_url() answers the Dutch
+		// domain, object_at() no longer recognises an English address, every
+		// paragraph reads « nothing missing » — and was noted as looked at.
+		// Kilim's first hour went that way (28/10/2026).
+		$was = (string) apply_filters( 'wpml_current_language', '' );
+		$def = DZE_Wpml::default_language();
+		if ( '' !== $def && $was !== $def ) {
+			do_action( 'wpml_switch_language', $def );
+		}
 		try {
-			$langs  = array_values( array_diff( DZE_Wpml::language_codes(), [ DZE_Wpml::default_language() ] ) );
+			$langs  = array_values( array_diff( DZE_Wpml::language_codes(), [ $def ] ) );
+			if ( ! $langs ) {
+				return $out;
+			}
 			$cursor = (int) ( $state['cursor'] ?? 0 );
 			$total  = count( $list ) * max( 1, count( $langs ) );
 			for ( $i = 0; $i < min( self::SCAN_TICK, $total ); $i++ ) {
@@ -212,6 +226,9 @@ final class DZE_Tr_Links {
 			$state['last']   = time();
 			update_option( self::STATE, $state, false );
 		} finally {
+			if ( '' !== $def && $was !== $def ) {
+				do_action( 'wpml_switch_language', '' !== $was ? $was : null );
+			}
 			delete_transient( self::LOCK );
 		}
 		return $out;

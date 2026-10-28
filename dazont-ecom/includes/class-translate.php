@@ -474,7 +474,15 @@ final class DZE_Translate {
 	public static function object_at( string $url ): ?array {
 		$home = (string) wp_parse_url( (string) home_url(), PHP_URL_HOST );
 		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
-		if ( '' === $home || ( '' !== $host && $host !== $home ) ) {
+		// ANY OF THE SHOP'S OWN DOMAINS, not the one of the request. home_url()
+		// answers the domain the visit came in on — kilim-provenance.nl in a
+		// cron woken there — and an English address of the same shop was then
+		// read as somebody else's: relink() left it English, and the links
+		// carried into the translations found nothing to carry (28/10/2026).
+		$bare = static fn( string $h ): string => (string) preg_replace( '~^www\.~', '', strtolower( $h ) );
+		$ours = class_exists( 'DZE_Wpml' ) && method_exists( 'DZE_Wpml', 'hosts' ) ? array_map( $bare, (array) DZE_Wpml::hosts() ) : [];
+		$ours[] = $bare( $home );
+		if ( '' === $home || ( '' !== $host && ! in_array( $bare( $host ), $ours, true ) ) ) {
 			return null;
 		}
 		$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
