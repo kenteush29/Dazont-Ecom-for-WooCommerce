@@ -597,7 +597,53 @@ final class DZE_Discounts {
 
 	public static function get_rules(): array {
 		$rules = get_option( self::OPTION, [] );
-		return is_array( $rules ) ? $rules : [];
+		$rules = is_array( $rules ) ? $rules : [];
+		// What this request read, and works from: save_rules() writes only the
+		// difference between it and what is saved (see save_rules()).
+		self::$seen = $rules;
+		return $rules;
+	}
+
+	/** The rules as this request last read them — the base its changes are made on. @var array<string,array>|null */
+	private static ?array $seen = null;
+
+	/**
+	 * THE RULES AS THEY ARE IN THE DATABASE, NOW.
+	 *
+	 * get_option() answers from the request's own cache: the rules are read
+	 * while the plugin starts (`init`), so every later get_option() hands back
+	 * that first copy — even the « re-read inside the lock » that was meant to
+	 * stop lost updates. Four events accepted at once, one kept, again
+	 * (Kula, 06/11/2026). Read from the table, the copy is the real one.
+	 *
+	 * @return array<string,array>
+	 */
+	private static function rules_in_db(): array {
+		global $wpdb;
+		// No database to ask (a test, a broken connection): the option API is
+		// the next best thing, as it always was.
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) || empty( $wpdb->options ) ) {
+			$val = get_option( self::OPTION, [] );
+			return is_array( $val ) ? $val : [];
+		}
+		$raw = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", self::OPTION ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$val = null === $raw ? [] : maybe_unserialize( $raw );
+		return is_array( $val ) ? $val : [];
+	}
+
+	/** One named lock for every write of the rules; a no-op when the database will not give it. */
+	private static function hold_rules(): callable {
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			return static function () {};
+		}
+		$name = substr( 'dze_disc_rules_' . md5( (string) ( $wpdb->prefix ?? '' ) . self::OPTION ), 0, 64 );
+		if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 10 ) ) ) {
+			return static function () {};
+		}
+		return static function () use ( $wpdb, $name ) {
+			$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+		};
 	}
 
 	/**
@@ -623,28 +669,66 @@ final class DZE_Discounts {
 		if ( '' === $id ) {
 			return false;
 		}
-		global $wpdb;
-		$free = static function () {};
-		if ( isset( $wpdb ) && is_object( $wpdb ) && method_exists( $wpdb, 'get_var' ) ) {
-			$name = substr( 'dze_disc_rules_' . md5( (string) ( $wpdb->prefix ?? '' ) . self::OPTION ), 0, 64 );
-			if ( '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 5 ) ) ) {
-				$free = static function () use ( $wpdb, $name ) {
-					$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
-				};
-			}
-		}
+		$free = self::hold_rules();
 		try {
-			$rules        = self::get_rules();
+			$rules        = self::rules_in_db();
 			$rules[ $id ] = $rule;
-			self::save_rules( $rules );
+			update_option( self::OPTION, $rules, false );
+			self::$seen = $rules;
 		} finally {
 			$free();
 		}
+		delete_transient( 'dze_all_saleable_ids' );
 		return true;
 	}
 
+	/**
+	 * Every other writer of the full list goes through here — Google's sync,
+	 * the banner translations, the form, the bulk actions — see save_rules().
+	 *
+	 * @param array<string,array> $rules
+	 */
+	public static function save_all( array $rules ): void {
+		self::save_rules( $rules );
+	}
+
+	/**
+	 * WRITES WHAT THIS REQUEST CHANGED, AND NOTHING ELSE.
+	 *
+	 * Every writer read the whole list, changed one rule and wrote the whole
+	 * list back — so a request that had read the list a second earlier erased
+	 * the rules another request had just created. Now the list is re-read from
+	 * the table under the lock, and only the difference between what this
+	 * request read and what it hands back is applied to it: the rules it added
+	 * or changed are written, the ones it removed are removed, and everything
+	 * else stays as the database has it.
+	 *
+	 * @param array<string,array> $rules The full list as this request wants it.
+	 */
 	private static function save_rules( array $rules ): void {
-		update_option( self::OPTION, $rules, false );
+		$base = self::$seen;
+		$free = self::hold_rules();
+		try {
+			if ( null === $base ) {
+				$merged = $rules; // nothing was read first: the caller owns the whole list.
+			} else {
+				$merged = self::rules_in_db();
+				foreach ( $rules as $id => $rule ) {
+					if ( ! array_key_exists( $id, $base ) || $base[ $id ] !== $rule ) {
+						$merged[ $id ] = $rule;
+					}
+				}
+				foreach ( array_keys( $base ) as $id ) {
+					if ( ! array_key_exists( $id, $rules ) ) {
+						unset( $merged[ $id ] );
+					}
+				}
+			}
+			update_option( self::OPTION, $merged, false );
+			self::$seen = $merged;
+		} finally {
+			$free();
+		}
 		// Refresh our store-wide product cache so scope/exclusion changes are picked
 		// up. WooCommerce's own on-sale transient is left intact — our filter merges
 		// dynamic IDs into it on every read, so no forced cache-miss gap.

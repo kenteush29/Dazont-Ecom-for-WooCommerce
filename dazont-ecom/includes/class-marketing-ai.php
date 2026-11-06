@@ -2524,7 +2524,17 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		}
 		$free = self::hold_suggestions();
 		try {
-			$now = self::get_suggestions();
+			// FROM THE TABLE, not get_option(): this request read the list at
+			// its very start, and that cached copy is what the lock was meant
+			// to keep from being written back (06/11/2026).
+			global $wpdb;
+			if ( isset( $wpdb ) && is_object( $wpdb ) && method_exists( $wpdb, 'get_var' ) && ! empty( $wpdb->options ) ) {
+				$raw = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", self::OPT_SUGGESTIONS ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				$now = null === $raw ? [] : maybe_unserialize( $raw );
+			} else {
+				$now = self::get_suggestions();
+			}
+			$now = is_array( $now ) ? $now : [];
 			if ( isset( $now[ $id ] ) ) {
 				unset( $now[ $id ] );
 				self::save_suggestions( $now );

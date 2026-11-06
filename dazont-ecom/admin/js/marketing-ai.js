@@ -239,14 +239,38 @@
 		return $('#dze-mai-suggestions .dze-mai-cb:checked').closest('.dze-mai-row');
 	}
 
-	// ---- Bulk accept (reload once all are added) ----
+	// ---- Bulk accept: ONE AFTER THE OTHER, then reload once all are done ----
+	// They used to leave all at once, and $.when() reloaded the page at the
+	// first one that failed, while the others were still being written.
+	// One at a time, nothing races, and the page comes back only when every
+	// ticked row has had its answer — accepted, or with its reason on the row.
 	$(document).on('click', '.dze-mai-bulk-accept', function () {
 		var $rows = selectedRows();
 		if (!$rows.length) { return; }
 		var $status = $('#dze-mai-bulk-status');
-		$status.css('color', '#666').text(i18n.accepting + ' (' + $rows.length + ')');
-		var jobs = $rows.map(function () { return acceptRow($(this)); }).get();
-		$.when.apply($, jobs).always(function () { window.location.reload(); });
+		var rows = $rows.get(), total = rows.length, done = 0, failed = 0;
+		$(this).prop('disabled', true);
+		$status.css('color', '#666').text(i18n.accepting + ' (0/' + total + ')');
+		(function next() {
+			if (!rows.length) {
+				if (failed) {
+					$status.css('color', '#b32d2e').text(failed + '/' + total + ' — ' + i18n.error);
+					window.setTimeout(function () { window.location.reload(); }, 2500);
+				} else {
+					window.location.reload();
+				}
+				return;
+			}
+			var $row = $(rows.shift());
+			acceptRow($row)
+				.done(function (res) { if (!res || !res.success) { failed++; } })
+				.fail(function () { failed++; })
+				.always(function () {
+					done++;
+					$status.text(i18n.accepting + ' (' + done + '/' + total + ')');
+					next();
+				});
+		})();
 	});
 
 	// ---- Bulk discard ----
