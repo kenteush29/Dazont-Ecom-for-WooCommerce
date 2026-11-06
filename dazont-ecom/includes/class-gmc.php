@@ -894,7 +894,7 @@ final class DZE_Gmc {
 				break;
 			}
 		}
-		update_option( DZE_Discounts::OPTION, $rules, false );
+		DZE_Discounts::save_all( $rules );
 
 		return $statuses;
 	}
@@ -1076,7 +1076,7 @@ final class DZE_Gmc {
 			return;
 		}
 		$rules[ $rule_id ]['gmc_fp'] = $state;
-		update_option( DZE_Discounts::OPTION, $rules, false );
+		DZE_Discounts::save_all( $rules );
 	}
 
 	/**

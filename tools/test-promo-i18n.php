@@ -313,5 +313,31 @@ ok( 'le cache est rempli avant le rendu',
 	false !== strpos( $dze_src_disc, "add_action( 'wp_loaded', [ \$this, 'warm_onsale_cache' ]" ), true );
 ok( 'et seulement quand il est vide',
 	false !== strpos( $dze_src_disc, "if ( false === get_transient( 'wc_products_onsale' ) ) {" ), true );
+
+echo "\nACCEPTED AT THE SAME TIME, ALL KEPT\n";
+// « Accept selected » on Kula, 06/11/2026: Black Friday, Christmas, New Year
+// and Winter sale accepted together, one kept. Each request read the rules
+// while starting, and wrote that copy back with its own rule in it.
+$dze_k = DZE_Discounts::OPTION;
+$GLOBALS['opts'][ $dze_k ] = [ 'old' => [ 'id' => 'old', 'type' => 'sale', 'title' => 'Old sale' ] ];
+$dze_a = DZE_Discounts::get_rules();                       // request A starts: the list as it was
+$GLOBALS['opts'][ $dze_k ]['bf'] = [ 'id' => 'bf', 'type' => 'sale', 'title' => 'Black Friday' ]; // request B writes meanwhile
+$dze_a['ws'] = [ 'id' => 'ws', 'type' => 'sale', 'title' => 'Winter sale' ];
+DZE_Discounts::save_all( $dze_a );                         // A writes its copy
+ok( 'what another request created meanwhile is kept', isset( $GLOBALS['opts'][ $dze_k ]['bf'] ), true );
+ok( 'and this request\'s own rule is written', isset( $GLOBALS['opts'][ $dze_k ]['ws'] ), true );
+ok( 'and the rule nobody touched stays', isset( $GLOBALS['opts'][ $dze_k ]['old'] ), true );
+$dze_c = DZE_Discounts::get_rules();
+$GLOBALS['opts'][ $dze_k ]['ny'] = [ 'id' => 'ny', 'type' => 'sale', 'title' => 'New Year' ];
+unset( $dze_c['old'] );
+DZE_Discounts::save_all( $dze_c );
+ok( 'a rule this request deleted is gone', isset( $GLOBALS['opts'][ $dze_k ]['old'] ), false );
+ok( 'one created meanwhile is not', isset( $GLOBALS['opts'][ $dze_k ]['ny'] ), true );
+DZE_Discounts::get_rules();
+$GLOBALS['opts'][ $dze_k ]['xm'] = [ 'id' => 'xm', 'type' => 'sale', 'title' => 'Christmas' ];
+DZE_Discounts::put_rule( 'vd', [ 'id' => 'vd', 'type' => 'sale', 'title' => 'Valentine' ] );
+ok( 'one put after another request wrote keeps both', [ isset( $GLOBALS['opts'][ $dze_k ]['xm'] ), isset( $GLOBALS['opts'][ $dze_k ]['vd'] ) ], [ true, true ] );
+$dze_js = (string) file_get_contents( __DIR__ . '/../dazont-ecom/admin/js/marketing-ai.js' );
+ok( 'and « Accept selected » accepts one row after the other', [ false === strpos( $dze_js, '$.when.apply($, jobs)' ), false !== strpos( $dze_js, 'acceptRow($row)' ) && false !== strpos( $dze_js, 'next();' ) ], [ true, true ] );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
