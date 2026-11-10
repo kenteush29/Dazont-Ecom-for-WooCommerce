@@ -946,17 +946,22 @@ final class DZE_Discounts {
 			return;
 		}
 
+		// OUR TWO CODES ARE ALWAYS KNOWN — even with no bulk offer running.
+		// Both bulk discount types apply as auto virtual coupons, so the saving
+		// shows as a real promo-code line in the cart and checkout. A code
+		// still in a customer's session when the last offer ended (a session
+		// lasts two days) was « not valid » at their next visit of the cart;
+		// known, it is worth nothing and goes without a word.
+		$this->hook_bulk_coupons();
+
 		$active = $this->get_active_rules();
 		if ( empty( $active ) ) {
-			return; // zero front-end footprint when no promo is running.
+			return; // next to no front-end footprint when no promo is running.
 		}
 
 		$has_sale = ! empty( $this->rules_of_type( 'sale' ) );
 		// Best-seller boost: an automatic % sale on the current top sellers.
 		$has_autobest = ! empty( $this->rules_of_type( 'autobest' ) );
-		// Both bulk discount types apply as auto virtual coupons (see below), so
-		// the saving shows as a real promo-code line in the cart and checkout.
-		$has_bulk = ! empty( $this->rules_of_type( 'bulk' ) ) || ! empty( $this->rules_of_type( 'bulk_order' ) );
 
 		// UN SOLDE AU-DESSUS DU PRIX NORMAL N EST PAS UN SOLDE.
 		//
@@ -1069,16 +1074,23 @@ final class DZE_Discounts {
 			}
 		}
 
-		if ( $has_bulk ) {
-			// Apply the two bulk discounts as auto virtual coupons, so each shows
-			// as a real "Coupon: Bundle / Wholesale" line in the cart and at
-			// checkout — a promo-code simulation, no code for the customer to type.
-			add_action( 'woocommerce_before_calculate_totals', [ $this, 'prepare_cart_coupons' ], 5, 1 );
-			add_filter( 'woocommerce_get_shop_coupon_data',     [ $this, 'virtual_coupon_data' ], 10, 2 );
-			add_filter( 'woocommerce_cart_totals_coupon_label', [ $this, 'coupon_label' ], 10, 2 );
-			add_filter( 'woocommerce_cart_totals_coupon_html',  [ $this, 'coupon_html' ], 10, 3 );
-			add_filter( 'woocommerce_coupon_message',           [ $this, 'silence_coupon_message' ], 10, 3 );
-		}
+	}
+
+	/**
+	 * The two bulk discounts as auto virtual coupons: a real « Coupon: Bundle /
+	 * Wholesale » line in the cart and at checkout — a promo-code simulation,
+	 * no code for the customer to type.
+	 */
+	private function hook_bulk_coupons(): void {
+		add_action( 'woocommerce_before_calculate_totals', [ $this, 'prepare_cart_coupons' ], 5, 1 );
+		// AND BEFORE WOOCOMMERCE CHECKS THE CART'S CODES, which it does on the
+		// cart and checkout pages BEFORE it adds the totals up — FunnelKit's
+		// checkout form too (`woocommerce_check_cart_items`, priority 1).
+		add_action( 'woocommerce_check_cart_items',        [ $this, 'check_cart_codes' ], 0 );
+		add_filter( 'woocommerce_get_shop_coupon_data',     [ $this, 'virtual_coupon_data' ], 10, 2 );
+		add_filter( 'woocommerce_cart_totals_coupon_label', [ $this, 'coupon_label' ], 10, 2 );
+		add_filter( 'woocommerce_cart_totals_coupon_html',  [ $this, 'coupon_html' ], 10, 3 );
+		add_filter( 'woocommerce_coupon_message',           [ $this, 'silence_coupon_message' ], 10, 3 );
 	}
 
 	// =========================================================================
@@ -1926,15 +1938,50 @@ final class DZE_Discounts {
 	/**
 	 * Computes the two bulk discounts for the current cart and applies each, when
 	 * positive, as an auto virtual coupon (Bundle = per-item offer, Wholesale =
-	 * whole-order tier). Runs on the first totals pass; the codes then persist in
-	 * the cart's applied_coupons for the rest of the request.
+	 * whole-order tier), on every totals pass; a code the cart no longer earns
+	 * is taken out.
 	 */
 	public function prepare_cart_coupons( $cart ): void {
 		if ( ! $cart instanceof \WC_Cart || ( is_admin() && ! wp_doing_ajax() ) ) {
 			return;
 		}
-		if ( did_action( 'woocommerce_before_calculate_totals' ) >= 2 ) {
-			return; // already computed + applied on the first pass this request.
+		// EVERY PASS, not only the first. Worked out once per request, the
+		// amounts were those of the first pass — before the cart was even
+		// read, on some requests — and the code stayed in the cart with
+		// nothing behind it (see virtual_coupon_data()).
+		$this->coupon_amounts = $this->cart_amounts( $cart );
+		$this->sync_codes( $cart );
+	}
+
+	/**
+	 * THE CODES MATCH THE CART BEFORE WOOCOMMERCE CHECKS THEM.
+	 *
+	 * « I'm trying to order 3 items from your site and it won't allow me to
+	 * check out. Keeps saying the bundle code isn't valid […] and it won't
+	 * allow me to remove it » (a Kula customer, 07/11/2026). On the cart and
+	 * checkout pages WooCommerce checks every code in the cart BEFORE it adds
+	 * the totals up — and the Bundle code only existed once the totals had
+	 * been added up. Checked first, it did not exist: « not valid », taken
+	 * out, put back by the next totals pass, refused again — and the line has
+	 * no « Remove », because the customer never typed it.
+	 */
+	public function check_cart_codes(): void {
+		$cart = function_exists( 'WC' ) ? WC()->cart : null;
+		if ( ! $cart instanceof \WC_Cart ) {
+			return;
+		}
+		$this->coupon_amounts = $this->cart_amounts( $cart );
+		$this->sync_codes( $cart );
+	}
+
+	/**
+	 * What the Bundle and Wholesale discounts come to for this cart, now.
+	 *
+	 * @return array<string,float> Code => amount.
+	 */
+	private function cart_amounts( \WC_Cart $cart ): array {
+		if ( empty( $this->rules_of_type( 'bulk' ) ) && empty( $this->rules_of_type( 'bulk_order' ) ) ) {
+			return [ self::COUPON_BUNDLE => 0.0, self::COUPON_WHOLESALE => 0.0 ];
 		}
 		$decimals = function_exists( 'wc_get_price_decimals' ) ? wc_get_price_decimals() : 2;
 
@@ -1982,13 +2029,18 @@ final class DZE_Discounts {
 			}
 		}
 
-		$this->coupon_amounts = [
+		return [
 			self::COUPON_BUNDLE    => round( $bundle, $decimals ),
 			self::COUPON_WHOLESALE => round( $wholesale, $decimals ),
 		];
+	}
 
-		// Add/remove each code by manipulating the array directly (calling
-		// remove_coupon() here would recurse into calculate_totals()).
+	/**
+	 * Puts our two codes in the cart, or takes them out, as the amounts say —
+	 * by the array itself: remove_coupon() here would recurse into
+	 * calculate_totals().
+	 */
+	private function sync_codes( \WC_Cart $cart ): void {
 		foreach ( $this->coupon_amounts as $code => $amount ) {
 			$has = in_array( $code, $cart->applied_coupons, true );
 			if ( $amount > 0 && ! $has ) {
@@ -1999,15 +2051,28 @@ final class DZE_Discounts {
 		}
 	}
 
-	/** Supplies WooCommerce with on-the-fly data for our two virtual coupons. */
+	/**
+	 * Supplies WooCommerce with on-the-fly data for our two virtual coupons —
+	 * ALWAYS, whenever it asks.
+	 *
+	 * The data used to exist only once this request had worked the amounts
+	 * out; asked before that, the code « did not exist » and the customer was
+	 * told it was not valid. Now an amount not yet worked out is worked out on
+	 * the spot, from the cart as it is, and a code the cart no longer earns
+	 * answers « nothing off » rather than « no such code »: the next totals
+	 * pass takes it out without a word to the customer.
+	 */
 	public function virtual_coupon_data( $data, $code ) {
 		$code = strtolower( (string) $code );
-		if ( empty( $this->coupon_amounts[ $code ] ) || $this->coupon_amounts[ $code ] <= 0 ) {
+		if ( ! in_array( $code, [ self::COUPON_BUNDLE, self::COUPON_WHOLESALE ], true ) ) {
 			return $data;
+		}
+		if ( ! array_key_exists( $code, $this->coupon_amounts ) && did_action( 'wp_loaded' ) && function_exists( 'WC' ) && WC()->cart instanceof \WC_Cart ) {
+			$this->coupon_amounts = $this->cart_amounts( WC()->cart );
 		}
 		return [
 			'id'                         => -1,
-			'amount'                     => $this->coupon_amounts[ $code ],
+			'amount'                     => max( 0, (float) ( $this->coupon_amounts[ $code ] ?? 0 ) ),
 			'discount_type'              => 'fixed_cart',
 			'individual_use'             => false,
 			'usage_limit'                => '',
