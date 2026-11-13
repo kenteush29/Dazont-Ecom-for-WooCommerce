@@ -773,6 +773,41 @@ $GLOBALS['dze_queue'] = [
 ok( 'a draft afterwards is not a claim', $day, '' );
 ok( 'and it says so',                    false !== strpos( $said, 'still a draft' ), true );
 
+echo "Klaviyo refuses Smart Send Time to the account\n";
+// « Unable to schedule campaign … as this company is not eligible for STO »
+// (Kula, 13/11/2026): the draft was accepted with Smart Send Time and the
+// schedule refused. Same day, nine in the reader's own time zone, once more.
+$smart = json_encode( [ 'data' => [ 'id' => 'C1', 'attributes' => [ 'status' => 'Draft',
+	'send_strategy' => [ 'method' => 'smart_send_time', 'date' => $next ] ] ] ] );
+$GLOBALS['dze_opts']['dze_klaviyo'] = [];
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => $smart ],                                                                   // read before
+	[ 'code' => 400, 'body' => json_encode( [ 'errors' => [ [ 'detail' => 'Unable to schedule campaign C1 as this company is not eligible for STO.' ] ] ] ) ], // refused
+	[ 'code' => 200, 'body' => $draft( 'Draft', $next ) ],                                                 // the hour set
+	[ 'code' => 200, 'body' => '{"data":{"id":"C1","attributes":{"status":"queued"}}}' ],                 // scheduled
+	[ 'code' => 200, 'body' => $draft( 'Queued', $next ) ],                                                // read after
+];
+[ $day, $said, $hour ] = DZE_Klaviyo::schedule( 'C1' );
+ok( 'it is scheduled all the same, on the same day', [ $day, $said ], [ $next, '' ] );
+ok( 'and says the hour it will go at',            false !== strpos( (string) $hour, '9:00' ), true );
+$patch = array_values( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) )[0] ?? [];
+$how   = json_decode( (string) ( $patch['body'] ?? '' ), true )['data']['attributes']['send_strategy'] ?? [];
+ok( 'the campaign takes a plain hour',            [ $how['method'] ?? '', $how['datetime'] ?? '', $how['options']['is_local'] ?? null ], [ 'static', $next . 'T09:00:00+00:00', true ] );
+ok( 'and is put through the sender once more',    count( array_filter( $GLOBALS['dze_sent'], fn( $c ) => false !== strpos( (string) ( $c['url'] ?? '' ), 'campaign-send-jobs/' ) ) ), 2 );
+ok( 'the account is remembered',                  DZE_Klaviyo::sto_refused(), true );
+// Any other refusal is said as it is, and nothing is rewritten.
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => $smart ],
+	[ 'code' => 400, 'body' => json_encode( [ 'errors' => [ [ 'detail' => 'Unable to schedule campaign C1 as message does not have a template.' ] ] ] ) ],
+];
+[ , $said ] = DZE_Klaviyo::schedule( 'C1' );
+ok( 'another refusal is reported as it is',       false !== strpos( $said, 'does not have a template' ), true );
+ok( 'and the day is left alone',                  count( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) ), 0 );
+$GLOBALS['dze_queue'] = [];
+$GLOBALS['dze_opts']['dze_klaviyo'] = [];
+
 echo "Putting it back to a draft\n";
 $GLOBALS['dze_sent'] = [];
 $GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C1"}}' ] ];

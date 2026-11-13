@@ -143,6 +143,28 @@ final class DZE_Klaviyo {
 		return is_array( $s ) ? $s : [];
 	}
 
+	/**
+	 * Klaviyo said this account cannot use Smart Send Time.
+	 *
+	 * « Unable to schedule campaign … as this company is not eligible for
+	 * STO » (Kula, 13/11/2026): Smart Send Time needs a sending history the
+	 * account does not have yet. Kept thirty days, then Klaviyo is asked
+	 * again — an account that grows becomes eligible.
+	 */
+	public static function sto_refused(): bool {
+		$at = (int) ( self::settings()['sto_refused'] ?? 0 );
+		return $at > time() - 30 * DAY_IN_SECONDS;
+	}
+
+	/** True when what Klaviyo refused is Smart Send Time itself. */
+	public static function is_sto_refusal( string $said ): bool {
+		return false !== stripos( $said, 'eligible for STO' ) || false !== stripos( $said, 'smart send time' ) || false !== stripos( $said, 'smart_send_time' );
+	}
+
+	private static function note_sto_refused(): void {
+		update_option( self::OPT, array_merge( self::settings(), [ 'sto_refused' => time() ] ), false );
+	}
+
 	/** One setting, with the shipped default when nothing was chosen. */
 	public static function conf( string $key, $default = '' ) {
 		$s = self::settings();
@@ -2844,6 +2866,11 @@ final class DZE_Klaviyo {
 	 * per reader.
 	 */
 	private static function strategy( array $in, array $rule ): array {
+		// An account Klaviyo refuses Smart Send Time to gets the plain hour at
+		// once, instead of a draft it will refuse to schedule later.
+		if ( self::sto_refused() ) {
+			return self::dated_strategy( $in, $rule );
+		}
 		return [ 'method' => 'smart_send_time', 'date' => self::send_day( $in, $rule ) ];
 	}
 
@@ -4158,7 +4185,7 @@ final class DZE_Klaviyo {
 				'message'   => __( 'Back to a draft in Klaviyo. Nothing will go out.', 'dazont-ecom' ),
 			] );
 		}
-		[ $day, $said ] = self::schedule( $camp );
+		[ $day, $said, $hour ] = self::schedule( $camp ) + [ 2 => '' ];
 		if ( '' !== $said ) {
 			wp_send_json_error( [ 'message' => $said ] );
 		}
@@ -4172,11 +4199,11 @@ final class DZE_Klaviyo {
 			'scheduled' => 1,
 			'day'       => $day,
 			'state'     => self::state_cell( $email, self::email_for( $rule, $email ) ),
-			'message'   => sprintf(
+			'message'   => trim( sprintf(
 				/* translators: %s: the day it goes out */
 				__( 'Scheduled in Klaviyo for %s. Nothing else to do.', 'dazont-ecom' ),
 				$day
-			),
+			) . ' ' . $hour ),
 		] );
 	}
 
@@ -4380,8 +4407,41 @@ final class DZE_Klaviyo {
 		$job = self::request( 'POST', 'campaign-send-jobs/', [
 			'data' => [ 'type' => 'campaign-send-job', 'id' => $camp_id ],
 		], 30 );
+		$note = '';
+		// NOT ELIGIBLE FOR SMART SEND TIME. « Unable to schedule campaign … as
+		// this company is not eligible for STO » (Kula, 13/11/2026): the draft
+		// was accepted with Smart Send Time and the schedule refused for it.
+		// The campaign keeps its DAY and takes the plain hour the drafts get
+		// when Klaviyo refuses at creation — nine in the morning in each
+		// reader's own time zone — and is scheduled again, once. The account is
+		// remembered, so the next drafts are made that way from the start.
+		if ( is_wp_error( $job ) && self::is_sto_refusal( $job->get_error_message() )
+			&& 'smart_send_time' === (string) ( $has['data']['attributes']['send_strategy']['method'] ?? '' ) ) {
+			self::note_sto_refused();
+			$keep = self::kept_day( $has['data'] ?? [] );
+			$fix  = self::request( 'PATCH', 'campaigns/' . rawurlencode( $camp_id ) . '/', [
+				'data' => [
+					'type'       => 'campaign',
+					'id'         => $camp_id,
+					'attributes' => [
+						'send_strategy' => [
+							'method'   => 'static',
+							'datetime' => $keep . 'T09:00:00+00:00',
+							'options'  => [ 'is_local' => true, 'send_past_recipients_immediately' => false ],
+						],
+					],
+				],
+			], 30 );
+			if ( is_wp_error( $fix ) ) {
+				return [ '', $fix->get_error_message(), '' ];
+			}
+			$job  = self::request( 'POST', 'campaign-send-jobs/', [
+				'data' => [ 'type' => 'campaign-send-job', 'id' => $camp_id ],
+			], 30 );
+			$note = __( 'Klaviyo does not offer Smart Send Time to this account yet, so it goes out at 9:00 in each reader\'s own time zone, on the same day.', 'dazont-ecom' );
+		}
 		if ( is_wp_error( $job ) ) {
-			return [ '', $job->get_error_message() ];
+			return [ '', $job->get_error_message(), '' ];
 		}
 		// What Klaviyo holds NOW, never what we asked for: a job it accepted is
 		// not the same thing as a campaign it will send.
@@ -4393,9 +4453,9 @@ final class DZE_Klaviyo {
 			?: self::kept_day( $now['data'] ?? [] );
 		$state = (string) ( $now['data']['attributes']['status'] ?? '' );
 		if ( 'Draft' === $state ) {
-			return [ '', __( 'Klaviyo took the request but the campaign is still a draft. Open it and schedule it there.', 'dazont-ecom' ) ];
+			return [ '', __( 'Klaviyo took the request but the campaign is still a draft. Open it and schedule it there.', 'dazont-ecom' ), '' ];
 		}
-		return [ $day, '' ];
+		return [ $day, '', $note ];
 	}
 
 	/**
@@ -4892,6 +4952,9 @@ final class DZE_Klaviyo {
 				// draft carrying a plain hour, so it is made the other way and the
 				// refusal is reported instead of thrown.
 				$warning = trim( $warning . ' ' . $camp->get_error_message() );
+				if ( self::is_sto_refusal( $camp->get_error_message() ) ) {
+					self::note_sto_refused();
+				}
 				// Nine in the morning, in each reader's own time zone: the plain
 				// answer for an account Klaviyo will not work the hour out for yet.
 				$make['data']['attributes']['send_strategy'] = [
@@ -8521,7 +8584,7 @@ CSS;
 						<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
 						<div class="dze-mail-what">
 							<strong class="dze-mail-name"><?php echo esc_html( self::email_name( $mail ) ); ?></strong>
-							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
+							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php echo esc_html( self::sto_refused() ? __( '9:00, reader\'s time', 'dazont-ecom' ) : __( 'Smart Send Time', 'dazont-ecom' ) ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
 							<?php
 							// The preview text under it, because those two ARE
@@ -8605,7 +8668,7 @@ CSS;
 					<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
 					<div class="dze-mail-what">
 						<strong class="dze-mail-name"></strong>
-						<span class="dze-mail-when"><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
+						<span class="dze-mail-when"><span class="dze-smart"><?php echo esc_html( self::sto_refused() ? __( '9:00, reader\'s time', 'dazont-ecom' ) : __( 'Smart Send Time', 'dazont-ecom' ) ); ?></span></span>
 						<span class="dze-mail-subject"></span>
 						<span class="dze-mail-preview"></span>
 						<span class="dze-mail-clash"></span>
@@ -8673,7 +8736,7 @@ CSS;
 							<span id="dze-klav-e-clash" style="display:none;margin-left:8px;font-size:13px;color:#b26a00;"></span>
 							<button type="button" class="button button-small" id="dze-klav-e-free" style="display:none;margin-left:6px;"></button>
 							<span class="dze-smart" title="<?php esc_attr_e( 'Klaviyo works out, for each person on the list, the hour that reader actually opens his mail.', 'dazont-ecom' ); ?>">
-								<?php esc_html_e( 'Hour: Klaviyo Smart Send Time', 'dazont-ecom' ); ?>
+								<?php echo esc_html( self::sto_refused() ? __( 'Hour: 9:00 in each reader\'s time zone (Klaviyo does not offer Smart Send Time to this account yet)', 'dazont-ecom' ) : __( 'Hour: Klaviyo Smart Send Time', 'dazont-ecom' ) ); ?>
 							</span>
 							<button type="button" class="button-link" id="dze-klav-hours" style="margin-left:10px;"><?php esc_html_e( 'Which days work best?', 'dazont-ecom' ); ?></button>
 							<div id="dze-klav-hours-out" style="display:none;margin:8px 0 0;"></div>
