@@ -2688,6 +2688,106 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * What a model's « body » really holds once a whole page is taken off it.
+	 *
+	 * What is inside <body> is kept; the head, the style, script and title
+	 * blocks go WITH their contents, before kses could leave their text behind.
+	 * The stylesheet is not thrown away: its simple rules are written onto the
+	 * tags they name (inline_css()), which is the only styling an inbox reads —
+	 * so the button keeps its colour and the headline its size. And the
+	 * stylesheet an EARLIER wash turned into text — a run of CSS rules standing
+	 * between two tags, where only words can stand — is taken back the same
+	 * way: the emails already written are mended on their next save.
+	 */
+	public static function body_only( string $html ): string {
+		$css = '';
+		if ( preg_match_all( '~<style\b[^>]*>(.*?)</style\s*>~is', $html, $sm ) ) {
+			$css = implode( "\n", $sm[1] );
+		}
+		if ( preg_match( '~<body\b[^>]*>(.*?)(?:</body\s*>|$)~is', $html, $bm ) ) {
+			$html = $bm[1];
+		}
+		$html = (string) preg_replace( '~<(head|style|script|title|noscript)\b[^>]*>.*?</\1\s*>~is', '', $html );
+		$html = (string) preg_replace( '~<!DOCTYPE[^>]*>|</?(?:html|head|body)\b[^>]*>|<(?:meta|link)\b[^>]*>~i', '', $html );
+		$html = (string) preg_replace_callback(
+			'~(^|>)(\s*(?:[^<>{}]{1,200}\{[^<>{}]*\}\s*){2,})(?=<|$)~u',
+			static function ( array $m ) use ( &$css ): string {
+				$css .= "\n" . $m[2];
+				return $m[1];
+			},
+			$html
+		);
+		return '' !== trim( $css ) ? self::inline_css( $html, $css ) : $html;
+	}
+
+	/**
+	 * A stylesheet, written onto the tags it names.
+	 *
+	 * Only the simple rules — a tag, a class, a tag with a class, in a list or
+	 * alone. At-rules, `*`, `html`/`body` and any selector with a combinator or
+	 * a pseudo-class are left out: the shop's own layout already dresses the
+	 * page. The more precise rule is written later, and a tag's own style
+	 * attribute last of all, so it still wins. Only opening tags are touched;
+	 * every other byte stays as it was.
+	 */
+	public static function inline_css( string $html, string $css ): string {
+		$css = (string) preg_replace( '~/\*.*?\*/~s', '', $css );
+		$css = (string) preg_replace( '~@[a-z-]+[^{;]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}|@[a-z-]+[^;{]*;~i', '', $css );
+		$rules = [];
+		$n     = 0;
+		if ( preg_match_all( '~([^{}]+)\{([^{}]*)\}~', $css, $mm, PREG_SET_ORDER ) ) {
+			foreach ( $mm as $m ) {
+				$decls = trim( (string) preg_replace( '/\s+/', ' ', str_replace( [ '"', '<', '>' ], [ "'", '', '' ], $m[2] ) ), " ;" );
+				if ( '' === $decls ) {
+					continue;
+				}
+				foreach ( explode( ',', $m[1] ) as $sel ) {
+					if ( ! preg_match( '~^\s*([a-z][a-z0-9]*)?(?:\.([a-z0-9_-]+))?\s*$~i', $sel, $s ) || ( empty( $s[1] ) && empty( $s[2] ) ) ) {
+						continue;
+					}
+					$tag = strtolower( (string) ( $s[1] ?? '' ) );
+					if ( in_array( $tag, [ 'html', 'head', 'body' ], true ) ) {
+						continue;
+					}
+					$cls     = (string) ( $s[2] ?? '' );
+					$rules[] = [ ( '' !== $tag ? 1 : 0 ) + ( '' !== $cls ? 10 : 0 ), $n++, $tag, $cls, $decls ];
+				}
+			}
+		}
+		if ( ! $rules ) {
+			return $html;
+		}
+		usort( $rules, static fn( array $a, array $b ): int => [ $a[0], $a[1] ] <=> [ $b[0], $b[1] ] );
+		return (string) preg_replace_callback(
+			'~<([a-z][a-z0-9]*)\b([^<>]*)>~i',
+			static function ( array $m ) use ( $rules ): string {
+				$tag     = strtolower( $m[1] );
+				$attrs   = $m[2];
+				$classes = preg_match( '~\bclass\s*=\s*"([^"]*)"~i', $attrs, $c ) ? preg_split( '/\s+/', trim( $c[1] ) ) : [];
+				$add     = [];
+				foreach ( $rules as $r ) {
+					if ( ( '' === $r[2] || $r[2] === $tag ) && ( '' === $r[3] || in_array( $r[3], (array) $classes, true ) ) ) {
+						$add[] = $r[4];
+					}
+				}
+				if ( ! $add ) {
+					return $m[0];
+				}
+				$style = implode( ';', $add );
+				if ( preg_match( '~\bstyle\s*=\s*"([^"]*)"~i', $attrs, $st ) ) {
+					$attrs = str_replace( $st[0], 'style="' . $style . ';' . $st[1] . '"', $attrs );
+				} elseif ( preg_match( '~\s*/\s*$~', $attrs ) ) {
+					$attrs = (string) preg_replace( '~\s*/\s*$~', ' style="' . $style . '" /', $attrs );
+				} else {
+					$attrs = rtrim( $attrs ) . ' style="' . $style . '"';
+				}
+				return '<' . $m[1] . $attrs . '>';
+			},
+			$html
+		);
+	}
+
+	/**
 	 * The HTML an email may carry.
 	 *
 	 * Email HTML is table-and-inline-style HTML: WordPress's own post rules
@@ -2695,6 +2795,12 @@ final class DZE_Klaviyo {
 	 * added here. Scripts, iframes and forms are not on the list.
 	 */
 	public static function clean_html( string $html ): string {
+		// A WHOLE PAGE IS NOT A BODY. « Le format est cassé » (Kula, 13/11/2026):
+		// asked for the body only, the model answered with a complete document —
+		// <!DOCTYPE>, <head>, a <style> block, <body>. kses takes the tags off
+		// and KEEPS what was between them, so the stylesheet came out as text at
+		// the top of four Black Friday emails. See body_only().
+		$html  = self::body_only( $html );
 		$attrs = [
 			'style' => true, 'class' => true, 'id' => true, 'align' => true, 'valign' => true,
 			'width' => true, 'height' => true, 'border' => true, 'cellpadding' => true,
