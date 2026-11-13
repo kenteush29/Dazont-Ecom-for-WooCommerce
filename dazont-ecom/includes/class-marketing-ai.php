@@ -1788,7 +1788,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		// answer can be traced to the words that produced it.
 		$asked = "SYSTEM:\n" . $system . "\n\nUSER:\n" . $user;
 		$t0    = microtime( true );
-		$response = wp_remote_post( self::API_URL, [
+		$response = self::post_busy_aware( [
 			'timeout' => max( 30, $timeout ),
 			'headers' => [
 				'x-api-key'         => $key,
@@ -1867,7 +1867,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			$dze_headers['anthropic-beta'] = implode( ',', array_map( 'strval', (array) $extra['_betas'] ) );
 		}
 		unset( $extra['_betas'] );
-		$response = wp_remote_post( self::API_URL, [
+		$response = self::post_busy_aware( [
 			'timeout' => max( 30, $timeout ),
 			'headers' => $dze_headers,
 			'body'    => wp_json_encode( array_merge( [
@@ -1892,6 +1892,61 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	}
 
 	/**
+	 * Pauses between two tries when Anthropic is busy, in seconds; a test sets
+	 * them to nothing.
+	 *
+	 * @var int[]
+	 */
+	public static array $busy_pauses = [ 3, 8 ];
+
+	/** How many times the last single call was sent. */
+	private static int $tries = 1;
+
+	/**
+	 * ANTHROPIC BUSY IS NOT AN ANSWER.
+	 *
+	 * « Anthropic API error: Service temporarily unavailable » on the Klaviyo
+	 * e-mails (Kula, 13/11/2026 10:17 UTC: three 503 in a row). A single call
+	 * gave up at the provider's first « busy », where the grouped calls of
+	 * complete_many() already asked again. A 429, a 529 or any 5xx — and a
+	 * connection that broke — is now sent again, up to twice, after the pause
+	 * the provider asks for (Retry-After, at most 20 s) or 3 then 8 seconds,
+	 * and never once two minutes have gone by. A request that TIMED OUT is not
+	 * sent again: that would double the wait for nothing. A refused call is not
+	 * billed, so asking again costs nothing more.
+	 *
+	 * @param array<string,mixed> $args wp_remote_post() arguments.
+	 * @return array|\WP_Error The last response.
+	 */
+	private static function post_busy_aware( array $args ) {
+		$t0          = microtime( true );
+		self::$tries = 0;
+		while ( true ) {
+			self::$tries++;
+			$response = wp_remote_post( self::API_URL, $args );
+			$code     = 0;
+			if ( is_wp_error( $response ) ) {
+				$said = $response->get_error_message();
+				$busy = false === stripos( $said, 'timed out' ) && false === stripos( $said, 'timeout' );
+			} else {
+				$code = (int) wp_remote_retrieve_response_code( $response );
+				$busy = 429 === $code || 529 === $code || $code >= 500;
+				$said = 'HTTP ' . $code;
+			}
+			$left = self::$busy_pauses[ self::$tries - 1 ] ?? null;
+			if ( ! $busy || null === $left || microtime( true ) - $t0 > 120 ) {
+				return $response;
+			}
+			$asked_wait = ( $code && function_exists( 'wp_remote_retrieve_header' ) ) ? (int) wp_remote_retrieve_header( $response, 'retry-after' ) : 0;
+			$wait       = $asked_wait > 0 ? min( 20, $asked_wait ) : (int) $left;
+			DZE_Health::log( 'anthropic', 'POST /v1/messages', sprintf( '%s — busy, asked again in %d s', $said, $wait ) );
+			if ( $wait > 0 ) {
+				sleep( $wait );
+			}
+		}
+	}
+
+	/**
 	 * CE QU'UNE RÉPONSE DIT, lu de la même façon quel que soit le chemin
 	 * qu'elle a pris — un appel seul, un appel avec photos, ou plusieurs à la
 	 * fois. Deux lectures d'une même réponse, c'est deux endroits où l'usage se
@@ -1906,6 +1961,14 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			$msg = '' !== $msg ? $msg : 'HTTP ' . $code;
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
 			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — HTTP ' . $code . ' — ' . $msg, microtime( true ) - $t0 );
+			if ( 429 === $code || 529 === $code || $code >= 500 ) {
+				throw new RuntimeException( sprintf(
+					/* translators: 1: the provider's own message, 2: how many times it was asked */
+					__( 'Anthropic is busy or unavailable for the moment (%1$s), even after %2$d tries. This is on Anthropic\'s side, not the shop\'s: try again in a few minutes. A refused call is not billed.', 'dazont-ecom' ),
+					$msg,
+					max( 1, self::$tries )
+				) );
+			}
 			/* translators: %s: the provider's own message */
 			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
 		}
