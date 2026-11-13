@@ -808,6 +808,37 @@ ok( 'and the day is left alone',                  count( array_filter( $GLOBALS[
 $GLOBALS['dze_queue'] = [];
 $GLOBALS['dze_opts']['dze_klaviyo'] = [];
 
+echo "Klaviyo has not counted the recipients yet\n";
+// « Unable to schedule campaign … as estimated recipient count has not
+// completed » (Kula, 13/11/2026): the count is asked for, waited on, and the
+// campaign scheduled once it is in.
+DZE_Klaviyo::$count_pauses = [ 0, 0, 0 ];
+$count_refused = [ 'code' => 400, 'body' => json_encode( [ 'errors' => [ [ 'detail' => 'Unable to schedule campaign C1 as estimated recipient count has not completed.' ] ] ] ) ];
+$estimate      = static fn( string $st ): array => [ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'type' => 'campaign-recipient-estimation-job', 'id' => 'C1', 'attributes' => [ 'status' => $st ] ] ] ) ];
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => $draft( 'Draft', $next ) ],                       // read before
+	$count_refused,                                                              // refused: no count
+	[ 'code' => 202, 'body' => '{"data":{"id":"C1"}}' ],                         // count asked for
+	$estimate( 'processing' ), $estimate( 'complete' ),                           // and waited on
+	[ 'code' => 200, 'body' => '{"data":{"id":"C1","attributes":{"status":"queued"}}}' ], // scheduled
+	[ 'code' => 200, 'body' => $draft( 'Queued', $next ) ],                      // read after
+];
+[ $day, $said ] = DZE_Klaviyo::schedule( 'C1' );
+ok( 'it is scheduled once the count is in',       [ $day, $said ], [ $next, '' ] );
+ok( 'by asking Klaviyo to count first',           count( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'POST' === ( $c['method'] ?? '' ) && false !== strpos( (string) ( $c['url'] ?? '' ), 'campaign-recipient-estimation-jobs/' ) ) ), 1 );
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => $draft( 'Draft', $next ) ],
+	$count_refused,
+	[ 'code' => 202, 'body' => '{"data":{"id":"C1"}}' ],
+	$estimate( 'processing' ), $estimate( 'processing' ), $estimate( 'processing' ),
+];
+[ $day, $said ] = DZE_Klaviyo::schedule( 'C1' );
+ok( 'a count that takes too long is said plainly', $day === '' && false !== strpos( $said, 'still counting' ), true );
+ok( 'and nothing else is tried',                  count( array_filter( $GLOBALS['dze_sent'], fn( $c ) => false !== strpos( (string) ( $c['url'] ?? '' ), 'campaign-send-jobs/' ) ) ), 1 );
+$GLOBALS['dze_queue'] = [];
+
 echo "Putting it back to a draft\n";
 $GLOBALS['dze_sent'] = [];
 $GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C1"}}' ] ];

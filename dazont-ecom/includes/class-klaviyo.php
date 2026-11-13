@@ -161,6 +161,47 @@ final class DZE_Klaviyo {
 		return false !== stripos( $said, 'eligible for STO' ) || false !== stripos( $said, 'smart send time' ) || false !== stripos( $said, 'smart_send_time' );
 	}
 
+	/** True when Klaviyo refuses to schedule for want of a recipient count. */
+	public static function is_count_refusal( string $said ): bool {
+		return false !== stripos( $said, 'recipient count' ) || false !== stripos( $said, 'estimation' );
+	}
+
+	/**
+	 * Pauses while Klaviyo counts a campaign's recipients, in seconds; a test
+	 * sets them to nothing.
+	 *
+	 * @var int[]
+	 */
+	public static array $count_pauses = [ 2, 3, 4, 5, 5, 6 ];
+
+	/**
+	 * KLAVIYO COUNTS THE RECIPIENTS BEFORE IT SCHEDULES.
+	 *
+	 * The count is asked for (a recipient-estimation job, named by the
+	 * campaign), then read until Klaviyo says it is complete — for about
+	 * twenty-five seconds, well inside what an admin request may take.
+	 *
+	 * @return string '' once the count is done, else what to tell the shop.
+	 */
+	private static function count_recipients( string $camp_id ): string {
+		$start = self::request( 'POST', 'campaign-recipient-estimation-jobs/', [
+			'data' => [ 'type' => 'campaign-recipient-estimation-job', 'id' => $camp_id ],
+		], 25 );
+		if ( is_wp_error( $start ) && false === stripos( $start->get_error_message(), 'already' ) ) {
+			return $start->get_error_message();
+		}
+		foreach ( self::$count_pauses as $wait ) {
+			if ( $wait > 0 ) {
+				sleep( $wait );
+			}
+			$job = self::request( 'GET', 'campaign-recipient-estimation-jobs/' . rawurlencode( $camp_id ) . '/', null, 20 );
+			if ( ! is_wp_error( $job ) && 'complete' === strtolower( (string) ( $job['data']['attributes']['status'] ?? '' ) ) ) {
+				return '';
+			}
+		}
+		return __( 'Klaviyo is still counting who will receive this campaign — it does so after every change. Press Schedule again in a minute.', 'dazont-ecom' );
+	}
+
 	private static function note_sto_refused(): void {
 		update_option( self::OPT, array_merge( self::settings(), [ 'sto_refused' => time() ] ), false );
 	}
@@ -4404,41 +4445,60 @@ final class DZE_Klaviyo {
 		if ( '' === self::kept_day( $has['data'] ?? [] ) ) {
 			return [ '', __( 'This campaign has no send day in Klaviyo, so there is nothing to schedule it for. File the draft again.', 'dazont-ecom' ) ];
 		}
-		$job = self::request( 'POST', 'campaign-send-jobs/', [
-			'data' => [ 'type' => 'campaign-send-job', 'id' => $camp_id ],
-		], 30 );
-		$note = '';
-		// NOT ELIGIBLE FOR SMART SEND TIME. « Unable to schedule campaign … as
-		// this company is not eligible for STO » (Kula, 13/11/2026): the draft
-		// was accepted with Smart Send Time and the schedule refused for it.
-		// The campaign keeps its DAY and takes the plain hour the drafts get
-		// when Klaviyo refuses at creation — nine in the morning in each
-		// reader's own time zone — and is scheduled again, once. The account is
-		// remembered, so the next drafts are made that way from the start.
-		if ( is_wp_error( $job ) && self::is_sto_refusal( $job->get_error_message() )
-			&& 'smart_send_time' === (string) ( $has['data']['attributes']['send_strategy']['method'] ?? '' ) ) {
-			self::note_sto_refused();
-			$keep = self::kept_day( $has['data'] ?? [] );
-			$fix  = self::request( 'PATCH', 'campaigns/' . rawurlencode( $camp_id ) . '/', [
-				'data' => [
-					'type'       => 'campaign',
-					'id'         => $camp_id,
-					'attributes' => [
-						'send_strategy' => [
-							'method'   => 'static',
-							'datetime' => $keep . 'T09:00:00+00:00',
-							'options'  => [ 'is_local' => true, 'send_past_recipients_immediately' => false ],
-						],
-					],
-				],
-			], 30 );
-			if ( is_wp_error( $fix ) ) {
-				return [ '', $fix->get_error_message(), '' ];
-			}
-			$job  = self::request( 'POST', 'campaign-send-jobs/', [
+		$note  = '';
+		$smart = 'smart_send_time' === (string) ( $has['data']['attributes']['send_strategy']['method'] ?? '' );
+		// Up to four sends of the job, each refusal answered once:
+		for ( $try = 0; $try < 4; $try++ ) {
+			$job = self::request( 'POST', 'campaign-send-jobs/', [
 				'data' => [ 'type' => 'campaign-send-job', 'id' => $camp_id ],
 			], 30 );
-			$note = __( 'Klaviyo does not offer Smart Send Time to this account yet, so it goes out at 9:00 in each reader\'s own time zone, on the same day.', 'dazont-ecom' );
+			if ( ! is_wp_error( $job ) ) {
+				break;
+			}
+			$said = $job->get_error_message();
+			// NOT ELIGIBLE FOR SMART SEND TIME. « Unable to schedule campaign …
+			// as this company is not eligible for STO » (Kula, 13/11/2026): the
+			// draft was accepted with Smart Send Time and the schedule refused
+			// for it. The campaign keeps its DAY and takes the plain hour the
+			// drafts get when Klaviyo refuses at creation — nine in the morning
+			// in each reader's own time zone, the hour every campaign of the
+			// shop has actually gone out at. The account is remembered, so the
+			// next drafts are made that way from the start.
+			if ( $smart && self::is_sto_refusal( $said ) ) {
+				self::note_sto_refused();
+				$keep = self::kept_day( $has['data'] ?? [] );
+				$fix  = self::request( 'PATCH', 'campaigns/' . rawurlencode( $camp_id ) . '/', [
+					'data' => [
+						'type'       => 'campaign',
+						'id'         => $camp_id,
+						'attributes' => [
+							'send_strategy' => [
+								'method'   => 'static',
+								'datetime' => $keep . 'T09:00:00+00:00',
+								'options'  => [ 'is_local' => true, 'send_past_recipients_immediately' => false ],
+							],
+						],
+					],
+				], 30 );
+				if ( is_wp_error( $fix ) ) {
+					return [ '', $fix->get_error_message(), '' ];
+				}
+				$smart = false;
+				$note  = __( 'Klaviyo does not offer Smart Send Time to this account yet, so it goes out at 9:00 in each reader\'s own time zone, on the same day.', 'dazont-ecom' );
+				continue;
+			}
+			// NO RECIPIENT COUNT YET. « Unable to schedule campaign … as
+			// estimated recipient count has not completed » (Kula, 13/11/2026):
+			// a campaign made or changed has no current count, and Klaviyo will
+			// not schedule it without one. The count is asked for and waited on.
+			if ( self::is_count_refusal( $said ) ) {
+				$wait = self::count_recipients( $camp_id );
+				if ( '' !== $wait ) {
+					return [ '', $wait, '' ];
+				}
+				continue;
+			}
+			break;
 		}
 		if ( is_wp_error( $job ) ) {
 			return [ '', $job->get_error_message(), '' ];
