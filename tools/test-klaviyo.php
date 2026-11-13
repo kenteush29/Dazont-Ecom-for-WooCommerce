@@ -1546,6 +1546,22 @@ $mend   = DZE_Klaviyo::clean_html( $stored );
 ok( 'the stylesheet left as text is mended', false === strpos( $mend, 'margin:0' ) && false !== strpos( $mend, '<h2 style="color:#5b594e">Last hours</h2>' ) && false !== strpos( $mend, 'style="background:#719d1a"' ), true );
 ok( 'a body with no stylesheet is not touched', DZE_Klaviyo::body_only( '<p>Words {in braces} stay.</p><p>So do these.</p>' ), '<p>Words {in braces} stay.</p><p>So do these.</p>' );
 
+echo "The headings font is for headings\n";
+// « Le style est bizarre. Load-bearing, écriture bizarre » (Kula, 13/11/2026):
+// Aldrich on 11px labels in spaced capitals and on every product name.
+$label = '<p class="section-label" style="font-family:&apos;Aldrich&apos;,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#719d1a">Load-bearing</p>';
+$small = DZE_Klaviyo::clean_html( $label );
+ok( 'a small label leaves the headings font', false === stripos( $small, 'Aldrich' ) && false !== strpos( $small, 'font-family:Helvetica, Arial, sans-serif' ), true );
+ok( 'and keeps the rest of its look',         false !== strpos( $small, 'font-size:11px;text-transform:uppercase' ), true );
+$big = '<h1 style="font-family:\'Aldrich\',sans-serif;font-size:28px">We got you covered</h1>';
+ok( 'a heading of 28px keeps it',             DZE_Klaviyo::clean_html( $big ), $big );
+$short = '<div style="padding:12px 2px 4px;font:400 15px/1.35 \'Aldrich\', Helvetica, Arial, sans-serif;color:#111">Tactical Plate Carrier</div>';
+$fixed = DZE_Klaviyo::clean_html( $short );
+ok( 'the font shorthand too',                 false === stripos( $fixed, 'Aldrich' ) && false !== strpos( $fixed, 'font:400 15px/1.35 Helvetica, Arial, sans-serif' ), true );
+ok( 'washed twice, unchanged',                DZE_Klaviyo::clean_html( $fixed ), $fixed );
+$card = DZE_Klaviyo::card_html( 'https://x.test/p', 'https://x.test/p.jpg', 'Tactical Plate Carrier', '$120.90' );
+ok( 'a product card names its product in the body font', false === stripos( $card, 'Aldrich' ), true );
+
 echo "The template a campaign actually SENDS is the one rewritten\n";
 // The week-long bug, finally caught on the owner's own account: opening a
 // campaign for translation makes Klaviyo CLONE the assigned template
