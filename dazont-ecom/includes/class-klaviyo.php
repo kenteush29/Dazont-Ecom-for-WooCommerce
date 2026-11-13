@@ -800,7 +800,7 @@ final class DZE_Klaviyo {
 			. '<tr><td align="center" style="background:%10$s;border:1px solid %11$s;border-radius:%12$dpx;padding:14px 10px 18px;">'
 			. '<a href="%1$s" style="text-decoration:none;color:%6$s;">'
 			. '<img src="%2$s" alt="%3$s" width="240" style="display:block;width:100%%;max-width:240px;height:auto;border:0;border-radius:%12$dpx;" />'
-			. '<div style="padding:12px 2px 4px;font:400 15px/1.35 %5$s;color:%6$s;">%3$s</div>'
+			. '<div style="padding:12px 2px 4px;font:600 15px/1.35 %7$s;color:%6$s;">%3$s</div>'
 			. '<div style="padding:0 2px 12px;font:400 15px/1.4 %7$s;">%4$s</div></a>'
 			. '<a href="%1$s" style="display:inline-block;background:%8$s;color:%13$s;text-decoration:none;'
 			. 'padding:11px 20px;border-radius:%14$dpx;font:400 14px %7$s;">%9$s</a>'
@@ -2688,6 +2688,49 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * THE HEADINGS FONT IS FOR HEADINGS.
+	 *
+	 * « Le style est bizarre. Load-bearing, écriture bizarre » (Kula,
+	 * 13/11/2026): the shop's headings face — Aldrich on Kula, square and
+	 * technical — was set on 11px labels in spaced capitals and on every
+	 * product name. Large, it is the brand; small, it is hard to read. Any text
+	 * under 18px whose style asks for the headings face gets the body face
+	 * instead, whoever wrote it — the model or this plugin. A heading of 18px
+	 * and more keeps it, and so does a style that names no size.
+	 */
+	public static function small_type( string $html ): string {
+		$t    = self::theme_style();
+		$head = trim( (string) strtok( (string) $t['head'], ',' ), " '\"" );
+		$body = str_replace( '"', "'", (string) $t['body'] );
+		if ( '' === $head || '' === trim( $body ) || false !== stripos( $body, $head ) ) {
+			return $html;
+		}
+		return (string) preg_replace_callback(
+			'~\bstyle\s*=\s*"([^"]*)"~i',
+			static function ( array $m ) use ( $head, $body ): string {
+				$css = html_entity_decode( $m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				if ( false === stripos( $css, $head ) ) {
+					return $m[0];
+				}
+				$size = 0.0;
+				if ( preg_match( '~(?:^|;)\s*font-size\s*:\s*([\d.]+)px~i', $css, $fs ) ) {
+					$size = (float) $fs[1];
+				} elseif ( preg_match( '~(?:^|;)\s*font\s*:[^;]*?([\d.]+)px~i', $css, $fs ) ) {
+					$size = (float) $fs[1];
+				}
+				if ( $size <= 0 || $size >= 18 ) {
+					return $m[0];
+				}
+				$swap = static fn( array $x ): string => false !== stripos( $x[2], $head ) ? $x[1] . $body : $x[0];
+				$css  = (string) preg_replace_callback( '~((?:^|;)\s*font-family\s*:\s*)([^;]*)~i', $swap, $css );
+				$css  = (string) preg_replace_callback( '~((?:^|;)\s*font\s*:[^;]*?[\d.]+px(?:/[\d.]+(?:px|em|%)?)?\s+)([^;]*)~i', $swap, $css );
+				return 'style="' . str_replace( '"', "'", $css ) . '"';
+			},
+			$html
+		);
+	}
+
+	/**
 	 * What a model's « body » really holds once a whole page is taken off it.
 	 *
 	 * What is inside <body> is kept; the head, the style, script and title
@@ -2800,7 +2843,7 @@ final class DZE_Klaviyo {
 		// <!DOCTYPE>, <head>, a <style> block, <body>. kses takes the tags off
 		// and KEEPS what was between them, so the stylesheet came out as text at
 		// the top of four Black Friday emails. See body_only().
-		$html  = self::body_only( $html );
+		$html  = self::small_type( self::body_only( $html ) );
 		$attrs = [
 			'style' => true, 'class' => true, 'id' => true, 'align' => true, 'valign' => true,
 			'width' => true, 'height' => true, 'border' => true, 'cellpadding' => true,
@@ -6351,8 +6394,8 @@ final class DZE_Klaviyo {
 			);
 		}
 		$user .= "\n--- THE SHOP'S OWN TYPE AND COLOUR ---\n"
-			. 'Headings font-family: ' . $t['head'] . "\n"
-			. 'Body font-family: ' . $t['body'] . "\n"
+			. 'Headings font-family: ' . $t['head'] . " — for headings of 20px and more ONLY.\n"
+			. 'Body font-family: ' . $t['body'] . " — for everything smaller: text, labels above a section, captions, product names, buttons.\n"
 			. 'Text colour: ' . $t['ink'] . "\n"
 			. 'Button and link colour: ' . $t['link'] . "\n"
 			. 'Body text size: ' . (int) $t['size'] . "px\n";
