@@ -145,6 +145,10 @@ function update_option( $k, $v, $a = null ) { $GLOBALS['dze_opts'][ $k ] = $v; $
 $GLOBALS['dze_http'] = [ 'code' => 200, 'body' => '' ];
 function wp_remote_post( $url, $args = [] ) {
 	$GLOBALS['dze_posted'][] = [ 'url' => $url ] + $args;
+	if ( ! empty( $GLOBALS['dze_queue'] ) ) {
+		$next = array_shift( $GLOBALS['dze_queue'] );
+		return [ 'response' => [ 'code' => $next['code'] ], 'body' => $next['body'] ];
+	}
 	return [ 'response' => [ 'code' => $GLOBALS['dze_http']['code'] ], 'body' => $GLOBALS['dze_http']['body'] ];
 }
 function wp_remote_retrieve_response_code( $r ) { return $r['response']['code'] ?? 0; }
@@ -204,6 +208,7 @@ ok( 'and the answer, verbatim',         $row['got'] ?? '', '{"subject":"Hello"}'
 ok( 'on the provider that served it',   $row['provider'] ?? '', 'anthropic' );
 
 echo "A refused call is written down too\n";
+DZE_Marketing_Ai::$busy_pauses = [ 0, 0 ]; // asked again at once: a test does not wait.
 $GLOBALS['dze_http'] = [ 'code' => 429, 'body' => json_encode( [ 'error' => [ 'message' => 'Rate limited' ] ] ) ];
 $threw = '';
 try { DZE_Marketing_Ai::complete( 'S', 'U' ); } catch ( Throwable $e ) { $threw = $e->getMessage(); }
@@ -211,6 +216,32 @@ ok( 'the caller still gets the error',  false !== strpos( $threw, 'Rate limited'
 $row = rows()[0] ?? [];
 ok( 'and the trace names it',           0 === strpos( (string) ( $row['got'] ?? '' ), 'ERROR' ), true );
 ok( 'with the provider\'s own words',   false !== strpos( (string) $row['got'], 'Rate limited' ), true );
+
+echo "Anthropic busy: asked again, up to three times in all\n";
+// « Anthropic API error: Service temporarily unavailable » on the Klaviyo
+// e-mails (Kula, 13/11/2026): one 503 used to end the call on the spot.
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 503, 'body' => json_encode( [ 'error' => [ 'message' => 'Service temporarily unavailable' ] ] ) ],
+	[ 'code' => 529, 'body' => json_encode( [ 'error' => [ 'message' => 'Overloaded' ] ] ) ],
+	[ 'code' => 200, 'body' => json_encode( [ 'content' => [ [ 'type' => 'text', 'text' => 'Back on its feet.' ] ], 'stop_reason' => 'end_turn', 'usage' => [ 'input_tokens' => 5, 'output_tokens' => 4 ] ] ) ],
+];
+$GLOBALS['dze_posted'] = [];
+$dze_back = '';
+try { $dze_back = DZE_Marketing_Ai::complete( 'S', 'U' ); } catch ( Throwable $e ) { $dze_back = 'THREW: ' . $e->getMessage(); }
+ok( 'a 503 then a 529 are asked again, and the third answer is used', $dze_back, 'Back on its feet.' );
+ok( 'three calls were sent', count( $GLOBALS['dze_posted'] ), 3 );
+$GLOBALS['dze_queue'] = array_fill( 0, 5, [ 'code' => 503, 'body' => json_encode( [ 'error' => [ 'message' => 'Service temporarily unavailable' ] ] ) ] );
+$GLOBALS['dze_posted'] = [];
+$dze_said = '';
+try { DZE_Marketing_Ai::complete( 'S', 'U' ); } catch ( Throwable $e ) { $dze_said = $e->getMessage(); }
+ok( 'still busy after three tries: it stops there', count( $GLOBALS['dze_posted'] ), 3 );
+ok( 'and says it is on Anthropic\'s side, in so many words', false !== strpos( $dze_said, "This is on Anthropic's side" ) && false !== strpos( $dze_said, 'Service temporarily unavailable' ) && false !== strpos( $dze_said, '3 tries' ), true );
+$GLOBALS['dze_queue'] = [ [ 'code' => 400, 'body' => json_encode( [ 'error' => [ 'message' => 'prompt is too long' ] ] ) ] ];
+$GLOBALS['dze_posted'] = [];
+try { DZE_Marketing_Ai::complete( 'S', 'U' ); } catch ( Throwable $e ) {}
+ok( 'a refusal that is not « busy » is not asked again', count( $GLOBALS['dze_posted'] ), 1 );
+$GLOBALS['dze_queue'] = [];
+$GLOBALS['dze_http'] = [ 'code' => 200, 'body' => '' ];
 
 echo "An answer the model never finished is not an answer\n";
 //
