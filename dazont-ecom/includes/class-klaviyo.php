@@ -800,7 +800,7 @@ final class DZE_Klaviyo {
 			. '<tr><td align="center" style="background:%10$s;border:1px solid %11$s;border-radius:%12$dpx;padding:14px 10px 18px;">'
 			. '<a href="%1$s" style="text-decoration:none;color:%6$s;">'
 			. '<img src="%2$s" alt="%3$s" width="240" style="display:block;width:100%%;max-width:240px;height:auto;border:0;border-radius:%12$dpx;" />'
-			. '<div style="padding:12px 2px 4px;font:600 15px/1.35 %7$s;color:%6$s;">%3$s</div>'
+			. '<div style="padding:12px 2px 4px;font:400 15px/1.35 %5$s;color:%6$s;">%3$s</div>'
 			. '<div style="padding:0 2px 12px;font:400 15px/1.4 %7$s;">%4$s</div></a>'
 			. '<a href="%1$s" style="display:inline-block;background:%8$s;color:%13$s;text-decoration:none;'
 			. 'padding:11px 20px;border-radius:%14$dpx;font:400 14px %7$s;">%9$s</a>'
@@ -2688,146 +2688,35 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * THE HEADINGS FONT IS FOR HEADINGS.
-	 *
-	 * « Le style est bizarre. Load-bearing, écriture bizarre » (Kula,
-	 * 13/11/2026): the shop's headings face — Aldrich on Kula, square and
-	 * technical — was set on 11px labels in spaced capitals and on every
-	 * product name. Large, it is the brand; small, it is hard to read. Any text
-	 * under 18px whose style asks for the headings face gets the body face
-	 * instead, whoever wrote it — the model or this plugin. A heading of 18px
-	 * and more keeps it, and so does a style that names no size.
-	 */
-	public static function small_type( string $html ): string {
-		$t    = self::theme_style();
-		$head = trim( (string) strtok( (string) $t['head'], ',' ), " '\"" );
-		$body = str_replace( '"', "'", (string) $t['body'] );
-		if ( '' === $head || '' === trim( $body ) || false !== stripos( $body, $head ) ) {
-			return $html;
-		}
-		return (string) preg_replace_callback(
-			'~\bstyle\s*=\s*"([^"]*)"~i',
-			static function ( array $m ) use ( $head, $body ): string {
-				$css = html_entity_decode( $m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				if ( false === stripos( $css, $head ) ) {
-					return $m[0];
-				}
-				$size = 0.0;
-				if ( preg_match( '~(?:^|;)\s*font-size\s*:\s*([\d.]+)px~i', $css, $fs ) ) {
-					$size = (float) $fs[1];
-				} elseif ( preg_match( '~(?:^|;)\s*font\s*:[^;]*?([\d.]+)px~i', $css, $fs ) ) {
-					$size = (float) $fs[1];
-				}
-				if ( $size <= 0 || $size >= 18 ) {
-					return $m[0];
-				}
-				$swap = static fn( array $x ): string => false !== stripos( $x[2], $head ) ? $x[1] . $body : $x[0];
-				$css  = (string) preg_replace_callback( '~((?:^|;)\s*font-family\s*:\s*)([^;]*)~i', $swap, $css );
-				$css  = (string) preg_replace_callback( '~((?:^|;)\s*font\s*:[^;]*?[\d.]+px(?:/[\d.]+(?:px|em|%)?)?\s+)([^;]*)~i', $swap, $css );
-				return 'style="' . str_replace( '"', "'", $css ) . '"';
-			},
-			$html
-		);
-	}
-
-	/**
 	 * What a model's « body » really holds once a whole page is taken off it.
 	 *
 	 * What is inside <body> is kept; the head, the style, script and title
-	 * blocks go WITH their contents, before kses could leave their text behind.
-	 * The stylesheet is not thrown away: its simple rules are written onto the
-	 * tags they name (inline_css()), which is the only styling an inbox reads —
-	 * so the button keeps its colour and the headline its size. And the
+	 * blocks go WITH their contents, before kses could leave their text behind
+	 * (« le format est cassé », Kula, 13/11/2026: the stylesheet printed as text
+	 * under the picture). The stylesheet is DROPPED, never applied: applied, it
+	 * brought the model's own design into the email — small labels in spaced
+	 * capitals, spaced headings — that no email of the shop had ever had, and
+	 * the owner wants the emails as they were (« le style d'écriture auparavant
+	 * était bien »). The emails are styled tag by tag, as the prompt asks; a
+	 * page that came back anyway is asked for again (see is_page()). And the
 	 * stylesheet an EARLIER wash turned into text — a run of CSS rules standing
-	 * between two tags, where only words can stand — is taken back the same
-	 * way: the emails already written are mended on their next save.
+	 * between two tags, where only words can stand — is taken out the same way.
 	 */
 	public static function body_only( string $html ): string {
-		$css = '';
-		if ( preg_match_all( '~<style\b[^>]*>(.*?)</style\s*>~is', $html, $sm ) ) {
-			$css = implode( "\n", $sm[1] );
-		}
 		if ( preg_match( '~<body\b[^>]*>(.*?)(?:</body\s*>|$)~is', $html, $bm ) ) {
 			$html = $bm[1];
 		}
 		$html = (string) preg_replace( '~<(head|style|script|title|noscript)\b[^>]*>.*?</\1\s*>~is', '', $html );
 		$html = (string) preg_replace( '~<!DOCTYPE[^>]*>|</?(?:html|head|body)\b[^>]*>|<(?:meta|link)\b[^>]*>~i', '', $html );
-		$html = (string) preg_replace_callback(
-			'~(^|>)(\s*(?:[^<>{}]{1,200}\{[^<>{}]*\}\s*){2,})(?=<|$)~u',
-			static function ( array $m ) use ( &$css ): string {
-				$css .= "\n" . $m[2];
-				return $m[1];
-			},
-			$html
-		);
-		return '' !== trim( $css ) ? self::inline_css( $html, $css ) : $html;
+		return (string) preg_replace( '~(^|>)\s*(?:[^<>{}]{1,200}\{[^<>{}]*\}\s*){2,}(?=<|$)~u', '$1', $html );
 	}
 
 	/**
-	 * A stylesheet, written onto the tags it names.
-	 *
-	 * Only the simple rules — a tag, a class, a tag with a class, in a list or
-	 * alone. At-rules, `*`, `html`/`body` and any selector with a combinator or
-	 * a pseudo-class are left out: the shop's own layout already dresses the
-	 * page. The more precise rule is written later, and a tag's own style
-	 * attribute last of all, so it still wins. Only opening tags are touched;
-	 * every other byte stays as it was.
+	 * True when the model wrote a web page — a document or a stylesheet — where
+	 * an email body was asked for: the one shape the shop's emails are never in.
 	 */
-	public static function inline_css( string $html, string $css ): string {
-		$css = (string) preg_replace( '~/\*.*?\*/~s', '', $css );
-		$css = (string) preg_replace( '~@[a-z-]+[^{;]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}|@[a-z-]+[^;{]*;~i', '', $css );
-		$rules = [];
-		$n     = 0;
-		if ( preg_match_all( '~([^{}]+)\{([^{}]*)\}~', $css, $mm, PREG_SET_ORDER ) ) {
-			foreach ( $mm as $m ) {
-				$decls = trim( (string) preg_replace( '/\s+/', ' ', str_replace( [ '"', '<', '>' ], [ "'", '', '' ], $m[2] ) ), " ;" );
-				if ( '' === $decls ) {
-					continue;
-				}
-				foreach ( explode( ',', $m[1] ) as $sel ) {
-					if ( ! preg_match( '~^\s*([a-z][a-z0-9]*)?(?:\.([a-z0-9_-]+))?\s*$~i', $sel, $s ) || ( empty( $s[1] ) && empty( $s[2] ) ) ) {
-						continue;
-					}
-					$tag = strtolower( (string) ( $s[1] ?? '' ) );
-					if ( in_array( $tag, [ 'html', 'head', 'body' ], true ) ) {
-						continue;
-					}
-					$cls     = (string) ( $s[2] ?? '' );
-					$rules[] = [ ( '' !== $tag ? 1 : 0 ) + ( '' !== $cls ? 10 : 0 ), $n++, $tag, $cls, $decls ];
-				}
-			}
-		}
-		if ( ! $rules ) {
-			return $html;
-		}
-		usort( $rules, static fn( array $a, array $b ): int => [ $a[0], $a[1] ] <=> [ $b[0], $b[1] ] );
-		return (string) preg_replace_callback(
-			'~<([a-z][a-z0-9]*)\b([^<>]*)>~i',
-			static function ( array $m ) use ( $rules ): string {
-				$tag     = strtolower( $m[1] );
-				$attrs   = $m[2];
-				$classes = preg_match( '~\bclass\s*=\s*"([^"]*)"~i', $attrs, $c ) ? preg_split( '/\s+/', trim( $c[1] ) ) : [];
-				$add     = [];
-				foreach ( $rules as $r ) {
-					if ( ( '' === $r[2] || $r[2] === $tag ) && ( '' === $r[3] || in_array( $r[3], (array) $classes, true ) ) ) {
-						$add[] = $r[4];
-					}
-				}
-				if ( ! $add ) {
-					return $m[0];
-				}
-				$style = implode( ';', $add );
-				if ( preg_match( '~\bstyle\s*=\s*"([^"]*)"~i', $attrs, $st ) ) {
-					$attrs = str_replace( $st[0], 'style="' . $style . ';' . $st[1] . '"', $attrs );
-				} elseif ( preg_match( '~\s*/\s*$~', $attrs ) ) {
-					$attrs = (string) preg_replace( '~\s*/\s*$~', ' style="' . $style . '" /', $attrs );
-				} else {
-					$attrs = rtrim( $attrs ) . ' style="' . $style . '"';
-				}
-				return '<' . $m[1] . $attrs . '>';
-			},
-			$html
-		);
+	public static function is_page( string $html ): bool {
+		return 1 === preg_match( '~<!DOCTYPE|<html\b|<head\b|<body\b|<style\b~i', $html );
 	}
 
 	/**
@@ -2843,7 +2732,7 @@ final class DZE_Klaviyo {
 		// <!DOCTYPE>, <head>, a <style> block, <body>. kses takes the tags off
 		// and KEEPS what was between them, so the stylesheet came out as text at
 		// the top of four Black Friday emails. See body_only().
-		$html  = self::small_type( self::body_only( $html ) );
+		$html  = self::body_only( $html );
 		$attrs = [
 			'style' => true, 'class' => true, 'id' => true, 'align' => true, 'valign' => true,
 			'width' => true, 'height' => true, 'border' => true, 'cellpadding' => true,
@@ -6394,8 +6283,8 @@ final class DZE_Klaviyo {
 			);
 		}
 		$user .= "\n--- THE SHOP'S OWN TYPE AND COLOUR ---\n"
-			. 'Headings font-family: ' . $t['head'] . " — for headings of 20px and more ONLY.\n"
-			. 'Body font-family: ' . $t['body'] . " — for everything smaller: text, labels above a section, captions, product names, buttons.\n"
+			. 'Headings font-family: ' . $t['head'] . "\n"
+			. 'Body font-family: ' . $t['body'] . "\n"
 			. 'Text colour: ' . $t['ink'] . "\n"
 			. 'Button and link colour: ' . $t['link'] . "\n"
 			. 'Body text size: ' . (int) $t['size'] . "px\n";
@@ -6437,26 +6326,48 @@ final class DZE_Klaviyo {
 			. "- The header and the footer are added around your body. They ALREADY carry the shop's service promises — worldwide delivery, customer support, secure payment — as badges. Never write those promises in the body: not as a line, not as a reassurance, not as a closing sentence. The reader sees them once, under what you wrote.\n"
 			. "- The body is placed in a column that is already inset from the edges of the card. Do not add an outer frame or a full-width coloured band of your own; write inside the space you are given.\n"
 			. "- Never write the HTML of a product. [[PRODUCT n]] is how a product is placed, and it is the only way.\n"
+			. "- The body is a fragment of an email, never a web page: no <!DOCTYPE>, <html>, <head> or <body>, no <style> block and no class of your own. Every style is written inline, on its own tag.\n"
 			. "- PREVIEW TEXT: SIX words at the very most, and under fifty characters. An inbox shows about forty and cuts the rest off mid-word, so everything past that is written for nobody. It is the second half of the sentence the subject began — one concrete thing: the day it ends, or the one product worth opening for. Never a summary of the offer, never a list of the categories on sale, never the discount already said in the subject.\n"
 			. "- Write about the GOODS and about this moment of the promotion, never about the shop's assortment. A sentence that would fit any shop in any week — 'best-sellers across our categories, now discounted' — is a wasted sentence: name the thing, say what it is for, say what it costs now.\n"
 			. "- When other emails of this promotion are listed above, this one has to be recognisable as a DIFFERENT email at a glance: another subject line, other headings, another opening sentence, other products first. If the only difference you can find is the same offer said in other words, you have the wrong angle — go back to what this moment of the promotion is for and write from there.\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
 			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
 
+		$system = 'You write and lay out the promotional emails of an online shop. You answer with JSON only, and the body is email-ready HTML.';
 		DZE_Ai_Usage::unit( 'promo_email' );
 		try {
-			$out = DZE_Marketing_Ai::complete(
-				'You write and lay out the promotional emails of an online shop. You answer with JSON only, and the body is email-ready HTML.',
-				$user,
-				'',
-				6000,
-				150
-			);
+			$out = DZE_Marketing_Ai::complete( $system, $user, '', 6000, 150 );
 		} finally {
 			DZE_Ai_Usage::unit();
 		}
 		$json = json_decode( trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', (string) $out ) ), true );
 		$body = is_array( $json ) ? (string) ( $json['body'] ?? '' ) : '';
+		// A WEB PAGE IS NOT AN EMAIL BODY. « Le format est cassé » (Kula,
+		// 13/11/2026): every email of an event came back as a page with its own
+		// stylesheet, where the shop's emails had always been styled tag by tag.
+		// It is asked for ONCE more, with the reason; a second page, or no
+		// answer, is kept as a body with its page taken off (body_only()).
+		if ( '' !== trim( $body ) && self::is_page( $body ) ) {
+			DZE_Ai_Usage::unit( 'promo_email' );
+			try {
+				$again = DZE_Marketing_Ai::complete(
+					$system,
+					$user . "\n\n--- YOUR LAST ANSWER WAS REFUSED ---\nIts body was a web page with a <style> block. Send the email again as a body fragment: no <!DOCTYPE>, <html>, <head> or <body>, no <style> block, no class — every style inline, on its own tag.",
+					'',
+					6000,
+					150
+				);
+				$retry = json_decode( trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', (string) $again ) ), true );
+				if ( is_array( $retry ) && '' !== trim( (string) ( $retry['body'] ?? '' ) ) ) {
+					$json = $retry;
+					$body = (string) $retry['body'];
+				}
+			} catch ( \Throwable $e ) {
+				// The first answer is still an email once its page is taken off.
+			} finally {
+				DZE_Ai_Usage::unit();
+			}
+		}
 		if ( '' === trim( $body ) ) {
 			// An answer that started well and stopped mid-sentence is a
 			// different problem from an empty one, and saying "try again" to

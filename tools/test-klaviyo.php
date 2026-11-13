@@ -1525,42 +1525,28 @@ echo "A whole page sent back as the body\n";
 // « Le format est cassé » (Kula, 13/11/2026): asked for the body only, the
 // model answered with <!DOCTYPE>, <head>, a <style> block and <body>; kses
 // kept the stylesheet's TEXT, printed at the top of four Black Friday emails.
+// Then « le style d'écriture auparavant était bien »: applied, that stylesheet
+// brought a look the shop's emails never had. It is DROPPED, never applied.
 $page = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Black Friday</title>'
 	. '<link href="https://fonts.googleapis.com/css2?family=Aldrich" rel="stylesheet">'
-	. '<style>*{margin:0;padding:0;}body{background:#ffffff;}h1{font-size:28px;}.cta-btn{background:#719d1a;color:#ffffff;}'
-	. '@media (max-width:600px){.cta-btn{display:block;}}a:hover{color:red;}</style></head>'
-	. '<body><h1 class="headline">The Sale Closes at Midnight</h1>'
+	. '<style>*{margin:0;padding:0;}body{background:#ffffff;}h1{font-size:28px;}.eyebrow{letter-spacing:2px;text-transform:uppercase;}'
+	. '@media (max-width:600px){.cta-btn{display:block;}}</style></head>'
+	. '<body><p class="eyebrow">Black Friday 2026</p><h1 class="headline">The Sale Closes at Midnight</h1>'
 	. '<p><a href="https://kula-tactical.com/" class="cta-btn" style="padding:14px 36px">Shop now</a></p><img src="https://x.test/p.jpg" class="hero" /></body></html>';
 $got = DZE_Klaviyo::clean_html( $page );
 ok( 'no stylesheet printed as text',        false === strpos( $got, 'margin:0;padding:0' ) && false === strpos( $got, '@media' ), true );
-ok( 'no title printed as text',             false === strpos( $got, 'Black Friday' ), true );
-ok( 'the words are all there',              false !== strpos( $got, 'The Sale Closes at Midnight' ) && false !== strpos( $got, 'Shop now' ), true );
-ok( 'the rule for a tag is on the tag',     false !== strpos( $got, '<h1 class="headline" style="font-size:28px">' ), true );
-ok( 'a class rule is on its tag, and the tag\'s own style comes last',
-	false !== strpos( $got, 'style="background:#719d1a;color:#ffffff;padding:14px 36px"' ), true );
-ok( 'a self-closing tag stays closed',      1 === preg_match( '~<img src="https://x\.test/p\.jpg" class="hero" ?/>~', $got ), true );
+ok( 'no title printed as text',             false === strpos( $got, '>Black Friday<' ) && 0 !== strpos( $got, 'Black Friday</title>' ), true );
+ok( 'the words are all there',              false !== strpos( $got, 'The Sale Closes at Midnight' ) && false !== strpos( $got, 'Shop now' ) && false !== strpos( $got, 'Black Friday 2026' ), true );
+ok( 'the stylesheet is not applied',        false === strpos( $got, 'letter-spacing' ) && false === strpos( $got, 'font-size:28px' ), true );
+ok( 'a tag\'s own style stays as written',   false !== strpos( $got, 'style="padding:14px 36px"' ), true );
 ok( 'washed twice, unchanged',              DZE_Klaviyo::clean_html( $got ), $got );
-// And what an EARLIER wash left in the four emails: the stylesheet as text.
+ok( 'a page is recognised as one',          DZE_Klaviyo::is_page( $page ), true );
+ok( 'a body fragment is not',               DZE_Klaviyo::is_page( '<h1 style="font-size:28px">Hi</h1><p>Words.</p>' ), false );
+// And what an EARLIER wash left in the emails: the stylesheet as text.
 $stored = '<p><img src="https://x.test/p.jpg" /></p>*{margin:0;padding:0;}h1,h2{color:#5b594e;}.cta-btn{background:#719d1a;}<h2>Last hours</h2><a class="cta-btn" href="https://x.test/">Go</a>';
 $mend   = DZE_Klaviyo::clean_html( $stored );
-ok( 'the stylesheet left as text is mended', false === strpos( $mend, 'margin:0' ) && false !== strpos( $mend, '<h2 style="color:#5b594e">Last hours</h2>' ) && false !== strpos( $mend, 'style="background:#719d1a"' ), true );
+ok( 'the stylesheet left as text is taken out', false === strpos( $mend, 'margin:0' ) && false !== strpos( $mend, '<h2>Last hours</h2>' ), true );
 ok( 'a body with no stylesheet is not touched', DZE_Klaviyo::body_only( '<p>Words {in braces} stay.</p><p>So do these.</p>' ), '<p>Words {in braces} stay.</p><p>So do these.</p>' );
-
-echo "The headings font is for headings\n";
-// « Le style est bizarre. Load-bearing, écriture bizarre » (Kula, 13/11/2026):
-// Aldrich on 11px labels in spaced capitals and on every product name.
-$label = '<p class="section-label" style="font-family:&apos;Aldrich&apos;,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#719d1a">Load-bearing</p>';
-$small = DZE_Klaviyo::clean_html( $label );
-ok( 'a small label leaves the headings font', false === stripos( $small, 'Aldrich' ) && false !== strpos( $small, 'font-family:Helvetica, Arial, sans-serif' ), true );
-ok( 'and keeps the rest of its look',         false !== strpos( $small, 'font-size:11px;text-transform:uppercase' ), true );
-$big = '<h1 style="font-family:\'Aldrich\',sans-serif;font-size:28px">We got you covered</h1>';
-ok( 'a heading of 28px keeps it',             DZE_Klaviyo::clean_html( $big ), $big );
-$short = '<div style="padding:12px 2px 4px;font:400 15px/1.35 \'Aldrich\', Helvetica, Arial, sans-serif;color:#111">Tactical Plate Carrier</div>';
-$fixed = DZE_Klaviyo::clean_html( $short );
-ok( 'the font shorthand too',                 false === stripos( $fixed, 'Aldrich' ) && false !== strpos( $fixed, 'font:400 15px/1.35 Helvetica, Arial, sans-serif' ), true );
-ok( 'washed twice, unchanged',                DZE_Klaviyo::clean_html( $fixed ), $fixed );
-$card = DZE_Klaviyo::card_html( 'https://x.test/p', 'https://x.test/p.jpg', 'Tactical Plate Carrier', '$120.90' );
-ok( 'a product card names its product in the body font', false === stripos( $card, 'Aldrich' ), true );
 
 echo "The template a campaign actually SENDS is the one rewritten\n";
 // The week-long bug, finally caught on the owner's own account: opening a
