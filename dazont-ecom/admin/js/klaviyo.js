@@ -464,8 +464,20 @@
 			if (then) { then('#00794b' === colour); }
 		}
 
-		$.post(cfg.ajaxUrl, { action: 'dze_klav_langs', nonce: cfg.nonce }).done(function (r) {
-			var langs = (r && r.data && r.data.langs) || [], done = [], failed = [], msg = '';
+		// ONLY THE LANGUAGES STILL TO WRITE. « Quand 4/5 sont bonnes et que pl
+		// est bloqué, il faut toujours tout retraduire » — the server says which
+		// languages were already written from this very English, and those are
+		// kept. A second press on a row with nothing left redoes them all.
+		var force = $b.length && $b.data('force') ? 1 : 0;
+		if ($b.length) { $b.data('force', 0); }
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_langs', nonce: cfg.nonce, rule: rule, email: mail, force: force }).done(function (r) {
+			var langs = (r && r.data && r.data.langs) || [], done = [], failed = [], msg = '',
+				kept = (r && r.data && r.data.done) || [];
+			if (!langs.length && kept.length) {
+				done_('#00794b', (cfg.i18nAlready || 'Already translated in %s for this version.').replace('%s', kept.join(', ').toUpperCase()));
+				if ($b.length) { $b.data('force', 1).prop('disabled', false).text(was); }
+				return;
+			}
 			if (!langs.length) {
 				done_('#b32d2e', cfg.i18nNone || 'No languages to translate into.');
 				return;
@@ -533,6 +545,7 @@
 						.replace('%s', waiting.join(', ').toUpperCase())
 						.replace('%i', done.length + failed.length).replace('%n', langs.length)
 					+ (done.length ? ' · ' + done.join(', ').toUpperCase() + ' ✓' : '')
+					+ (kept.length ? ' · ' + (cfg.i18nKeep || 'kept: %s').replace('%s', kept.join(', ').toUpperCase()) : '')
 				);
 			}
 
