@@ -3730,9 +3730,18 @@ final class DZE_Klaviyo {
 		// left alone — that is what Klaviyo opened the campaign for, which is
 		// a different fact from what we have actually translated.
 		$was = array_values( array_filter( (array) ( $mail['draft']['done_langs'] ?? [] ), 'is_string' ) );
+		// AND WHAT EACH LANGUAGE WAS WRITTEN FROM: a print of the English as
+		// Klaviyo held it. The next press redoes a language only when it is
+		// missing or its English has moved — see langs_todo().
+		$print = self::source_print( $texts );
+		$src   = (array) ( $mail['draft']['done_src'] ?? [] );
+		foreach ( $langs as $lang ) {
+			$src[ $lang ] = $print;
+		}
 		self::put_email( $rule_id, $email_id, [
 			'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [
 				'done_langs' => array_values( array_unique( array_merge( $was, $langs ) ) ),
+				'done_src'   => $src,
 				'translated' => time(),
 				'texts'      => $words,
 				// Kept, not just answered: the row has to still say it tomorrow.
@@ -3831,7 +3840,10 @@ final class DZE_Klaviyo {
 		$said = DZE_Marketing_Ai::complete( $system, $user, self::I18N_MODEL, 8000, self::I18N_WAIT );
 		$json = json_decode( self::json_of( $said ), true );
 		if ( ! is_array( $json ) ) {
-			return [];
+			$json = self::numbered_salvage( self::json_of( $said ) );
+			if ( ! $json ) {
+				return [];
+			}
 		}
 		$out = [];
 		foreach ( $json as $n => $text ) {
@@ -3848,6 +3860,42 @@ final class DZE_Klaviyo {
 				$text = str_replace( $tag, (string) ( $known[ $name ][ $lang ] ?? $name ), $text );
 			}
 			$out[ $keys[ $i ] ] = $text;
+		}
+		return $out;
+	}
+
+	/**
+	 * THE NUMBERED ANSWERS OF A TRANSLATION THAT IS NOT QUITE JSON.
+	 *
+	 * One unescaped quote — an HTML attribute inside a text, or the closing
+	 * mark of Polish „…" typed straight — and json_decode() gives up on the
+	 * whole language: « pl est bloqué, pas traduit » (13/11/2026), the model
+	 * paid twice for an answer that was there both times. The answer is an
+	 * object of numbered strings, so it is cut at its own keys instead: each
+	 * « "n": " » starts the next text, and each text ends where the next key
+	 * begins. A text that does not come out whole is left out, never guessed.
+	 *
+	 * @return array<string,string> number => text.
+	 */
+	public static function numbered_salvage( string $raw ): array {
+		$raw = trim( $raw );
+		if ( ! preg_match_all( '~"(\d+)"\s*:\s*"~', $raw, $m, PREG_OFFSET_CAPTURE ) ) {
+			return [];
+		}
+		$out   = [];
+		$count = count( $m[0] );
+		for ( $i = 0; $i < $count; $i++ ) {
+			$from = $m[0][ $i ][1] + strlen( $m[0][ $i ][0] );
+			$to   = $i + 1 < $count ? $m[0][ $i + 1 ][1] : strlen( $raw );
+			$val  = rtrim( substr( $raw, $from, $to - $from ) );
+			$val  = $i + 1 < $count
+				? (string) preg_replace( '~"\s*,$~', '', $val )
+				: (string) preg_replace( '~"\s*\}?$~', '', $val );
+			// Its escapes read as JSON would read them; a stray quote stays.
+			$text = json_decode( '"' . preg_replace( '~(?<!\\\\)"~', '\\"', $val ) . '"' );
+			if ( is_string( $text ) && '' !== trim( $text ) ) {
+				$out[ $m[1][ $i ][0] ] = $text;
+			}
 		}
 		return $out;
 	}
@@ -3970,7 +4018,69 @@ final class DZE_Klaviyo {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
 		[ , $targets ] = self::locales();
-		wp_send_json_success( [ 'langs' => array_values( $targets ) ] );
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked above.
+		$rule  = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
+		$email = isset( $_POST['email'] ) ? sanitize_key( wp_unslash( $_POST['email'] ) ) : '';
+		$force = ! empty( $_POST['force'] );
+		// phpcs:enable
+		if ( '' === $rule || '' === $email ) {
+			wp_send_json_success( [ 'langs' => array_values( $targets ), 'all' => array_values( $targets ), 'done' => [] ] );
+		}
+		$left = self::langs_todo( $rule, $email, $force );
+		wp_send_json_success( [ 'langs' => $left['todo'], 'all' => $left['all'], 'done' => $left['done'] ] );
+	}
+
+	/** A print of the English an email's translations are written from. */
+	public static function source_print( array $texts ): string {
+		ksort( $texts );
+		return md5( (string) wp_json_encode( array_map( static fn( $t ): string => trim( (string) $t ), $texts ) ) );
+	}
+
+	/**
+	 * THE LANGUAGES STILL TO WRITE, never the ones already right.
+	 *
+	 * « Les traductions c'est stupide quand 4/5 sont bonnes, pl est bloqué, il
+	 * faut toujours tout retraduire. C'est inutilement long et bouffe des
+	 * tokens » (13/11/2026). Pressing Translate again asked for every language:
+	 * five calls to recover one. A language is done when it was written from
+	 * the English Klaviyo holds now — its print matches — or, written before
+	 * prints were kept, when it was written after the email was last filed.
+	 * Asked to redo everything, everything is redone.
+	 *
+	 * @return array{all:string[],todo:string[],done:string[]}
+	 */
+	public static function langs_todo( string $rule_id, string $email_id, bool $force = false ): array {
+		[ , $targets ] = self::locales();
+		$all = array_values( (array) $targets );
+		if ( $force ) {
+			return [ 'all' => $all, 'todo' => $all, 'done' => [] ];
+		}
+		$draft = (array) ( ( self::emails_for( $rule_id )[ $email_id ] ?? [] )['draft'] ?? [] );
+		$had   = array_values( array_filter( (array) ( $draft['done_langs'] ?? [] ), 'is_string' ) );
+		if ( ! $had ) {
+			return [ 'all' => $all, 'todo' => $all, 'done' => [] ];
+		}
+		try {
+			$now = self::source_print( (array) ( self::collection_of( $rule_id, $email_id )[1] ?? [] ) );
+		} catch ( \Throwable $e ) {
+			// Klaviyo could not be read: the translation itself will say why.
+			return [ 'all' => $all, 'todo' => $all, 'done' => [] ];
+		}
+		$src  = (array) ( $draft['done_src'] ?? [] );
+		$late = (int) ( $draft['translated'] ?? 0 ) >= (int) ( $draft['at'] ?? 0 );
+		$todo = [];
+		$done = [];
+		foreach ( $all as $lang ) {
+			$ok = isset( $src[ $lang ] )
+				? $src[ $lang ] === $now
+				: ( in_array( $lang, $had, true ) && $late );
+			if ( $ok ) {
+				$done[] = $lang;
+			} else {
+				$todo[] = $lang;
+			}
+		}
+		return [ 'all' => $all, 'todo' => $todo, 'done' => $done ];
 	}
 
 	/**
@@ -7824,6 +7934,10 @@ final class DZE_Klaviyo {
 			/* translators: %d: how many texts, %s: the languages */
 			'i18nDone'  => __( 'Translated — %d texts in %s', 'dazont-ecom' ),
 			'i18nAgain' => __( 'Translate again', 'dazont-ecom' ),
+			/* translators: %s: the languages already written, e.g. "FR, DE, PL" */
+			'i18nAlready' => __( 'Already translated in %s for this version — nothing to redo. Press again to translate every language anyway.', 'dazont-ecom' ),
+			/* translators: %s: the languages kept as they are */
+			'i18nKeep'  => __( 'kept: %s', 'dazont-ecom' ),
 			'i18nNone'  => __( 'No languages to translate into.', 'dazont-ecom' ),
 			'i18nKept'  => __( 'were written.', 'dazont-ecom' ),
 			'i18nFail'  => __( 'The translation did not finish.', 'dazont-ecom' ),

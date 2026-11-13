@@ -508,6 +508,26 @@ ok( 'which the email keeps for the next visit',
 	( get_option( $copy )['promo']['emails']['mail1']['draft']['links_note'] ?? '' ),
 	'Links point at the FR, DE pages of the shop.' );
 
+// « Quand 4/5 sont bonnes, pl est bloqué, il faut toujours tout retraduire »
+// (13/11/2026): pressing Translate again asked for every language. Only what
+// is missing, or written from another English, is asked for now.
+$left = DZE_Klaviyo::langs_todo( 'promo', 'mail1' );
+ok( 'a language written from this English is kept',  array_values( array_intersect( [ 'fr', 'de' ], $left['done'] ) ), [ 'fr', 'de' ] );
+ok( 'and is not asked for again',                    array_values( array_intersect( [ 'fr', 'de' ], $left['todo'] ) ), [] );
+ok( 'asked to redo everything, everything is redone', DZE_Klaviyo::langs_todo( 'promo', 'mail1', true )['todo'], $left['all'] );
+$moved = json_decode( $values, true );
+$moved['data']['attributes']['values'][0]['source_value'] = 'Summer sale — last day';
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => json_encode( $moved ) ];
+ok( 'the English moved: the languages are owed again', array_values( array_intersect( [ 'fr', 'de' ], DZE_Klaviyo::langs_todo( 'promo', 'mail1' )['todo'] ) ), [ 'fr', 'de' ] );
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => $values ];
+// And the Polish answer that was there and was thrown away: one straight
+// quote closing „…", one HTML attribute unescaped — the language survives.
+$GLOBALS['dze_answers'] = [ '{"1": "Wyprzedaż „Lato" trwa", "2": "<p class="x">Wszystko musi zniknąć</p>"}' ];
+ok( 'a translation that is not quite JSON is still read', DZE_Klaviyo::translate_language( 'promo', 'mail1', 'fr' ), 2 );
+ok( 'word for word',  DZE_Klaviyo::numbered_salvage( '{"1": "Wyprzedaż „Lato" trwa", "2": "ok"}' ), [ '1' => 'Wyprzedaż „Lato" trwa', '2' => 'ok' ] );
+ok( 'and a clean answer reads the same either way', DZE_Klaviyo::numbered_salvage( json_encode( [ '1' => 'Tak', '2' => 'Nie "x"' ] ) ), [ '1' => 'Tak', '2' => 'Nie "x"' ] );
+$GLOBALS['dze_answers'] = [];
+
 // The shop's own case: WPML hands the same address back — the products are
 // not translated, or the URL format is not what we think. The links were
 // filled all the same, so Klaviyo looked right and the German reader still
